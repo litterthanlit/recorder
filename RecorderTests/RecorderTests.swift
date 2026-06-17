@@ -1,0 +1,86 @@
+import CoreGraphics
+import Foundation
+import Testing
+@testable import RecorderCore
+
+@Suite("AutoZoomGenerator")
+struct AutoZoomGeneratorTests {
+    @Test func mergesNearbyClicks() {
+        let generator = AutoZoomGenerator(frameWidth: 1920, frameHeight: 1080)
+        let events = [
+            ClickEvent(timestamp: 1.0, location: CGPoint(x: 400, y: 400), button: .left),
+            ClickEvent(timestamp: 1.3, location: CGPoint(x: 420, y: 410), button: .left)
+        ]
+
+        let keyframes = generator.generate(from: events)
+        #expect(keyframes.count == 1)
+        #expect(abs(keyframes[0].peakTime - 1.15) < 0.01)
+    }
+
+    @Test func chainsOverlappingKeyframes() {
+        let generator = AutoZoomGenerator(frameWidth: 1920, frameHeight: 1080)
+        let events = [
+            ClickEvent(timestamp: 1.0, location: CGPoint(x: 300, y: 300), button: .left),
+            ClickEvent(timestamp: 2.5, location: CGPoint(x: 1500, y: 800), button: .left)
+        ]
+
+        let keyframes = generator.generate(from: events)
+        #expect(keyframes.count == 2)
+        #expect(keyframes[1].startTime >= keyframes[0].endTime)
+    }
+
+    @Test func emptyEventsProduceNoKeyframes() {
+        let generator = AutoZoomGenerator(frameWidth: 1920, frameHeight: 1080)
+        #expect(generator.generate(from: []).isEmpty)
+    }
+}
+
+@Suite("ZoomInterpolator")
+struct ZoomInterpolatorTests {
+    @Test func fullFrameOutsideKeyframes() {
+        let keyframes = [
+            ZoomKeyframe(
+                startTime: 2,
+                peakTime: 2.35,
+                endTime: 3,
+                center: CGPoint(x: 0.5, y: 0.5),
+                scale: 1.8
+            )
+        ]
+        let interpolator = ZoomInterpolator(keyframes: keyframes)
+        let rect = interpolator.cropRect(at: 0.5)
+        #expect(rect.width == 1)
+        #expect(rect.height == 1)
+    }
+
+    @Test func zoomsAtPeak() {
+        let keyframes = [
+            ZoomKeyframe(
+                startTime: 1,
+                peakTime: 1.35,
+                endTime: 2,
+                center: CGPoint(x: 0.5, y: 0.5),
+                scale: 2
+            )
+        ]
+        let interpolator = ZoomInterpolator(keyframes: keyframes)
+        let rect = interpolator.cropRect(at: 1.35)
+        #expect(abs(rect.width - 0.5) < 0.01)
+        #expect(abs(rect.height - 0.5) < 0.01)
+    }
+
+    @Test func easeInOutUsesFullFrameAtStart() {
+        let keyframes = [
+            ZoomKeyframe(
+                startTime: 1,
+                peakTime: 1.35,
+                endTime: 2,
+                center: CGPoint(x: 0.5, y: 0.5),
+                scale: 2
+            )
+        ]
+        let interpolator = ZoomInterpolator(keyframes: keyframes)
+        let rect = interpolator.cropRect(at: 1)
+        #expect(rect.width == 1)
+    }
+}
