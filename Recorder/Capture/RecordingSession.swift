@@ -7,6 +7,7 @@ final class RecordingSession: ObservableObject {
         case idle
         case recording(startedAt: Date)
         case processing
+        case editing(RecorderProject)
         case exporting(progress: Double)
         case finished(RecorderProject)
         case failed(String)
@@ -16,10 +17,10 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var elapsedTime: TimeInterval = 0
     @Published private(set) var clickCount: Int = 0
     @Published private(set) var exportProgress: Double = 0
+    @Published private(set) var activeEditor: ProjectEditor?
 
     private let screenRecorder = ScreenRecorder()
     private let inputTracker = InputTracker()
-    private let videoExporter = VideoExporter()
     private var elapsedTimer: Timer?
     private var recordingStartTime: TimeInterval = 0
     private var currentProjectID = UUID()
@@ -110,27 +111,27 @@ final class RecordingSession: ObservableObject {
 
             try ProjectStore.save(project)
 
-            state = .exporting(progress: 0)
-            exportProgress = 0
-
-            let exportURL = project.exportURL
-            try await videoExporter.export(
-                sourceURL: project.videoURL,
-                outputURL: exportURL,
-                keyframes: keyframes,
-                outputSize: CGSize(width: recordingResult.width, height: recordingResult.height)
-            ) { [weak self] progress in
-                Task { @MainActor in
-                    self?.exportProgress = progress
-                    self?.state = .exporting(progress: progress)
-                }
-            }
-
-            project = RecorderProject(metadata: metadata, clickEvents: clickEvents, keyframes: keyframes)
-            state = .finished(project)
+            let editor = ProjectEditor(project: project)
+            activeEditor = editor
+            state = .editing(project)
         } catch {
             state = .failed(error.localizedDescription)
         }
+    }
+
+    func editor(for projectID: UUID) -> ProjectEditor? {
+        guard activeEditor?.project.metadata.id == projectID else { return nil }
+        return activeEditor
+    }
+
+    func openEditor(for project: RecorderProject) {
+        if activeEditor?.project.metadata.id != project.metadata.id {
+            activeEditor = ProjectEditor(project: project)
+        }
+    }
+
+    func markExported(_ project: RecorderProject) {
+        state = .finished(project)
     }
 
     func reset() {
@@ -140,6 +141,7 @@ final class RecordingSession: ObservableObject {
         clickCount = 0
         exportProgress = 0
         currentBundleURL = nil
+        activeEditor = nil
     }
 
     func revealExportInFinder() {

@@ -3,6 +3,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var session: RecordingSession
     @ObservedObject var permissions: PermissionsManager
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -20,13 +21,18 @@ struct MenuBarView: View {
         .onAppear {
             permissions.refresh()
         }
+        .onChange(of: session.state) { newValue in
+            if case let .editing(project) = newValue {
+                openWindow(id: "editor", value: project.metadata.id)
+            }
+        }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Recorder")
                 .font(.title3.weight(.semibold))
-            Text("Automatic zoom on clicks")
+            Text("Auto zoom + timeline editor")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -108,6 +114,15 @@ struct MenuBarView: View {
             Label("Processing clicks…", systemImage: "sparkles")
                 .font(.subheadline)
 
+        case let .editing(project):
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Ready to edit", systemImage: "slider.horizontal.3")
+                    .foregroundStyle(.blue)
+                Text("\(project.keyframes.count) zoom keyframes")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
         case .exporting:
             VStack(alignment: .leading, spacing: 8) {
                 Label("Exporting with auto zoom…", systemImage: "film")
@@ -156,6 +171,17 @@ struct MenuBarView: View {
 
         case .processing, .exporting:
             EmptyView()
+
+        case .editing:
+            Button {
+                if case let .editing(project) = session.state {
+                    openWindow(id: "editor", value: project.metadata.id)
+                }
+            } label: {
+                Label("Open Editor", systemImage: "slider.horizontal.3")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
 
         case .finished:
             HStack {

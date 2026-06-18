@@ -84,3 +84,26 @@ struct ZoomInterpolatorTests {
         #expect(rect.width == 1)
     }
 }
+
+@Suite("ZoomKeyframeEditor")
+struct ZoomKeyframeEditorTests {
+    @Test func createsManualKeyframeFromRect() {
+        let keyframe = ZoomKeyframeEditor.makeManualKeyframe(
+            at: 2,
+            normalizedRect: CGRect(x: 0.2, y: 0.2, width: 0.3, height: 0.3),
+            duration: 10
+        )
+        #expect(keyframe.source == .manual)
+        #expect(keyframe.peakTime == 2)
+        #expect(keyframe.scale > 1)
+    }
+
+    @Test func chainsOverlapsAfterManualAdd() {
+        var keyframes = [
+            ZoomKeyframe(startTime: 1, peakTime: 1.5, endTime: 3, center: CGPoint(x: 0.5, y: 0.5), scale: 1.8),
+            ZoomKeyframe(startTime: 2.5, peakTime: 3, endTime: 4, center: CGPoint(x: 0.2, y: 0.2), scale: 2, source: .manual)
+        ]
+        ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+        #expect(keyframes[1].startTime >= keyframes[0].endTime)
+    }
+}

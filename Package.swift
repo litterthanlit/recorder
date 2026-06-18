@@ -13,6 +13,7 @@ let package = Package(
                 "App",
                 "Capture",
                 "Export",
+                "Editor/ProjectEditor.swift",
                 "UI",
                 "Models",
                 "Assets.xcassets",
@@ -20,7 +21,8 @@ let package = Package(
                 "Recorder.entitlements"
             ],
             sources: [
-                "Zoom"
+                "Zoom",
+                "Editor/ZoomKeyframeEditor.swift"
             ]
         ),
         .testTarget(

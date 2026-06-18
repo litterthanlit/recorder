@@ -6,10 +6,11 @@ enum ZoomSource: String, Codable, Equatable {
     case manual
 }
 
-struct ZoomKeyframe: Codable, Equatable {
-    let startTime: TimeInterval
-    let peakTime: TimeInterval
-    let endTime: TimeInterval
+struct ZoomKeyframe: Codable, Equatable, Identifiable {
+    let id: UUID
+    var startTime: TimeInterval
+    var peakTime: TimeInterval
+    var endTime: TimeInterval
     let centerX: CGFloat
     let centerY: CGFloat
     let scale: CGFloat
@@ -20,6 +21,7 @@ struct ZoomKeyframe: Codable, Equatable {
     }
 
     init(
+        id: UUID = UUID(),
         startTime: TimeInterval,
         peakTime: TimeInterval,
         endTime: TimeInterval,
@@ -27,6 +29,7 @@ struct ZoomKeyframe: Codable, Equatable {
         scale: CGFloat,
         source: ZoomSource = .auto
     ) {
+        self.id = id
         self.startTime = startTime
         self.peakTime = peakTime
         self.endTime = endTime
@@ -34,6 +37,22 @@ struct ZoomKeyframe: Codable, Equatable {
         self.centerY = center.y
         self.scale = scale
         self.source = source
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, startTime, peakTime, endTime, centerX, centerY, scale, source
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        startTime = try container.decode(TimeInterval.self, forKey: .startTime)
+        peakTime = try container.decode(TimeInterval.self, forKey: .peakTime)
+        endTime = try container.decode(TimeInterval.self, forKey: .endTime)
+        centerX = try container.decode(CGFloat.self, forKey: .centerX)
+        centerY = try container.decode(CGFloat.self, forKey: .centerY)
+        scale = try container.decode(CGFloat.self, forKey: .scale)
+        source = try container.decode(ZoomSource.self, forKey: .source)
     }
 }
 

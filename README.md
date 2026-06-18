@@ -7,6 +7,8 @@ Native macOS screen recorder with **automatic zoom on clicks** — a Screen Stud
 - Menu bar app — record primary display with cursor visible
 - Click tracking via Accessibility API (CGEventTap)
 - Auto-generated zoom keyframes with smooth ease-in/out camera motion
+- **Timeline editor** — drag zoom blocks to adjust timing
+- **Manual zoom** — draw a region on the preview to add a zoom at the playhead
 - Offline export to MP4 with zoom applied
 - Project bundles saved to `~/Movies/Recorder/<uuid>.recorder/`
 
@@ -36,8 +38,9 @@ xcodebuild -project Recorder.xcodeproj -scheme Recorder -configuration Debug bui
 
 1. Open the menu bar app and grant Screen Recording + Accessibility permissions.
 2. Click **Record** — perform actions on screen (clicks drive auto zoom).
-3. Click **Stop** — the app generates zoom keyframes and exports `export.mp4`.
-4. Preview the result in the popover, or click **Show in Finder**.
+3. Click **Stop** — the editor window opens automatically.
+4. Drag zoom blocks on the timeline to adjust timing, or click **Add Manual Zoom** and draw a region on the preview.
+5. Click **Export MP4** when ready, then preview or reveal in Finder.
 
 ## Project bundle
 
@@ -70,4 +73,4 @@ Capture (ScreenCaptureKit + CGEventTap)
 
 ## Deferred (v2+)
 
-Manual zoom, timeline editor, vertical export, cursor smoothing, backgrounds, audio/webcam.
+Vertical export, cursor smoothing, backgrounds, audio/webcam.

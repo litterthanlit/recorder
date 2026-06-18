@@ -90,4 +90,11 @@ enum ProjectStore {
         let data = try Data(contentsOf: bundleURL.appendingPathComponent("keyframes.json"))
         return try JSONDecoder().decode([ZoomKeyframe].self, from: data)
     }
+
+    static func loadProject(from bundleURL: URL) throws -> RecorderProject {
+        let metadata = try loadMetadata(from: bundleURL)
+        let events = try loadEvents(from: bundleURL)
+        let keyframes = try loadKeyframes(from: bundleURL)
+        return RecorderProject(metadata: metadata, clickEvents: events, keyframes: keyframes)
+    }
 }

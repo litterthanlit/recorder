@@ -24,7 +24,7 @@ struct AutoZoomGenerator {
             makeKeyframe(for: group)
         }
 
-        resolveOverlaps(&keyframes)
+        ZoomKeyframeEditor.resolveOverlaps(&keyframes)
         return keyframes
     }
 
@@ -81,33 +81,6 @@ struct AutoZoomGenerator {
             x: clamp(normalized.x, min: minBound, max: max( minBound, maxBoundX)),
             y: clamp(normalized.y, min: minBound, max: max(minBound, maxBoundY))
         )
-    }
-
-    private func resolveOverlaps(_ keyframes: inout [ZoomKeyframe]) {
-        guard keyframes.count > 1 else { return }
-
-        keyframes.sort { $0.startTime < $1.startTime }
-
-        for index in 1..<keyframes.count {
-            let previous = keyframes[index - 1]
-            var current = keyframes[index]
-
-            if current.startTime < previous.endTime {
-                let shiftedStart = previous.endTime
-                let duration = current.endTime - current.startTime
-                let peakOffset = current.peakTime - current.startTime
-
-                current = ZoomKeyframe(
-                    startTime: shiftedStart,
-                    peakTime: shiftedStart + peakOffset,
-                    endTime: shiftedStart + duration,
-                    center: current.center,
-                    scale: current.scale,
-                    source: current.source
-                )
-                keyframes[index] = current
-            }
-        }
     }
 
     private func clamp(_ value: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {

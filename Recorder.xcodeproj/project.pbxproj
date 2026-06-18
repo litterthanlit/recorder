@@ -22,6 +22,11 @@
 		B2000000000000000000000D /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* MenuBarView.swift */; };
 		B2000000000000000000000E /* PreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* PreviewView.swift */; };
 		B2000000000000000000000F /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* Project.swift */; };
+		B20000000000000000000011 /* ZoomKeyframeEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* ZoomKeyframeEditor.swift */; };
+		B20000000000000000000012 /* ProjectEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* ProjectEditor.swift */; };
+		B20000000000000000000013 /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* EditorView.swift */; };
+		B20000000000000000000014 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* TimelineView.swift */; };
+		B20000000000000000000015 /* EditorPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* EditorPreviewView.swift */; };
 		B20000000000000000000010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -45,6 +50,11 @@
 		A20000000000000000000010 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000013 /* Recorder.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Recorder.entitlements; sourceTree = "<group>"; };
+		A20000000000000000000014 /* ZoomKeyframeEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomKeyframeEditor.swift; sourceTree = "<group>"; };
+		A20000000000000000000015 /* ProjectEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectEditor.swift; sourceTree = "<group>"; };
+		A20000000000000000000016 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
+		A20000000000000000000017 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
+		A20000000000000000000018 /* EditorPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPreviewView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,6 +83,7 @@
 				C20000000000000000000004 /* Capture */,
 				C20000000000000000000005 /* Zoom */,
 				C20000000000000000000006 /* Export */,
+				C20000000000000000000009 /* Editor */,
 				C20000000000000000000007 /* UI */,
 				C20000000000000000000008 /* Models */,
 				A20000000000000000000010 /* Assets.xcassets */,
@@ -127,8 +138,20 @@
 			children = (
 				A2000000000000000000000D /* MenuBarView.swift */,
 				A2000000000000000000000E /* PreviewView.swift */,
+				A20000000000000000000016 /* EditorView.swift */,
+				A20000000000000000000017 /* TimelineView.swift */,
+				A20000000000000000000018 /* EditorPreviewView.swift */,
 			);
 			path = UI;
+			sourceTree = "<group>";
+		};
+		C20000000000000000000009 /* Editor */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000014 /* ZoomKeyframeEditor.swift */,
+				A20000000000000000000015 /* ProjectEditor.swift */,
+			);
+			path = Editor;
 			sourceTree = "<group>";
 		};
 		C20000000000000000000008 /* Models */ = {
@@ -226,6 +249,11 @@
 				B2000000000000000000000D /* MenuBarView.swift in Sources */,
 				B2000000000000000000000E /* PreviewView.swift in Sources */,
 				B2000000000000000000000F /* Project.swift in Sources */,
+				B20000000000000000000011 /* ZoomKeyframeEditor.swift in Sources */,
+				B20000000000000000000012 /* ProjectEditor.swift in Sources */,
+				B20000000000000000000013 /* EditorView.swift in Sources */,
+				B20000000000000000000014 /* TimelineView.swift in Sources */,
+				B20000000000000000000015 /* EditorPreviewView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
