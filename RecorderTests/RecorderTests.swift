@@ -107,3 +107,29 @@ struct ZoomKeyframeEditorTests {
         #expect(keyframes[1].startTime >= keyframes[0].endTime)
     }
 }
+
+@Suite("CursorPathSmoother")
+struct CursorPathSmootherTests {
+    @Test func interpolatesBetweenSamples() {
+        let smoother = CursorPathSmoother()
+        let events = [
+            CursorEvent(timestamp: 0, location: CGPoint(x: 0, y: 0)),
+            CursorEvent(timestamp: 1, location: CGPoint(x: 100, y: 100))
+        ]
+        let point = smoother.location(at: 0.5, in: events)
+        #expect(point != nil)
+        #expect(point!.x > 0)
+        #expect(point!.x < 100)
+    }
+
+    @Test func smoothReducesJitter() {
+        let smoother = CursorPathSmoother()
+        let events = [
+            CursorEvent(timestamp: 0, location: CGPoint(x: 0, y: 0)),
+            CursorEvent(timestamp: 0.01, location: CGPoint(x: 50, y: 0)),
+            CursorEvent(timestamp: 0.02, location: CGPoint(x: 0, y: 0))
+        ]
+        let smoothed = smoother.smooth(events)
+        #expect(smoothed[1].location.x < 50)
+    }
+}

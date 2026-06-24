@@ -33,6 +33,6 @@ struct RecorderApp: App {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .defaultSize(width: 760, height: 620)
+        .defaultSize(width: 820, height: 680)
     }
 }

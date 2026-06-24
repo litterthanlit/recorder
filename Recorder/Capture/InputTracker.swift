@@ -12,6 +12,10 @@ final class InputTracker {
     private var scaleFactor: CGFloat = 1
     private let lock = NSLock()
     private var events: [ClickEvent] = []
+    private var cursorEvents: [CursorEvent] = []
+    private var trackCursor = true
+    private var lastCursorSampleTime: TimeInterval = 0
+    private let cursorSampleInterval: TimeInterval = 1.0 / 60.0
 
     var onEvent: ((ClickEvent) -> Void)?
 
@@ -19,19 +23,27 @@ final class InputTracker {
         startTime: TimeInterval,
         captureOrigin: CGPoint,
         captureSize: CGSize,
-        scaleFactor: CGFloat
+        scaleFactor: CGFloat,
+        trackCursor: Bool = true
     ) {
         self.startTime = startTime
         self.captureOrigin = captureOrigin
         self.captureSize = captureSize
         self.scaleFactor = scaleFactor
+        self.trackCursor = trackCursor
         events = []
+        cursorEvents = []
+        lastCursorSampleTime = 0
     }
 
     func start() throws {
         guard eventTap == nil else { return }
 
-        let mask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.rightMouseDown.rawValue)
+        var mask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.rightMouseDown.rawValue)
+        if trackCursor {
+            mask |= (1 << CGEventType.mouseMoved.rawValue) | (1 << CGEventType.leftMouseDragged.rawValue) | (1 << CGEventType.rightMouseDragged.rawValue)
+        }
+
         let callback: CGEventTapCallBack = { _, type, event, userInfo in
             guard let userInfo else { return Unmanaged.passUnretained(event) }
             let tracker = Unmanaged<InputTracker>.fromOpaque(userInfo).takeUnretainedValue()
@@ -58,7 +70,7 @@ final class InputTracker {
         CGEvent.tapEnable(tap: tap, enable: true)
     }
 
-    func stop() -> [ClickEvent] {
+    func stop() -> (clicks: [ClickEvent], cursor: [CursorEvent]) {
         if let eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
         }
@@ -70,7 +82,7 @@ final class InputTracker {
 
         lock.lock()
         defer { lock.unlock() }
-        return events
+        return (events, cursorEvents)
     }
 
     private func handle(event: CGEvent, type: CGEventType) {
@@ -83,14 +95,29 @@ final class InputTracker {
             return
         }
 
-        let button: MouseButton = type == .rightMouseDown ? .right : .left
-        let click = ClickEvent(timestamp: timestamp, location: local, button: button)
+        switch type {
+        case .leftMouseDown, .rightMouseDown:
+            let button: MouseButton = type == .rightMouseDown ? .right : .left
+            let click = ClickEvent(timestamp: timestamp, location: local, button: button)
 
-        lock.lock()
-        events.append(click)
-        lock.unlock()
+            lock.lock()
+            events.append(click)
+            lock.unlock()
 
-        onEvent?(click)
+            onEvent?(click)
+
+        case .mouseMoved, .leftMouseDragged, .rightMouseDragged where trackCursor:
+            guard timestamp - lastCursorSampleTime >= cursorSampleInterval else { return }
+            lastCursorSampleTime = timestamp
+            let cursor = CursorEvent(timestamp: timestamp, location: local)
+
+            lock.lock()
+            cursorEvents.append(cursor)
+            lock.unlock()
+
+        default:
+            break
+        }
     }
 
     private func convertToCaptureCoordinates(global: CGPoint) -> CGPoint {

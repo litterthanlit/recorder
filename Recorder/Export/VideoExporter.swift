@@ -4,12 +4,22 @@ import CoreMedia
 import CoreVideo
 import Foundation
 
+struct ExportConfiguration {
+    let keyframes: [ZoomKeyframe]
+    let outputSize: CGSize
+    let bitrate: Int
+    let trimStart: TimeInterval
+    let trimEnd: TimeInterval
+    let exportStyle: ExportStyle
+    let cursorEvents: [CursorEvent]
+    let drawCursor: Bool
+}
+
 final class VideoExporter {
     func export(
         sourceURL: URL,
         outputURL: URL,
-        keyframes: [ZoomKeyframe],
-        outputSize: CGSize,
+        configuration: ExportConfiguration,
         progressHandler: @escaping (Double) -> Void
     ) async throws {
         let asset = AVURLAsset(url: sourceURL)
@@ -19,13 +29,23 @@ final class VideoExporter {
 
         let naturalSize = try await videoTrack.load(.naturalSize)
         let preferredTransform = try await videoTrack.load(.preferredTransform)
-        let duration = try await asset.load(.duration)
+        let assetDuration = try await asset.load(.duration)
+        let fullDuration = CMTimeGetSeconds(assetDuration)
+
+        let trimStart = max(0, min(configuration.trimStart, fullDuration))
+        let trimEnd = max(trimStart, min(configuration.trimEnd, fullDuration))
+        let exportDuration = trimEnd - trimStart
 
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
 
         let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = CMTimeRange(
+            start: CMTime(seconds: trimStart, preferredTimescale: 600),
+            duration: CMTime(seconds: exportDuration, preferredTimescale: 600)
+        )
+
         let readerOutput = AVAssetReaderTrackOutput(
             track: videoTrack,
             outputSettings: [
@@ -35,9 +55,9 @@ final class VideoExporter {
         readerOutput.alwaysCopiesSampleData = false
         reader.add(readerOutput)
 
+        let outputWidth = Int(configuration.outputSize.width)
+        let outputHeight = Int(configuration.outputSize.height)
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
-        let outputWidth = Int(outputSize.width)
-        let outputHeight = Int(outputSize.height)
         let writerInput = AVAssetWriterInput(
             mediaType: .video,
             outputSettings: [
@@ -45,7 +65,7 @@ final class VideoExporter {
                 AVVideoWidthKey: outputWidth,
                 AVVideoHeightKey: outputHeight,
                 AVVideoCompressionPropertiesKey: [
-                    AVVideoAverageBitRateKey: outputWidth * outputHeight * 4,
+                    AVVideoAverageBitRateKey: configuration.bitrate,
                     AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
                 ]
             ]
@@ -72,13 +92,22 @@ final class VideoExporter {
             throw reader.error ?? VideoExporterError.readerFailed
         }
 
-        let compositor = ZoomVideoCompositor(keyframes: keyframes)
         let renderSize = naturalSize.applying(preferredTransform)
         let sourceWidth = abs(renderSize.width)
         let sourceHeight = abs(renderSize.height)
-        let totalSeconds = max(CMTimeGetSeconds(duration), 0.001)
 
-        var frameIndex = 0
+        let compositor = ZoomVideoCompositor(
+            keyframes: configuration.keyframes,
+            settings: CompositorSettings(
+                exportStyle: configuration.exportStyle,
+                cursorEvents: configuration.cursorEvents,
+                sourceWidth: sourceWidth,
+                sourceHeight: sourceHeight,
+                drawCursor: configuration.drawCursor
+            )
+        )
+
+        var presentationOffset = CMTime.zero
 
         while reader.status == .reading {
             guard writerInput.isReadyForMoreMediaData else {
@@ -92,24 +121,26 @@ final class VideoExporter {
                 break
             }
 
-            let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            let seconds = CMTimeGetSeconds(presentationTime)
+            let sourceTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            let seconds = CMTimeGetSeconds(sourceTime)
 
             let processed = try compositor.renderFrame(
                 pixelBuffer: pixelBuffer,
                 at: seconds,
-                sourceWidth: sourceWidth,
-                sourceHeight: sourceHeight,
                 outputWidth: outputWidth,
                 outputHeight: outputHeight
             )
 
-            if !adaptor.append(processed, withPresentationTime: presentationTime) {
+            if !adaptor.append(processed, withPresentationTime: presentationOffset) {
                 throw writer.error ?? VideoExporterError.writerSetupFailed
             }
 
-            frameIndex += 1
-            let progress = min(1, seconds / totalSeconds)
+            let frameDuration = CMSampleBufferGetDuration(sampleBuffer)
+            presentationOffset = CMTimeAdd(presentationOffset, frameDuration)
+
+            let progress = exportDuration > 0
+                ? min(1, (seconds - trimStart) / exportDuration)
+                : 1
             progressHandler(progress)
         }
 

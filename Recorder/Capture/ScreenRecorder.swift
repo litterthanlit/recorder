@@ -9,6 +9,12 @@ protocol ScreenRecorderDelegate: AnyObject {
     func screenRecorder(_ recorder: ScreenRecorder, didFailWith error: Error)
 }
 
+struct ScreenRecorderOptions {
+    var captureTarget: CaptureTargetKind = .display
+    var windowID: UInt32?
+    var showCursor: Bool = true
+}
+
 final class ScreenRecorder: NSObject {
     weak var delegate: ScreenRecorderDelegate?
 
@@ -28,38 +34,71 @@ final class ScreenRecorder: NSObject {
     private(set) var scaleFactor: CGFloat = 2
     private(set) var captureOrigin: CGPoint = .zero
     private(set) var captureSizePoints: CGSize = .zero
+    private(set) var windowTitle: String?
+    private(set) var appName: String?
 
-    func startRecording(to url: URL) async throws {
+    static func listCapturableWindows() async throws -> [CaptureWindowInfo] {
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        return content.windows
+            .filter { $0.isOnScreen && $0.frame.width > 120 && $0.frame.height > 120 }
+            .map {
+                CaptureWindowInfo(
+                    windowID: $0.windowID,
+                    title: $0.title ?? "",
+                    appName: $0.owningApplication?.applicationName ?? "Unknown"
+                )
+            }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    func startRecording(to url: URL, options: ScreenRecorderOptions = ScreenRecorderOptions()) async throws {
         guard !isRecording else { return }
 
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
-            throw ScreenRecorderError.noDisplayAvailable
+
+        let filter: SCContentFilter
+        let displayScale: CGFloat
+
+        switch options.captureTarget {
+        case .display:
+            guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
+                throw ScreenRecorderError.noDisplayAvailable
+            }
+            filter = SCContentFilter(display: display, excludingWindows: [])
+            displayScale = NSScreen.main?.backingScaleFactor ?? 2
+            windowTitle = nil
+            appName = nil
+            configureCaptureGeometry(display: display, displayScale: displayScale)
+
+        case .window:
+            guard let windowID = options.windowID,
+                  let window = content.windows.first(where: { $0.windowID == windowID })
+            else {
+                throw ScreenRecorderError.windowNotAvailable
+            }
+            let windowCenter = CGPoint(x: window.frame.midX, y: window.frame.midY)
+            let screen = NSScreen.screens.first { $0.frame.contains(windowCenter) } ?? NSScreen.main
+            let display = content.displays.first(where: { $0.displayID == screen?.displayIdentifier })
+                ?? content.displays.first(where: { $0.displayID == CGMainDisplayID() })
+                ?? content.displays.first
+            guard let display else {
+                throw ScreenRecorderError.noDisplayAvailable
+            }
+            filter = SCContentFilter(display: display, including: [window])
+            displayScale = screen?.backingScaleFactor ?? 2
+            windowTitle = window.title
+            appName = window.owningApplication?.applicationName
+            configureWindowGeometry(window: window, displayScale: displayScale)
         }
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
-        let displayScale = NSScreen.main?.backingScaleFactor ?? 2
         scaleFactor = displayScale
-
-        let logicalWidth = Int(display.width)
-        let logicalHeight = Int(display.height)
-        captureWidth = Int(Double(logicalWidth) * displayScale)
-        captureHeight = Int(Double(logicalHeight) * displayScale)
         fps = 60
-
-        if let screen = NSScreen.screens.first(where: { $0.displayIdentifier == display.displayID }) ?? NSScreen.main {
-            captureOrigin = screen.frame.origin
-            captureSizePoints = screen.frame.size
-        } else {
-            captureOrigin = .zero
-            captureSizePoints = CGSize(width: logicalWidth, height: logicalHeight)
-        }
 
         let configuration = SCStreamConfiguration()
         configuration.width = captureWidth
         configuration.height = captureHeight
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
-        configuration.showsCursor = true
+        configuration.showsCursor = options.showCursor
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.queueDepth = 6
 
@@ -122,13 +161,38 @@ final class ScreenRecorder: NSObject {
                                 fps: self.fps,
                                 scaleFactor: self.scaleFactor,
                                 captureOrigin: self.captureOrigin,
-                                captureSize: self.captureSizePoints
+                                captureSize: self.captureSizePoints,
+                                windowTitle: self.windowTitle,
+                                appName: self.appName
                             )
                         )
                     }
                 }
             }
         }
+    }
+
+    private func configureCaptureGeometry(display: SCDisplay, displayScale: CGFloat) {
+        let logicalWidth = Int(display.width)
+        let logicalHeight = Int(display.height)
+        captureWidth = Int(Double(logicalWidth) * displayScale)
+        captureHeight = Int(Double(logicalHeight) * displayScale)
+
+        if let screen = NSScreen.screens.first(where: { $0.displayIdentifier == display.displayID }) ?? NSScreen.main {
+            captureOrigin = screen.frame.origin
+            captureSizePoints = screen.frame.size
+        } else {
+            captureOrigin = .zero
+            captureSizePoints = CGSize(width: logicalWidth, height: logicalHeight)
+        }
+    }
+
+    private func configureWindowGeometry(window: SCWindow, displayScale: CGFloat) {
+        let frame = window.frame
+        captureOrigin = frame.origin
+        captureSizePoints = frame.size
+        captureWidth = Int(frame.width * displayScale)
+        captureHeight = Int(frame.height * displayScale)
     }
 
     private func setupWriter(outputURL: URL, width: Int, height: Int) throws {
@@ -235,10 +299,13 @@ struct RecordingResult {
     let scaleFactor: CGFloat
     let captureOrigin: CGPoint
     let captureSize: CGSize
+    let windowTitle: String?
+    let appName: String?
 }
 
 enum ScreenRecorderError: LocalizedError {
     case noDisplayAvailable
+    case windowNotAvailable
     case notRecording
     case writerFailed
     case screenCapturePermissionDenied
@@ -247,6 +314,8 @@ enum ScreenRecorderError: LocalizedError {
         switch self {
         case .noDisplayAvailable:
             return "No display is available for screen recording."
+        case .windowNotAvailable:
+            return "The selected window is no longer available."
         case .notRecording:
             return "Recording is not active."
         case .writerFailed:

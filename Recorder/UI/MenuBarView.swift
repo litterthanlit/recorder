@@ -4,6 +4,7 @@ struct MenuBarView: View {
     @ObservedObject var session: RecordingSession
     @ObservedObject var permissions: PermissionsManager
     @Environment(\.openWindow) private var openWindow
+    @StateObject private var hotkeys = RecordingHotkeysController()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -12,14 +13,18 @@ struct MenuBarView: View {
             if !permissions.hasRequiredPermissions {
                 permissionsSection
             } else {
+                recordingOptionsSection
                 statusSection
                 controlsSection
+                hotkeyHints
             }
         }
         .padding(16)
-        .frame(width: 320)
+        .frame(width: 360)
         .onAppear {
             permissions.refresh()
+            hotkeys.bind(session: session)
+            Task { await session.refreshWindows() }
         }
         .onChange(of: session.state) { newValue in
             if case let .editing(project) = newValue {
@@ -32,8 +37,67 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Recorder")
                 .font(.title3.weight(.semibold))
-            Text("Auto zoom + timeline editor")
+            Text("Auto zoom + launch demo export")
                 .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var recordingOptionsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Recording")
+                .font(.subheadline.weight(.medium))
+
+            Picker("Capture", selection: $session.preferences.captureTarget) {
+                ForEach(CaptureTargetKind.allCases) { target in
+                    Text(target.label).tag(target)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: session.preferences.captureTarget) { _ in
+                Task { await session.refreshWindows() }
+            }
+
+            if session.preferences.captureTarget == .window {
+                Picker("Window", selection: Binding(
+                    get: { session.preferences.selectedWindowID ?? 0 },
+                    set: { session.preferences.selectedWindowID = $0 == 0 ? nil : $0 }
+                )) {
+                    if session.availableWindows.isEmpty {
+                        Text("No windows available").tag(UInt32(0))
+                    } else {
+                        ForEach(session.availableWindows) { window in
+                            Text(window.displayName).tag(window.windowID)
+                        }
+                    }
+                }
+                .labelsHidden()
+
+                Button("Refresh Windows") {
+                    Task { await session.refreshWindows() }
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+            }
+
+            Stepper(
+                "Countdown: \(session.preferences.countdownSeconds)s",
+                value: $session.preferences.countdownSeconds,
+                in: 0...10
+            )
+
+            Toggle("Hide menu bar & dock", isOn: $session.preferences.hideChromeDuringRecording)
+            Toggle("Smooth cursor on export", isOn: $session.preferences.cursorSmoothingEnabled)
+        }
+    }
+
+    private var hotkeyHints: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Hotkeys")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            Text("⌘⇧R — Start   ·   ⌘⇧. — Stop")
+                .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
     }
@@ -100,6 +164,11 @@ struct MenuBarView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
+        case let .countdown(remaining):
+            Label("Starting in \(remaining)…", systemImage: "timer")
+                .font(.subheadline)
+                .foregroundStyle(.orange)
+
         case .recording:
             VStack(alignment: .leading, spacing: 6) {
                 Label("Recording", systemImage: "record.circle.fill")
@@ -159,6 +228,9 @@ struct MenuBarView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.red)
+
+        case .countdown:
+            EmptyView()
 
         case .recording:
             Button {

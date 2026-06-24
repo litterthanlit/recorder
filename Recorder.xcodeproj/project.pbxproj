@@ -27,6 +27,11 @@
 		B20000000000000000000013 /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* EditorView.swift */; };
 		B20000000000000000000014 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* TimelineView.swift */; };
 		B20000000000000000000015 /* EditorPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* EditorPreviewView.swift */; };
+		B20000000000000000000016 /* ExportSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* ExportSettings.swift */; };
+		B20000000000000000000017 /* CursorEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001A /* CursorEvent.swift */; };
+		B20000000000000000000018 /* CountdownOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001B /* CountdownOverlay.swift */; };
+		B20000000000000000000019 /* RecordingHotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001C /* RecordingHotkeys.swift */; };
+		B2000000000000000000001A /* PresentationModeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001D /* PresentationModeManager.swift */; };
 		B20000000000000000000010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -55,6 +60,11 @@
 		A20000000000000000000016 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
 		A20000000000000000000017 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		A20000000000000000000018 /* EditorPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPreviewView.swift; sourceTree = "<group>"; };
+		A20000000000000000000019 /* ExportSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportSettings.swift; sourceTree = "<group>"; };
+		A2000000000000000000001A /* CursorEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorEvent.swift; sourceTree = "<group>"; };
+		A2000000000000000000001B /* CountdownOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownOverlay.swift; sourceTree = "<group>"; };
+		A2000000000000000000001C /* RecordingHotkeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingHotkeys.swift; sourceTree = "<group>"; };
+		A2000000000000000000001D /* PresentationModeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresentationModeManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -99,6 +109,7 @@
 				A20000000000000000000001 /* RecorderApp.swift */,
 				A20000000000000000000002 /* PermissionsManager.swift */,
 				A20000000000000000000003 /* NSScreen+DisplayID.swift */,
+				A2000000000000000000001C /* RecordingHotkeys.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -109,6 +120,7 @@
 				A20000000000000000000004 /* ScreenRecorder.swift */,
 				A20000000000000000000005 /* InputTracker.swift */,
 				A20000000000000000000006 /* RecordingSession.swift */,
+				A2000000000000000000001D /* PresentationModeManager.swift */,
 			);
 			path = Capture;
 			sourceTree = "<group>";
@@ -117,6 +129,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000007 /* ClickEvent.swift */,
+				A2000000000000000000001A /* CursorEvent.swift */,
 				A20000000000000000000008 /* ZoomKeyframe.swift */,
 				A20000000000000000000009 /* AutoZoomGenerator.swift */,
 				A2000000000000000000000A /* ZoomInterpolator.swift */,
@@ -141,6 +154,7 @@
 				A20000000000000000000016 /* EditorView.swift */,
 				A20000000000000000000017 /* TimelineView.swift */,
 				A20000000000000000000018 /* EditorPreviewView.swift */,
+				A2000000000000000000001B /* CountdownOverlay.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -158,6 +172,7 @@
 			isa = PBXGroup;
 			children = (
 				A2000000000000000000000F /* Project.swift */,
+				A20000000000000000000019 /* ExportSettings.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -254,6 +269,11 @@
 				B20000000000000000000013 /* EditorView.swift in Sources */,
 				B20000000000000000000014 /* TimelineView.swift in Sources */,
 				B20000000000000000000015 /* EditorPreviewView.swift in Sources */,
+				B20000000000000000000016 /* ExportSettings.swift in Sources */,
+				B20000000000000000000017 /* CursorEvent.swift in Sources */,
+				B20000000000000000000018 /* CountdownOverlay.swift in Sources */,
+				B20000000000000000000019 /* RecordingHotkeys.swift in Sources */,
+				B2000000000000000000001A /* PresentationModeManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

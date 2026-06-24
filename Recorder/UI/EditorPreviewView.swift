@@ -27,47 +27,100 @@ struct EditorPreviewView: View {
                     x: crop.x + crop.width / 2,
                     y: crop.y + crop.height / 2
                 )
+                let padding = editor.editSettings.exportStyle.backgroundEnabled
+                    ? geometry.size.width * editor.editSettings.exportStyle.paddingFraction
+                    : 0
 
                 ZStack {
+                    if editor.editSettings.exportStyle.backgroundEnabled {
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.09, green: 0.09, blue: 0.11),
+                                Color(red: 0.04, green: 0.04, blue: 0.06)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    } else {
+                        Color.black.opacity(0.85)
+                    }
+
                     VideoPlayer(player: editor.player)
                         .scaleEffect(scale, anchor: anchor)
-                        .clipped()
+                        .padding(padding)
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: editor.editSettings.exportStyle.backgroundEnabled
+                                    ? editor.editSettings.exportStyle.cornerRadius
+                                    : 8
+                            )
+                        )
+                        .shadow(
+                            color: editor.editSettings.exportStyle.shadowEnabled ? .black.opacity(0.35) : .clear,
+                            radius: 18,
+                            y: 8
+                        )
 
                     if editor.isManualZoomMode {
-                        manualSelectionOverlay(in: geometry.size)
+                        manualSelectionOverlay(in: geometry.size, padding: padding)
+                    }
+
+                    if editor.editSettings.exportStyle.watermarkEnabled {
+                        VStack {
+                            Spacer()
+                            HStack {
+                                Spacer()
+                                Text(editor.editSettings.exportStyle.watermarkText)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.white.opacity(0.55))
+                                    .padding(12)
+                            }
+                        }
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .frame(height: 320)
-            .background(Color.black.opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             playbackControls
         }
     }
 
     @ViewBuilder
-    private func manualSelectionOverlay(in size: CGSize) -> some View {
-        let selectionRect = currentSelectionRect(in: size)
+    private func manualSelectionOverlay(in size: CGSize, padding: CGFloat) -> some View {
+        let innerSize = CGSize(width: size.width - padding * 2, height: size.height - padding * 2)
+        let selectionRect = currentSelectionRect(in: innerSize)
 
         ZStack {
             Color.black.opacity(0.001)
                 .contentShape(Rectangle())
+                .padding(padding)
                 .gesture(
                     DragGesture(minimumDistance: 2)
                         .onChanged { value in
                             if dragStart == nil {
-                                dragStart = value.startLocation
+                                dragStart = CGPoint(
+                                    x: value.startLocation.x - padding,
+                                    y: value.startLocation.y - padding
+                                )
                             }
-                            dragCurrent = value.location
+                            dragCurrent = CGPoint(
+                                x: value.location.x - padding,
+                                y: value.location.y - padding
+                            )
                         }
                         .onEnded { value in
-                            let start = dragStart ?? value.startLocation
-                            let end = value.location
-                            let rect = pixelRect(from: start, to: end, in: size)
+                            let start = dragStart ?? CGPoint(
+                                x: value.startLocation.x - padding,
+                                y: value.startLocation.y - padding
+                            )
+                            let end = CGPoint(
+                                x: value.location.x - padding,
+                                y: value.location.y - padding
+                            )
+                            let rect = pixelRect(from: start, to: end, in: innerSize)
                             if rect.width > 8, rect.height > 8 {
-                                editor.addManualZoom(from: normalizedRect(from: rect, in: size))
+                                editor.addManualZoom(from: normalizedRect(from: rect, in: innerSize))
                             }
                             dragStart = nil
                             dragCurrent = nil
@@ -79,7 +132,10 @@ struct EditorPreviewView: View {
                     .strokeBorder(Color.orange, lineWidth: 2)
                     .background(Color.orange.opacity(0.15))
                     .frame(width: selectionRect.width, height: selectionRect.height)
-                    .position(x: selectionRect.midX, y: selectionRect.midY)
+                    .position(
+                        x: selectionRect.midX + padding,
+                        y: selectionRect.midY + padding
+                    )
             }
         }
     }
@@ -98,7 +154,7 @@ struct EditorPreviewView: View {
                     get: { editor.playheadTime },
                     set: { editor.seek(to: $0) }
                 ),
-                in: 0...max(editor.duration, 0.01)
+                in: editor.trimStart...max(editor.trimEnd, editor.trimStart + 0.01)
             )
 
             Text(formatTime(editor.playheadTime))

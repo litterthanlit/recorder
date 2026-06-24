@@ -4,6 +4,12 @@ struct TimelineView: View {
     @ObservedObject var editor: ProjectEditor
 
     @State private var dragOrigin: ZoomKeyframe?
+    @State private var trimDrag: TrimDrag?
+
+    private enum TrimDrag {
+        case start
+        case end
+    }
 
     private let trackHeight: CGFloat = 52
 
@@ -13,30 +19,37 @@ struct TimelineView: View {
                 Text("Timeline")
                     .font(.headline)
                 Spacer()
-                Text("\(editor.keyframes.count) zooms")
+                Text("\(editor.keyframes.count) zooms · trim \(formatTime(editor.trimStart))–\(formatTime(editor.trimEnd))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             GeometryReader { geometry in
                 let width = geometry.size.width
+                let duration = max(editor.duration, 0.01)
 
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.primary.opacity(0.06))
 
+                    trimExcludedRegions(width: width, duration: duration)
+
                     ForEach(editor.keyframes) { keyframe in
-                        keyframeBlock(keyframe, timelineWidth: width)
+                        keyframeBlock(keyframe, timelineWidth: width, duration: duration)
                     }
 
-                    playhead(in: width)
+                    trimHandle(at: editor.trimStart, width: width, duration: duration, kind: .start)
+                    trimHandle(at: editor.trimEnd, width: width, duration: duration, kind: .end)
+
+                    playhead(in: width, duration: duration)
                 }
                 .frame(height: trackHeight)
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
-                            seekFromLocation(value.location.x, width: width)
+                            guard trimDrag == nil else { return }
+                            seekFromLocation(value.location.x, width: width, duration: duration)
                         }
                 )
             }
@@ -46,8 +59,48 @@ struct TimelineView: View {
         }
     }
 
-    private func keyframeBlock(_ keyframe: ZoomKeyframe, timelineWidth: CGFloat) -> some View {
-        let duration = max(editor.duration, 0.01)
+    private func trimExcludedRegions(width: CGFloat, duration: TimeInterval) -> some View {
+        let startX = CGFloat(editor.trimStart / duration) * width
+        let endX = CGFloat(editor.trimEnd / duration) * width
+
+        return ZStack(alignment: .leading) {
+            Rectangle()
+                .fill(Color.black.opacity(0.12))
+                .frame(width: startX, height: trackHeight)
+
+            Rectangle()
+                .fill(Color.black.opacity(0.12))
+                .frame(width: width - endX, height: trackHeight)
+                .offset(x: endX)
+        }
+    }
+
+    private func trimHandle(at time: TimeInterval, width: CGFloat, duration: TimeInterval, kind: TrimDrag) -> some View {
+        let x = CGFloat(time / duration) * width
+
+        return RoundedRectangle(cornerRadius: 2)
+            .fill(kind == .start ? Color.green.opacity(0.9) : Color.orange.opacity(0.9))
+            .frame(width: 4, height: trackHeight - 4)
+            .offset(x: x - 2, y: 2)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        trimDrag = kind
+                        let fraction = max(0, min(1, value.location.x / width))
+                        let newTime = duration * Double(fraction)
+                        if kind == .start {
+                            editor.setTrimStart(newTime)
+                        } else {
+                            editor.setTrimEnd(newTime)
+                        }
+                    }
+                    .onEnded { _ in
+                        trimDrag = nil
+                    }
+            )
+    }
+
+    private func keyframeBlock(_ keyframe: ZoomKeyframe, timelineWidth: CGFloat, duration: TimeInterval) -> some View {
         let x = CGFloat(keyframe.startTime / duration) * timelineWidth
         let blockWidth = max(
             CGFloat((keyframe.endTime - keyframe.startTime) / duration) * timelineWidth,
@@ -103,8 +156,7 @@ struct TimelineView: View {
         }
     }
 
-    private func playhead(in width: CGFloat) -> some View {
-        let duration = max(editor.duration, 0.01)
+    private func playhead(in width: CGFloat, duration: TimeInterval) -> some View {
         let x = CGFloat(editor.playheadTime / duration) * width
 
         return Rectangle()
@@ -115,7 +167,7 @@ struct TimelineView: View {
 
     private var timeRuler: some View {
         HStack {
-            Text("0:00")
+            Text(formatTime(0))
             Spacer()
             Text(formatTime(editor.duration / 2))
             Spacer()
@@ -125,8 +177,7 @@ struct TimelineView: View {
         .foregroundStyle(.secondary)
     }
 
-    private func seekFromLocation(_ x: CGFloat, width: CGFloat) {
-        let duration = max(editor.duration, 0.01)
+    private func seekFromLocation(_ x: CGFloat, width: CGFloat, duration: TimeInterval) {
         let fraction = max(0, min(1, x / width))
         editor.seek(to: duration * Double(fraction))
     }

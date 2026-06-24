@@ -13,7 +13,7 @@ struct ZoomKeyframe: Codable, Equatable, Identifiable {
     var endTime: TimeInterval
     let centerX: CGFloat
     let centerY: CGFloat
-    let scale: CGFloat
+    var scale: CGFloat
     let source: ZoomSource
 
     var center: CGPoint {

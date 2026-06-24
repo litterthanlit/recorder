@@ -13,6 +13,7 @@ final class ProjectEditor: ObservableObject {
 
     @Published var project: RecorderProject
     @Published var keyframes: [ZoomKeyframe]
+    @Published var editSettings: ProjectEditSettings
     @Published var playheadTime: TimeInterval = 0
     @Published var selectedKeyframeID: UUID?
     @Published var isManualZoomMode = false
@@ -28,13 +29,34 @@ final class ProjectEditor: ObservableObject {
         project.metadata.duration
     }
 
+    var trimmedDuration: TimeInterval {
+        editSettings.trimmedDuration(for: duration)
+    }
+
+    var trimStart: TimeInterval {
+        editSettings.trimStart
+    }
+
+    var trimEnd: TimeInterval {
+        editSettings.effectiveTrimEnd(for: duration)
+    }
+
     var interpolator: ZoomInterpolator {
         ZoomInterpolator(keyframes: keyframes)
+    }
+
+    var exportOutputSize: CGSize {
+        let source = CGSize(width: project.metadata.width, height: project.metadata.height)
+        return editSettings.exportPreset.outputSize(for: source)
     }
 
     init(project: RecorderProject) {
         self.project = project
         self.keyframes = project.keyframes.sorted { $0.startTime < $1.startTime }
+        self.editSettings = project.editSettings
+        if editSettings.trimEnd == nil {
+            editSettings.trimEnd = project.metadata.duration
+        }
         player.replaceCurrentItem(with: AVPlayerItem(url: project.videoURL))
         installTimeObserver()
     }
@@ -112,11 +134,56 @@ final class ProjectEditor: ObservableObject {
         persistKeyframes()
     }
 
+    func updateSelectedKeyframeScale(_ scale: CGFloat) {
+        guard let selectedKeyframeID,
+              let index = keyframes.firstIndex(where: { $0.id == selectedKeyframeID })
+        else { return }
+        keyframes[index].scale = max(1.1, min(3.0, scale))
+        persistKeyframes()
+    }
+
+    func setTrimStart(_ value: TimeInterval) {
+        editSettings.trimStart = max(0, min(value, trimEnd - 0.1))
+        if playheadTime < editSettings.trimStart {
+            seek(to: editSettings.trimStart)
+        }
+        persistSettings()
+    }
+
+    func setTrimEnd(_ value: TimeInterval) {
+        editSettings.trimEnd = min(duration, max(value, trimStart + 0.1))
+        if playheadTime > trimEnd {
+            seek(to: trimEnd)
+        }
+        persistSettings()
+    }
+
+    func applyZoomPreset(_ preset: ZoomPreset, regenerateAuto: Bool = true) {
+        editSettings.zoomPreset = preset
+        guard regenerateAuto else {
+            persistSettings()
+            return
+        }
+
+        let generator = AutoZoomGenerator(
+            settings: preset.settings,
+            frameWidth: CGFloat(project.metadata.width),
+            frameHeight: CGFloat(project.metadata.height)
+        )
+        let autoKeyframes = generator.generate(from: project.clickEvents)
+        let manualKeyframes = keyframes.filter { $0.source == .manual }
+        keyframes = (autoKeyframes + manualKeyframes).sorted { $0.startTime < $1.startTime }
+        ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+        persistKeyframes()
+        persistSettings()
+    }
+
     func addManualZoom(from normalizedRect: CGRect) {
         let keyframe = ZoomKeyframeEditor.makeManualKeyframe(
             at: playheadTime,
             normalizedRect: normalizedRect,
-            duration: duration
+            duration: duration,
+            settings: editSettings.zoomPreset.settings
         )
         keyframes.append(keyframe)
         ZoomKeyframeEditor.resolveOverlaps(&keyframes)
@@ -126,7 +193,7 @@ final class ProjectEditor: ObservableObject {
     }
 
     func seek(to time: TimeInterval) {
-        let clamped = max(0, min(time, duration))
+        let clamped = max(trimStart, min(time, trimEnd))
         playheadTime = clamped
         player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600))
     }
@@ -135,8 +202,8 @@ final class ProjectEditor: ObservableObject {
         if player.rate > 0 {
             player.pause()
         } else {
-            if playheadTime >= duration - 0.05 {
-                seek(to: 0)
+            if playheadTime >= trimEnd - 0.05 {
+                seek(to: trimStart)
             }
             player.play()
         }
@@ -148,15 +215,24 @@ final class ProjectEditor: ObservableObject {
 
         do {
             persistKeyframes()
-            let outputSize = CGSize(
-                width: project.metadata.width,
-                height: project.metadata.height
-            )
+            persistSettings()
+
+            let sourceSize = CGSize(width: project.metadata.width, height: project.metadata.height)
+            let outputSize = editSettings.exportPreset.outputSize(for: sourceSize)
+
             try await videoExporter.export(
                 sourceURL: project.videoURL,
                 outputURL: project.exportURL,
-                keyframes: keyframes,
-                outputSize: outputSize
+                configuration: ExportConfiguration(
+                    keyframes: keyframes,
+                    outputSize: outputSize,
+                    bitrate: editSettings.exportPreset.targetBitrate,
+                    trimStart: trimStart,
+                    trimEnd: trimEnd,
+                    exportStyle: editSettings.exportStyle,
+                    cursorEvents: project.cursorEvents,
+                    drawCursor: !project.cursorEvents.isEmpty
+                )
             ) { [weak self] progress in
                 Task { @MainActor in
                     self?.exportProgress = progress
@@ -173,8 +249,17 @@ final class ProjectEditor: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([project.exportURL])
     }
 
+    func persistEditSettings() {
+        persistSettings()
+    }
+
     private func persistKeyframes() {
         project.keyframes = keyframes
+        try? ProjectStore.save(project)
+    }
+
+    private func persistSettings() {
+        project.editSettings = editSettings
         try? ProjectStore.save(project)
     }
 
@@ -182,7 +267,13 @@ final class ProjectEditor: ObservableObject {
         let interval = CMTime(seconds: 0.05, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
-                self?.playheadTime = CMTimeGetSeconds(time)
+                guard let self else { return }
+                let seconds = CMTimeGetSeconds(time)
+                self.playheadTime = seconds
+                if seconds >= self.trimEnd, self.player.rate > 0 {
+                    self.player.pause()
+                    self.seek(to: self.trimEnd)
+                }
             }
         }
     }

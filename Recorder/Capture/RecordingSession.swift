@@ -5,6 +5,7 @@ import Foundation
 final class RecordingSession: ObservableObject {
     enum State: Equatable {
         case idle
+        case countdown(remaining: Int)
         case recording(startedAt: Date)
         case processing
         case editing(RecorderProject)
@@ -18,13 +19,28 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var clickCount: Int = 0
     @Published private(set) var exportProgress: Double = 0
     @Published private(set) var activeEditor: ProjectEditor?
+    @Published var preferences = RecordingPreferences.default
+    @Published private(set) var availableWindows: [CaptureWindowInfo] = []
 
     private let screenRecorder = ScreenRecorder()
     private let inputTracker = InputTracker()
+    private let countdownOverlay = CountdownOverlay()
+    private let presentationMode = PresentationModeManager()
     private var elapsedTimer: Timer?
     private var recordingStartTime: TimeInterval = 0
     private var currentProjectID = UUID()
     private var currentBundleURL: URL?
+
+    func refreshWindows() async {
+        guard PermissionsManager.shared.hasScreenRecordingPermission else {
+            availableWindows = []
+            return
+        }
+        availableWindows = (try? await ScreenRecorder.listCapturableWindows()) ?? []
+        if preferences.selectedWindowID == nil {
+            preferences.selectedWindowID = availableWindows.first?.windowID
+        }
+    }
 
     func start() async {
         guard case .idle = state else { return }
@@ -33,7 +49,20 @@ final class RecordingSession: ObservableObject {
             return
         }
 
+        if preferences.captureTarget == .window {
+            await refreshWindows()
+            guard preferences.selectedWindowID != nil else {
+                state = .failed("Select a window to record.")
+                return
+            }
+        }
+
         do {
+            if preferences.countdownSeconds > 0 {
+                state = .countdown(remaining: preferences.countdownSeconds)
+                await countdownOverlay.run(seconds: preferences.countdownSeconds)
+            }
+
             try ProjectStore.ensureProjectsDirectory()
             currentProjectID = UUID()
             let bundleURL = ProjectStore.projectsDirectory
@@ -44,7 +73,16 @@ final class RecordingSession: ObservableObject {
             let videoURL = bundleURL.appendingPathComponent("video.mov")
             recordingStartTime = CACurrentMediaTime()
 
-            try await screenRecorder.startRecording(to: videoURL)
+            if preferences.hideChromeDuringRecording {
+                presentationMode.enter()
+            }
+
+            let recorderOptions = ScreenRecorderOptions(
+                captureTarget: preferences.captureTarget,
+                windowID: preferences.selectedWindowID,
+                showCursor: !preferences.cursorSmoothingEnabled
+            )
+            try await screenRecorder.startRecording(to: videoURL, options: recorderOptions)
 
             inputTracker.configure(
                 startTime: recordingStartTime,
@@ -53,7 +91,8 @@ final class RecordingSession: ObservableObject {
                     width: CGFloat(screenRecorder.captureWidth),
                     height: CGFloat(screenRecorder.captureHeight)
                 ),
-                scaleFactor: screenRecorder.scaleFactor
+                scaleFactor: screenRecorder.scaleFactor,
+                trackCursor: preferences.cursorSmoothingEnabled
             )
 
             inputTracker.onEvent = { [weak self] _ in
@@ -69,6 +108,8 @@ final class RecordingSession: ObservableObject {
             clickCount = 0
             startElapsedTimer()
         } catch {
+            presentationMode.exit()
+            countdownOverlay.cancel()
             state = .failed(error.localizedDescription)
         }
     }
@@ -77,17 +118,22 @@ final class RecordingSession: ObservableObject {
         guard case .recording = state else { return }
 
         stopElapsedTimer()
+        presentationMode.exit()
         state = .processing
 
         do {
-            let clickEvents = inputTracker.stop()
+            let trackingResult = inputTracker.stop()
             let recordingResult = try await screenRecorder.stopRecording()
 
             let generator = AutoZoomGenerator(
+                settings: ProjectEditSettings().zoomPreset.settings,
                 frameWidth: CGFloat(recordingResult.width),
                 frameHeight: CGFloat(recordingResult.height)
             )
-            let keyframes = generator.generate(from: clickEvents)
+            let keyframes = generator.generate(from: trackingResult.clicks)
+
+            var editSettings = ProjectEditSettings()
+            editSettings.exportStyle.cursorSmoothingEnabled = preferences.cursorSmoothingEnabled
 
             let metadata = ProjectMetadata(
                 id: currentProjectID,
@@ -100,13 +146,18 @@ final class RecordingSession: ObservableObject {
                 captureOriginX: recordingResult.captureOrigin.x,
                 captureOriginY: recordingResult.captureOrigin.y,
                 captureWidth: recordingResult.captureSize.width,
-                captureHeight: recordingResult.captureSize.height
+                captureHeight: recordingResult.captureSize.height,
+                captureTarget: preferences.captureTarget,
+                windowTitle: recordingResult.windowTitle,
+                appName: recordingResult.appName
             )
 
-            var project = RecorderProject(
+            let project = RecorderProject(
                 metadata: metadata,
-                clickEvents: clickEvents,
-                keyframes: keyframes
+                clickEvents: trackingResult.clicks,
+                cursorEvents: trackingResult.cursor,
+                keyframes: keyframes,
+                editSettings: editSettings
             )
 
             try ProjectStore.save(project)
@@ -136,6 +187,8 @@ final class RecordingSession: ObservableObject {
 
     func reset() {
         stopElapsedTimer()
+        presentationMode.exit()
+        countdownOverlay.cancel()
         state = .idle
         elapsedTime = 0
         clickCount = 0

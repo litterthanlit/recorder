@@ -1,16 +1,26 @@
 # Recorder
 
-Native macOS screen recorder with **automatic zoom on clicks** — a Screen Studio–style MVP built with Swift, ScreenCaptureKit, and AVFoundation.
+Native macOS screen recorder with **automatic zoom on clicks** — built for Screen Studio–style Hypher launch demos.
 
-## Features (v1)
+## Features
 
-- Menu bar app — record primary display with cursor visible
+- Menu bar app — record full display or a single window
+- **3-2-1 countdown** before recording starts
+- **Global hotkeys** — ⌘⇧R start, ⌘⇧. stop
 - Click tracking via Accessibility API (CGEventTap)
 - Auto-generated zoom keyframes with smooth ease-in/out camera motion
-- **Timeline editor** — drag zoom blocks to adjust timing
+- **Zoom presets** — Subtle, Demo, Punch (+ per-keyframe scale)
+- **Timeline editor** — drag zoom blocks, trim in/out handles
 - **Manual zoom** — draw a region on the preview to add a zoom at the playhead
+- **1080p / 720p export** with bitrate targeting (~8MB at 60–90s)
+- **Runlyx-style background frame** — dark gradient, rounded corners, shadow
+- **Cursor smoothing** — tracked path composited on export
+- Optional **hypher.app watermark**
+- Hide menu bar & dock during recording
 - Offline export to MP4 with zoom applied
 - Project bundles saved to `~/Movies/Recorder/<uuid>.recorder/`
+
+See [DEMO.md](DEMO.md) for the Hypher launch video rehearsal script.
 
 ## Requirements
 
@@ -71,6 +81,6 @@ Capture (ScreenCaptureKit + CGEventTap)
   → MP4 export
 ```
 
-## Deferred (v2+)
+## Deferred
 
-Vertical export, cursor smoothing, backgrounds, audio/webcam.
+System audio/webcam, vertical export, in-app multi-scene stitching.
