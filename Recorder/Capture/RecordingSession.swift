@@ -30,6 +30,11 @@ final class RecordingSession: ObservableObject {
     private var recordingStartTime: TimeInterval = 0
     private var currentProjectID = UUID()
     private var currentBundleURL: URL?
+    private var hasStartedInputTracking = false
+
+    init() {
+        screenRecorder.delegate = self
+    }
 
     func refreshWindows() async {
         guard PermissionsManager.shared.hasScreenRecordingPermission else {
@@ -71,7 +76,8 @@ final class RecordingSession: ObservableObject {
             currentBundleURL = bundleURL
 
             let videoURL = bundleURL.appendingPathComponent("video.mov")
-            recordingStartTime = CACurrentMediaTime()
+            hasStartedInputTracking = false
+            recordingStartTime = 0
 
             if preferences.hideChromeDuringRecording {
                 presentationMode.enter()
@@ -84,32 +90,20 @@ final class RecordingSession: ObservableObject {
             )
             try await screenRecorder.startRecording(to: videoURL, options: recorderOptions)
 
-            inputTracker.configure(
-                startTime: recordingStartTime,
-                captureOrigin: screenRecorder.captureOrigin,
-                captureSize: CGSize(
-                    width: CGFloat(screenRecorder.captureWidth),
-                    height: CGFloat(screenRecorder.captureHeight)
-                ),
-                scaleFactor: screenRecorder.scaleFactor,
-                trackCursor: preferences.cursorSmoothingEnabled
-            )
-
             inputTracker.onEvent = { [weak self] _ in
                 Task { @MainActor in
                     self?.clickCount += 1
                 }
             }
 
-            try inputTracker.start()
-
+            // Click/cursor tracking starts on first video frame so timestamps match PTS.
             state = .recording(startedAt: Date())
             elapsedTime = 0
             clickCount = 0
-            startElapsedTimer()
         } catch {
             presentationMode.exit()
             countdownOverlay.cancel()
+            hasStartedInputTracking = false
             state = .failed(error.localizedDescription)
         }
     }
@@ -123,6 +117,7 @@ final class RecordingSession: ObservableObject {
 
         do {
             let trackingResult = inputTracker.stop()
+            hasStartedInputTracking = false
             let recordingResult = try await screenRecorder.stopRecording()
 
             let generator = AutoZoomGenerator(
@@ -189,6 +184,8 @@ final class RecordingSession: ObservableObject {
         stopElapsedTimer()
         presentationMode.exit()
         countdownOverlay.cancel()
+        _ = inputTracker.stop()
+        hasStartedInputTracking = false
         state = .idle
         elapsedTime = 0
         clickCount = 0
@@ -202,10 +199,40 @@ final class RecordingSession: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([project.exportURL])
     }
 
+    private func beginInputTrackingAlignedToVideo() {
+        guard case .recording = state, !hasStartedInputTracking else { return }
+        hasStartedInputTracking = true
+
+        // Epoch matches video t=0 (first written sample).
+        recordingStartTime = CACurrentMediaTime()
+
+        inputTracker.configure(
+            startTime: recordingStartTime,
+            captureOrigin: screenRecorder.captureOrigin,
+            captureSize: CGSize(
+                width: CGFloat(screenRecorder.captureWidth),
+                height: CGFloat(screenRecorder.captureHeight)
+            ),
+            scaleFactor: screenRecorder.scaleFactor,
+            trackCursor: preferences.cursorSmoothingEnabled
+        )
+
+        do {
+            try inputTracker.start()
+            startElapsedTimer()
+        } catch {
+            presentationMode.exit()
+            stopElapsedTimer()
+            hasStartedInputTracking = false
+            state = .failed(error.localizedDescription)
+        }
+    }
+
     private func startElapsedTimer() {
+        stopElapsedTimer()
         elapsedTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.recordingStartTime > 0 else { return }
                 self.elapsedTime = CACurrentMediaTime() - self.recordingStartTime
             }
         }
@@ -214,5 +241,27 @@ final class RecordingSession: ObservableObject {
     private func stopElapsedTimer() {
         elapsedTimer?.invalidate()
         elapsedTimer = nil
+    }
+}
+
+extension RecordingSession: ScreenRecorderDelegate {
+    nonisolated func screenRecorderDidReceiveFirstFrame(_ recorder: ScreenRecorder) {
+        Task { @MainActor in
+            self.beginInputTrackingAlignedToVideo()
+        }
+    }
+
+    nonisolated func screenRecorder(_ recorder: ScreenRecorder, didWriteFrameAt time: TimeInterval) {
+        // Frame timing is driven by the writer; elapsed UI uses the shared epoch.
+    }
+
+    nonisolated func screenRecorder(_ recorder: ScreenRecorder, didFailWith error: Error) {
+        Task { @MainActor in
+            self.stopElapsedTimer()
+            self.presentationMode.exit()
+            _ = self.inputTracker.stop()
+            self.hasStartedInputTracking = false
+            self.state = .failed(error.localizedDescription)
+        }
     }
 }

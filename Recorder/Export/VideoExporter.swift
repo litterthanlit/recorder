@@ -107,7 +107,8 @@ final class VideoExporter {
             )
         )
 
-        var presentationOffset = CMTime.zero
+        // Prefer source PTS so export timing stays correct when sample duration is 0/invalid.
+        let trimStartTime = CMTime(seconds: trimStart, preferredTimescale: 600)
 
         while reader.status == .reading {
             guard writerInput.isReadyForMoreMediaData else {
@@ -123,6 +124,10 @@ final class VideoExporter {
 
             let sourceTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
             let seconds = CMTimeGetSeconds(sourceTime)
+            let presentationTime = CMTimeMaximum(
+                .zero,
+                CMTimeSubtract(sourceTime, trimStartTime)
+            )
 
             let processed = try compositor.renderFrame(
                 pixelBuffer: pixelBuffer,
@@ -131,12 +136,9 @@ final class VideoExporter {
                 outputHeight: outputHeight
             )
 
-            if !adaptor.append(processed, withPresentationTime: presentationOffset) {
+            if !adaptor.append(processed, withPresentationTime: presentationTime) {
                 throw writer.error ?? VideoExporterError.writerSetupFailed
             }
-
-            let frameDuration = CMSampleBufferGetDuration(sampleBuffer)
-            presentationOffset = CMTimeAdd(presentationOffset, frameDuration)
 
             let progress = exportDuration > 0
                 ? min(1, (seconds - trimStart) / exportDuration)

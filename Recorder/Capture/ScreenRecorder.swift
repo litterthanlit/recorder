@@ -5,6 +5,7 @@ import Foundation
 import ScreenCaptureKit
 
 protocol ScreenRecorderDelegate: AnyObject {
+    func screenRecorderDidReceiveFirstFrame(_ recorder: ScreenRecorder)
     func screenRecorder(_ recorder: ScreenRecorder, didWriteFrameAt time: TimeInterval)
     func screenRecorder(_ recorder: ScreenRecorder, didFailWith error: Error)
 }
@@ -26,6 +27,7 @@ final class ScreenRecorder: NSObject {
     private var lastWrittenTime: CMTime = .zero
     private var outputURL: URL?
     private var isRecording = false
+    private var didNotifyFirstFrame = false
     private let writerQueue = DispatchQueue(label: "com.recorder.writer")
 
     private(set) var captureWidth: Int = 0
@@ -112,6 +114,7 @@ final class ScreenRecorder: NSObject {
         sessionStartTime = CACurrentMediaTime()
         firstSampleTime = nil
         lastWrittenTime = .zero
+        didNotifyFirstFrame = false
         outputURL = url
         isRecording = true
     }
@@ -237,14 +240,16 @@ final class ScreenRecorder: NSObject {
         guard CMSampleBufferGetImageBuffer(sampleBuffer) != nil else { return }
 
         let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        if firstSampleTime == nil {
+        let isFirstFrame = firstSampleTime == nil
+        if isFirstFrame {
             firstSampleTime = presentationTime
         }
 
         let relativeTime = CMTimeSubtract(presentationTime, firstSampleTime ?? .zero)
+        let frameDuration = resolvedFrameDuration(for: sampleBuffer)
 
         var timingInfo = CMSampleTimingInfo(
-            duration: CMSampleBufferGetDuration(sampleBuffer),
+            duration: frameDuration,
             presentationTimeStamp: relativeTime,
             decodeTimeStamp: .invalid
         )
@@ -265,12 +270,25 @@ final class ScreenRecorder: NSObject {
             return
         }
 
-        lastWrittenTime = relativeTime
+        lastWrittenTime = CMTimeAdd(relativeTime, frameDuration)
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            if isFirstFrame, !self.didNotifyFirstFrame {
+                self.didNotifyFirstFrame = true
+                self.delegate?.screenRecorderDidReceiveFirstFrame(self)
+            }
             self.delegate?.screenRecorder(self, didWriteFrameAt: CMTimeGetSeconds(relativeTime))
         }
+    }
+
+    /// ScreenCaptureKit often reports invalid/zero sample durations — fall back to 1/fps.
+    private func resolvedFrameDuration(for sampleBuffer: CMSampleBuffer) -> CMTime {
+        let duration = CMSampleBufferGetDuration(sampleBuffer)
+        if duration.isValid && !duration.isIndefinite && duration.seconds > 0 {
+            return duration
+        }
+        return CMTime(value: 1, timescale: CMTimeScale(max(fps, 1)))
     }
 }
 

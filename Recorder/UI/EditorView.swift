@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct EditorView: View {
@@ -34,6 +35,7 @@ struct EditorView: View {
             Spacer()
             Button("Close") {
                 dismiss()
+                NSApp.keyWindow?.close()
             }
         }
     }

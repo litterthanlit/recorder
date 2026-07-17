@@ -3,8 +3,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var session: RecordingSession
     @ObservedObject var permissions: PermissionsManager
-    @Environment(\.openWindow) private var openWindow
-    @StateObject private var hotkeys = RecordingHotkeysController()
+    var onOpenEditor: (RecorderProject) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -23,13 +22,7 @@ struct MenuBarView: View {
         .frame(width: 360)
         .onAppear {
             permissions.refresh()
-            hotkeys.bind(session: session)
             Task { await session.refreshWindows() }
-        }
-        .onChange(of: session.state) { newValue in
-            if case let .editing(project) = newValue {
-                openWindow(id: "editor", value: project.metadata.id)
-            }
         }
     }
 
@@ -247,7 +240,7 @@ struct MenuBarView: View {
         case .editing:
             Button {
                 if case let .editing(project) = session.state {
-                    openWindow(id: "editor", value: project.metadata.id)
+                    onOpenEditor(project)
                 }
             } label: {
                 Label("Open Editor", systemImage: "slider.horizontal.3")
