@@ -22,6 +22,7 @@ struct MenuBarView: View {
         .frame(width: 360)
         .onAppear {
             permissions.refresh()
+            session.refreshMediaDevices()
             Task { await session.refreshWindows() }
         }
     }
@@ -81,6 +82,81 @@ struct MenuBarView: View {
 
             Toggle("Hide menu bar & dock", isOn: $session.preferences.hideChromeDuringRecording)
             Toggle("Smooth cursor on export", isOn: $session.preferences.cursorSmoothingEnabled)
+
+            Divider()
+
+            Toggle("Microphone", isOn: $session.preferences.microphoneEnabled)
+            if session.preferences.microphoneEnabled {
+                if !permissions.hasMicrophonePermission {
+                    permissionHint(
+                        title: "Mic permission needed",
+                        action: { Task { await permissions.requestMicrophonePermission() } },
+                        settings: { permissions.openSystemSettings(for: .microphone) }
+                    )
+                }
+
+                Picker("Mic", selection: Binding(
+                    get: { session.preferences.selectedMicrophoneID ?? "" },
+                    set: { session.preferences.selectedMicrophoneID = $0.isEmpty ? nil : $0 }
+                )) {
+                    if session.availableMicrophones.isEmpty {
+                        Text("No microphones").tag("")
+                    } else {
+                        ForEach(session.availableMicrophones) { mic in
+                            Text(mic.name).tag(mic.id)
+                        }
+                    }
+                }
+            }
+
+            Toggle("Camera", isOn: $session.preferences.cameraEnabled)
+            if session.preferences.cameraEnabled {
+                if !permissions.hasCameraPermission {
+                    permissionHint(
+                        title: "Camera permission needed",
+                        action: { Task { await permissions.requestCameraPermission() } },
+                        settings: { permissions.openSystemSettings(for: .camera) }
+                    )
+                }
+
+                Picker("Camera", selection: Binding(
+                    get: { session.preferences.selectedCameraID ?? "" },
+                    set: { session.preferences.selectedCameraID = $0.isEmpty ? nil : $0 }
+                )) {
+                    if session.availableCameras.isEmpty {
+                        Text("No cameras").tag("")
+                    } else {
+                        ForEach(session.availableCameras) { camera in
+                            Text(camera.name).tag(camera.id)
+                        }
+                    }
+                }
+
+                Picker("Position", selection: $session.preferences.cameraPosition) {
+                    ForEach(CameraBubblePosition.allCases) { position in
+                        Text(position.label).tag(position)
+                    }
+                }
+            }
+        }
+    }
+
+    private func permissionHint(
+        title: String,
+        action: @escaping () -> Void,
+        settings: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.orange)
+            Spacer()
+            Button("Grant", action: action)
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            Button("Settings", action: settings)
+                .buttonStyle(.borderless)
+                .font(.caption)
         }
     }
 

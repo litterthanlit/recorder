@@ -26,6 +26,7 @@ final class VideoExporter {
         guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
             throw VideoExporterError.missingVideoTrack
         }
+        let audioTrack = try await asset.loadTracks(withMediaType: .audio).first
 
         let naturalSize = try await videoTrack.load(.naturalSize)
         let preferredTransform = try await videoTrack.load(.preferredTransform)
@@ -40,11 +41,13 @@ final class VideoExporter {
             try FileManager.default.removeItem(at: outputURL)
         }
 
-        let reader = try AVAssetReader(asset: asset)
-        reader.timeRange = CMTimeRange(
+        let timeRange = CMTimeRange(
             start: CMTime(seconds: trimStart, preferredTimescale: 600),
             duration: CMTime(seconds: exportDuration, preferredTimescale: 600)
         )
+
+        let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = timeRange
 
         let readerOutput = AVAssetReaderTrackOutput(
             track: videoTrack,
@@ -54,6 +57,16 @@ final class VideoExporter {
         )
         readerOutput.alwaysCopiesSampleData = false
         reader.add(readerOutput)
+
+        var audioReaderOutput: AVAssetReaderTrackOutput?
+        if let audioTrack {
+            let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
+            output.alwaysCopiesSampleData = false
+            if reader.canAdd(output) {
+                reader.add(output)
+                audioReaderOutput = output
+            }
+        }
 
         let outputWidth = Int(configuration.outputSize.width)
         let outputHeight = Int(configuration.outputSize.height)
@@ -85,6 +98,17 @@ final class VideoExporter {
             throw VideoExporterError.writerSetupFailed
         }
         writer.add(writerInput)
+
+        var audioWriterInput: AVAssetWriterInput?
+        if audioReaderOutput != nil {
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
+            input.expectsMediaDataInRealTime = false
+            if writer.canAdd(input) {
+                writer.add(input)
+                audioWriterInput = input
+            }
+        }
+
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
 
@@ -107,7 +131,6 @@ final class VideoExporter {
             )
         )
 
-        // Prefer source PTS so export timing stays correct when sample duration is 0/invalid.
         let trimStartTime = CMTime(seconds: trimStart, preferredTimescale: 600)
 
         while reader.status == .reading {
@@ -140,10 +163,35 @@ final class VideoExporter {
                 throw writer.error ?? VideoExporterError.writerSetupFailed
             }
 
+            if let audioReaderOutput, let audioWriterInput {
+                while audioWriterInput.isReadyForMoreMediaData,
+                      let audioSample = audioReaderOutput.copyNextSampleBuffer() {
+                    try appendShiftedAudio(
+                        audioSample,
+                        to: audioWriterInput,
+                        trimStartTime: trimStartTime,
+                        writer: writer
+                    )
+                }
+            }
+
             let progress = exportDuration > 0
                 ? min(1, (seconds - trimStart) / exportDuration)
                 : 1
             progressHandler(progress)
+        }
+
+        if let audioReaderOutput, let audioWriterInput {
+            while audioWriterInput.isReadyForMoreMediaData,
+                  let audioSample = audioReaderOutput.copyNextSampleBuffer() {
+                try appendShiftedAudio(
+                    audioSample,
+                    to: audioWriterInput,
+                    trimStartTime: trimStartTime,
+                    writer: writer
+                )
+            }
+            audioWriterInput.markAsFinished()
         }
 
         writerInput.markAsFinished()
@@ -154,6 +202,35 @@ final class VideoExporter {
 
         try await finishWriting(writer)
         progressHandler(1)
+    }
+
+    private func appendShiftedAudio(
+        _ audioSample: CMSampleBuffer,
+        to audioWriterInput: AVAssetWriterInput,
+        trimStartTime: CMTime,
+        writer: AVAssetWriter
+    ) throws {
+        let audioPTS = CMSampleBufferGetPresentationTimeStamp(audioSample)
+        let relativeAudioPTS = CMTimeMaximum(
+            .zero,
+            CMTimeSubtract(audioPTS, trimStartTime)
+        )
+        var timing = CMSampleTimingInfo(
+            duration: CMSampleBufferGetDuration(audioSample),
+            presentationTimeStamp: relativeAudioPTS,
+            decodeTimeStamp: .invalid
+        )
+        var shifted: CMSampleBuffer?
+        CMSampleBufferCreateCopyWithNewTiming(
+            allocator: kCFAllocatorDefault,
+            sampleBuffer: audioSample,
+            sampleTimingEntryCount: 1,
+            sampleTimingArray: &timing,
+            sampleBufferOut: &shifted
+        )
+        if let shifted, !audioWriterInput.append(shifted) {
+            throw writer.error ?? VideoExporterError.writerSetupFailed
+        }
     }
 
     private func finishWriting(_ writer: AVAssetWriter) async throws {

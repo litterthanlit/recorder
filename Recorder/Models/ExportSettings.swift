@@ -151,6 +151,11 @@ struct RecordingPreferences: Codable, Equatable {
     var selectedWindowID: UInt32?
     var hideChromeDuringRecording: Bool = true
     var cursorSmoothingEnabled: Bool = true
+    var microphoneEnabled: Bool = false
+    var selectedMicrophoneID: String?
+    var cameraEnabled: Bool = false
+    var selectedCameraID: String?
+    var cameraPosition: CameraBubblePosition = .bottomRight
 
     static let `default` = RecordingPreferences()
 }

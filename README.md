@@ -17,6 +17,8 @@ Native macOS screen recorder with **automatic zoom on clicks** — built for Scr
 - **Cursor smoothing** — tracked path composited on export
 - Optional **hypher.app watermark**
 - Hide menu bar & dock during recording
+- **Microphone** — optional narration with device picker
+- **Camera bubble** — Screen Studio–style circular PiP (mirrored, corner position)
 - Offline export to MP4 with zoom applied
 - Project bundles saved to `~/Movies/Recorder/<uuid>.recorder/`
 
@@ -29,6 +31,8 @@ See [DEMO.md](DEMO.md) for the Hypher launch video rehearsal script.
 - Permissions:
   - **Screen Recording** — capture display
   - **Accessibility** — track mouse clicks for auto zoom
+  - **Camera** — optional talking-head bubble
+  - **Microphone** — optional narration
 
 ## Build & Run
 
@@ -47,10 +51,11 @@ xcodebuild -project Recorder.xcodeproj -scheme Recorder -configuration Debug bui
 ## Usage
 
 1. Open the menu bar app and grant Screen Recording + Accessibility permissions.
-2. Click **Record** — perform actions on screen (clicks drive auto zoom).
-3. Click **Stop** — the editor window opens automatically.
-4. Drag zoom blocks on the timeline to adjust timing, or click **Add Manual Zoom** and draw a region on the preview.
-5. Click **Export MP4** when ready, then preview or reveal in Finder.
+2. Optionally enable **Microphone** / **Camera** and pick devices.
+3. Click **Record** — perform actions on screen (clicks drive auto zoom).
+4. Click **Stop** — the editor window opens automatically.
+5. Drag zoom blocks on the timeline to adjust timing, or click **Add Manual Zoom** and draw a region on the preview.
+6. Click **Export MP4** when ready, then preview or reveal in Finder.
 
 ## Project bundle
 
@@ -83,4 +88,4 @@ Capture (ScreenCaptureKit + CGEventTap)
 
 ## Deferred
 
-System audio/webcam, vertical export, in-app multi-scene stitching.
+System audio (app/desktop sound), vertical export, in-app multi-scene stitching.

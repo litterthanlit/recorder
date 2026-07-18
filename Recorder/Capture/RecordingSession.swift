@@ -1,4 +1,5 @@
 import AppKit
+import CoreMedia
 import Foundation
 
 @MainActor
@@ -21,8 +22,12 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var activeEditor: ProjectEditor?
     @Published var preferences = RecordingPreferences.default
     @Published private(set) var availableWindows: [CaptureWindowInfo] = []
+    @Published private(set) var availableCameras: [MediaDeviceInfo] = []
+    @Published private(set) var availableMicrophones: [MediaDeviceInfo] = []
 
     private let screenRecorder = ScreenRecorder()
+    private let cameraMicCapture = CameraMicCapture()
+    private let cameraBubble = CameraBubbleOverlay()
     private let inputTracker = InputTracker()
     private let countdownOverlay = CountdownOverlay()
     private let presentationMode = PresentationModeManager()
@@ -34,6 +39,20 @@ final class RecordingSession: ObservableObject {
 
     init() {
         screenRecorder.delegate = self
+        cameraMicCapture.delegate = self
+        refreshMediaDevices()
+    }
+
+    func refreshMediaDevices() {
+        availableCameras = MediaDevices.cameras()
+        availableMicrophones = MediaDevices.microphones()
+
+        if preferences.selectedCameraID == nil {
+            preferences.selectedCameraID = MediaDevices.defaultCameraID()
+        }
+        if preferences.selectedMicrophoneID == nil {
+            preferences.selectedMicrophoneID = MediaDevices.defaultMicrophoneID()
+        }
     }
 
     func refreshWindows() async {
@@ -62,6 +81,22 @@ final class RecordingSession: ObservableObject {
             }
         }
 
+        if preferences.cameraEnabled {
+            await PermissionsManager.shared.requestCameraPermission()
+            guard PermissionsManager.shared.hasCameraPermission else {
+                state = .failed("Camera permission is required when camera is enabled.")
+                return
+            }
+        }
+
+        if preferences.microphoneEnabled {
+            await PermissionsManager.shared.requestMicrophonePermission()
+            guard PermissionsManager.shared.hasMicrophonePermission else {
+                state = .failed("Microphone permission is required when mic is enabled.")
+                return
+            }
+        }
+
         do {
             if preferences.countdownSeconds > 0 {
                 state = .countdown(remaining: preferences.countdownSeconds)
@@ -83,10 +118,34 @@ final class RecordingSession: ObservableObject {
                 presentationMode.enter()
             }
 
+            try cameraMicCapture.start(
+                enableCamera: preferences.cameraEnabled,
+                cameraID: preferences.selectedCameraID,
+                enableMicrophone: preferences.microphoneEnabled,
+                microphoneID: preferences.selectedMicrophoneID
+            )
+
+            if preferences.cameraEnabled, let previewLayer = cameraMicCapture.previewLayer {
+                cameraBubble.show(previewLayer: previewLayer, position: preferences.cameraPosition)
+            }
+
+            var excludeWindowIDs: [UInt32] = []
+            if let bubbleID = cameraBubble.windowID {
+                excludeWindowIDs.append(bubbleID)
+            }
+
+            let cameraCapture = cameraMicCapture
             let recorderOptions = ScreenRecorderOptions(
                 captureTarget: preferences.captureTarget,
                 windowID: preferences.selectedWindowID,
-                showCursor: !preferences.cursorSmoothingEnabled
+                showCursor: !preferences.cursorSmoothingEnabled,
+                excludeWindowIDs: excludeWindowIDs,
+                enableMicrophone: preferences.microphoneEnabled,
+                enableCamera: preferences.cameraEnabled,
+                cameraPosition: preferences.cameraPosition,
+                cameraFrameProvider: {
+                    cameraCapture.currentCameraPixelBuffer
+                }
             )
             try await screenRecorder.startRecording(to: videoURL, options: recorderOptions)
 
@@ -101,7 +160,7 @@ final class RecordingSession: ObservableObject {
             elapsedTime = 0
             clickCount = 0
         } catch {
-            presentationMode.exit()
+            teardownCaptureHelpers()
             countdownOverlay.cancel()
             hasStartedInputTracking = false
             state = .failed(error.localizedDescription)
@@ -112,7 +171,7 @@ final class RecordingSession: ObservableObject {
         guard case .recording = state else { return }
 
         stopElapsedTimer()
-        presentationMode.exit()
+        teardownCaptureHelpers()
         state = .processing
 
         do {
@@ -182,7 +241,7 @@ final class RecordingSession: ObservableObject {
 
     func reset() {
         stopElapsedTimer()
-        presentationMode.exit()
+        teardownCaptureHelpers()
         countdownOverlay.cancel()
         _ = inputTracker.stop()
         hasStartedInputTracking = false
@@ -197,6 +256,12 @@ final class RecordingSession: ObservableObject {
     func revealExportInFinder() {
         guard case let .finished(project) = state else { return }
         NSWorkspace.shared.activateFileViewerSelecting([project.exportURL])
+    }
+
+    private func teardownCaptureHelpers() {
+        presentationMode.exit()
+        cameraBubble.hide()
+        cameraMicCapture.stop()
     }
 
     private func beginInputTrackingAlignedToVideo() {
@@ -221,7 +286,7 @@ final class RecordingSession: ObservableObject {
             try inputTracker.start()
             startElapsedTimer()
         } catch {
-            presentationMode.exit()
+            teardownCaptureHelpers()
             stopElapsedTimer()
             hasStartedInputTracking = false
             state = .failed(error.localizedDescription)
@@ -258,7 +323,23 @@ extension RecordingSession: ScreenRecorderDelegate {
     nonisolated func screenRecorder(_ recorder: ScreenRecorder, didFailWith error: Error) {
         Task { @MainActor in
             self.stopElapsedTimer()
-            self.presentationMode.exit()
+            self.teardownCaptureHelpers()
+            _ = self.inputTracker.stop()
+            self.hasStartedInputTracking = false
+            self.state = .failed(error.localizedDescription)
+        }
+    }
+}
+
+extension RecordingSession: CameraMicCaptureDelegate {
+    nonisolated func cameraMicCapture(_ capture: CameraMicCapture, didOutputAudioSampleBuffer sampleBuffer: CMSampleBuffer) {
+        screenRecorder.appendAudioSampleBuffer(sampleBuffer)
+    }
+
+    nonisolated func cameraMicCapture(_ capture: CameraMicCapture, didFailWith error: Error) {
+        Task { @MainActor in
+            self.stopElapsedTimer()
+            self.teardownCaptureHelpers()
             _ = self.inputTracker.stop()
             self.hasStartedInputTracking = false
             self.state = .failed(error.localizedDescription)

@@ -28,5 +28,9 @@
 	<string>NSApplication</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Recorder needs screen recording access to capture your screen and apply automatic zoom on clicks.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Recorder needs camera access to show a talking-head bubble in your recording.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Recorder needs microphone access to include narration in your recording.</string>
 </dict>
 </plist>
