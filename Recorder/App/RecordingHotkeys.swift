@@ -65,8 +65,13 @@ final class RecordingHotkeysController: ObservableObject {
         }
         hotkeys.onStop = {
             Task { @MainActor in
-                if case .recording = session.state {
+                switch session.state {
+                case .countdown:
+                    session.cancelCountdown()
+                case .recording:
                     await session.stop()
+                default:
+                    break
                 }
             }
         }

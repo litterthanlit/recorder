@@ -27,15 +27,15 @@ enum ExportResolutionPreset: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// Target bitrate for launch-friendly file sizes (~8MB at 60–90s).
+    /// Target bitrate for launch-friendly file sizes (~8MB at 60–90s for 1080p).
     var targetBitrate: Int {
         switch self {
         case .source:
-            return 12_000_000
+            return 2_000_000
         case .hd1080p:
-            return 7_000_000
+            return 700_000
         case .hd720p:
-            return 4_000_000
+            return 450_000
         }
     }
 }

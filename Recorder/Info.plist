@@ -32,5 +32,7 @@
 	<string>Recorder needs camera access to show a talking-head bubble in your recording.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Recorder needs microphone access to include narration in your recording.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Recorder needs Automation access to temporarily hide and restore the Dock while recording.</string>
 </dict>
 </plist>

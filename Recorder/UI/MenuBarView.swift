@@ -165,7 +165,7 @@ struct MenuBarView: View {
             Text("Hotkeys")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
-            Text("⌘⇧R — Start   ·   ⌘⇧. — Stop")
+            Text("⌘⇧R — Start   ·   ⌘⇧. — Stop / Cancel")
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
@@ -299,7 +299,13 @@ struct MenuBarView: View {
             .tint(.red)
 
         case .countdown:
-            EmptyView()
+            Button {
+                session.cancelCountdown()
+            } label: {
+                Label("Cancel", systemImage: "xmark")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
 
         case .recording:
             Button {

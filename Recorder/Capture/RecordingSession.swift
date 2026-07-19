@@ -100,7 +100,19 @@ final class RecordingSession: ObservableObject {
         do {
             if preferences.countdownSeconds > 0 {
                 state = .countdown(remaining: preferences.countdownSeconds)
-                await countdownOverlay.run(seconds: preferences.countdownSeconds)
+                countdownOverlay.onTick = { [weak self] remaining in
+                    guard let self, case .countdown = self.state else { return }
+                    self.state = .countdown(remaining: remaining)
+                }
+                let completed = await countdownOverlay.run(seconds: preferences.countdownSeconds)
+                countdownOverlay.onTick = nil
+                guard completed else {
+                    if case .countdown = state {
+                        state = .idle
+                    }
+                    return
+                }
+                guard case .countdown = state else { return }
             }
 
             try ProjectStore.ensureProjectsDirectory()
@@ -239,9 +251,17 @@ final class RecordingSession: ObservableObject {
         state = .finished(project)
     }
 
+    func cancelCountdown() {
+        guard case .countdown = state else { return }
+        countdownOverlay.onTick = nil
+        countdownOverlay.cancel()
+        state = .idle
+    }
+
     func reset() {
         stopElapsedTimer()
         teardownCaptureHelpers()
+        countdownOverlay.onTick = nil
         countdownOverlay.cancel()
         _ = inputTracker.stop()
         hasStartedInputTracking = false

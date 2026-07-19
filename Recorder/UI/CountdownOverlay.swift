@@ -4,23 +4,42 @@ import SwiftUI
 @MainActor
 final class CountdownOverlay {
     private var panel: NSPanel?
-    private var countdownTask: Task<Void, Never>?
+    private var countdownTask: Task<Bool, Never>?
 
-    func run(seconds: Int) async {
+    /// Called on each second tick with the remaining value.
+    var onTick: ((Int) -> Void)?
+
+    /// Runs a visible countdown. Returns `true` if it finished, `false` if cancelled.
+    @discardableResult
+    func run(seconds: Int) async -> Bool {
         cancel()
-        guard seconds > 0 else { return }
+        guard seconds > 0 else { return true }
 
         let panel = makePanel()
         self.panel = panel
         panel.orderFrontRegardless()
 
-        for remaining in stride(from: seconds, through: 1, by: -1) {
-            update(panel: panel, value: remaining)
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            if Task.isCancelled { break }
+        let task = Task<Bool, Never> { @MainActor in
+            for remaining in stride(from: seconds, through: 1, by: -1) {
+                if Task.isCancelled { return false }
+                self.update(panel: panel, value: remaining)
+                self.onTick?(remaining)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if Task.isCancelled { return false }
+            }
+            self.dismiss()
+            return true
         }
 
-        dismiss()
+        countdownTask = task
+        let completed = await task.value
+        if countdownTask == task {
+            countdownTask = nil
+        }
+        if !completed {
+            dismiss()
+        }
+        return completed
     }
 
     func cancel() {
