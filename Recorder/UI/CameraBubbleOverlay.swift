@@ -1,11 +1,14 @@
 import AppKit
 import AVFoundation
+import CoreVideo
 import QuartzCore
 
 @MainActor
 final class CameraBubbleOverlay {
     private var panel: NSPanel?
     private var previewHost: NSView?
+    private var processedLayer: CALayer?
+    private let imageConverter = CameraBackgroundProcessor()
 
     var windowID: UInt32? {
         guard let panel else { return nil }
@@ -13,6 +16,43 @@ final class CameraBubbleOverlay {
     }
 
     func show(previewLayer: AVCaptureVideoPreviewLayer, position: CameraBubblePosition) {
+        let host = makePanel(position: position)
+        previewLayer.frame = host.bounds
+        previewLayer.cornerRadius = host.bounds.width / 2
+        previewLayer.masksToBounds = true
+        host.layer?.addSublayer(previewLayer)
+        processedLayer = nil
+    }
+
+    /// Shows a bubble that displays processed camera frames (virtual backgrounds).
+    func showProcessedPreview(position: CameraBubblePosition) {
+        let host = makePanel(position: position)
+        let layer = CALayer()
+        layer.frame = host.bounds
+        layer.contentsGravity = .resizeAspectFill
+        layer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
+        host.layer?.addSublayer(layer)
+        processedLayer = layer
+    }
+
+    func updateProcessedFrame(_ pixelBuffer: CVPixelBuffer) {
+        guard let processedLayer else { return }
+        guard let cgImage = imageConverter.makeCGImage(from: pixelBuffer) else { return }
+        processedLayer.contents = cgImage
+    }
+
+    func hide() {
+        if let host = previewHost {
+            host.layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
+        }
+        panel?.orderOut(nil)
+        panel = nil
+        previewHost = nil
+        processedLayer = nil
+    }
+
+    @discardableResult
+    private func makePanel(position: CameraBubblePosition) -> NSView {
         hide()
 
         let screen = NSScreen.main ?? NSScreen.screens[0]
@@ -48,25 +88,12 @@ final class CameraBubbleOverlay {
         host.layer?.borderColor = NSColor.white.withAlphaComponent(0.92).cgColor
         host.layer?.backgroundColor = NSColor.black.cgColor
 
-        previewLayer.frame = host.bounds
-        previewLayer.cornerRadius = diameter / 2
-        previewLayer.masksToBounds = true
-        host.layer?.addSublayer(previewLayer)
-
         panel.contentView = host
         panel.orderFrontRegardless()
 
         self.panel = panel
         self.previewHost = host
-    }
-
-    func hide() {
-        if let host = previewHost {
-            host.layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
-        }
-        panel?.orderOut(nil)
-        panel = nil
-        previewHost = nil
+        return host
     }
 
     private func bubbleOrigin(

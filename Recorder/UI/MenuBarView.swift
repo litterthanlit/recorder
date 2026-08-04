@@ -137,6 +137,12 @@ struct MenuBarView: View {
                         Text(position.label).tag(position)
                     }
                 }
+
+                Picker("Background", selection: $session.preferences.cameraBackground) {
+                    ForEach(CameraBackgroundMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
             }
         }
     }

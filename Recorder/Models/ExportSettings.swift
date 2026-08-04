@@ -156,6 +156,7 @@ struct RecordingPreferences: Codable, Equatable {
     var cameraEnabled: Bool = false
     var selectedCameraID: String?
     var cameraPosition: CameraBubblePosition = .bottomRight
+    var cameraBackground: CameraBackgroundMode = .none
 
     static let `default` = RecordingPreferences()
 }

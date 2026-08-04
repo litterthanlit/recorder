@@ -24,6 +24,28 @@ enum CameraBubblePosition: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum CameraBackgroundMode: String, Codable, CaseIterable, Identifiable {
+    case none
+    case white
+    case studio
+    case blur
+    case gradient
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .none: return "None"
+        case .white: return "White"
+        case .studio: return "Studio"
+        case .blur: return "Blur"
+        case .gradient: return "Gradient"
+        }
+    }
+
+    var requiresProcessing: Bool { self != .none }
+}
+
 enum MediaDevices {
     static func cameras() -> [MediaDeviceInfo] {
         var deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera]

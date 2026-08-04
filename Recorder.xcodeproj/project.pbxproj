@@ -35,6 +35,7 @@
 		B2000000000000000000001B /* MediaDevices.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001E /* MediaDevices.swift */; };
 		B2000000000000000000001C /* CameraMicCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001F /* CameraMicCapture.swift */; };
 		B2000000000000000000001D /* CameraBubbleOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* CameraBubbleOverlay.swift */; };
+		B2000000000000000000001E /* CameraBackgroundProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* CameraBackgroundProcessor.swift */; };
 		B20000000000000000000010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -71,6 +72,7 @@
 		A2000000000000000000001E /* MediaDevices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDevices.swift; sourceTree = "<group>"; };
 		A2000000000000000000001F /* CameraMicCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraMicCapture.swift; sourceTree = "<group>"; };
 		A20000000000000000000020 /* CameraBubbleOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraBubbleOverlay.swift; sourceTree = "<group>"; };
+		A20000000000000000000021 /* CameraBackgroundProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraBackgroundProcessor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -129,6 +131,7 @@
 				A2000000000000000000001D /* PresentationModeManager.swift */,
 				A2000000000000000000001E /* MediaDevices.swift */,
 				A2000000000000000000001F /* CameraMicCapture.swift */,
+				A20000000000000000000021 /* CameraBackgroundProcessor.swift */,
 			);
 			path = Capture;
 			sourceTree = "<group>";
@@ -286,6 +289,7 @@
 				B2000000000000000000001B /* MediaDevices.swift in Sources */,
 				B2000000000000000000001C /* CameraMicCapture.swift in Sources */,
 				B2000000000000000000001D /* CameraBubbleOverlay.swift in Sources */,
+				B2000000000000000000001E /* CameraBackgroundProcessor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

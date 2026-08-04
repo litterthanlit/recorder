@@ -134,11 +134,21 @@ final class RecordingSession: ObservableObject {
                 enableCamera: preferences.cameraEnabled,
                 cameraID: preferences.selectedCameraID,
                 enableMicrophone: preferences.microphoneEnabled,
-                microphoneID: preferences.selectedMicrophoneID
+                microphoneID: preferences.selectedMicrophoneID,
+                cameraBackground: preferences.cameraBackground
             )
 
-            if preferences.cameraEnabled, let previewLayer = cameraMicCapture.previewLayer {
-                cameraBubble.show(previewLayer: previewLayer, position: preferences.cameraPosition)
+            if preferences.cameraEnabled {
+                if preferences.cameraBackground.requiresProcessing {
+                    cameraBubble.showProcessedPreview(position: preferences.cameraPosition)
+                    cameraMicCapture.onCameraFrame = { [weak self] buffer in
+                        Task { @MainActor in
+                            self?.cameraBubble.updateProcessedFrame(buffer)
+                        }
+                    }
+                } else if let previewLayer = cameraMicCapture.previewLayer {
+                    cameraBubble.show(previewLayer: previewLayer, position: preferences.cameraPosition)
+                }
             }
 
             var excludeWindowIDs: [UInt32] = []

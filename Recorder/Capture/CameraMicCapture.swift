@@ -11,6 +11,9 @@ protocol CameraMicCaptureDelegate: AnyObject {
 final class CameraMicCapture: NSObject {
     weak var delegate: CameraMicCaptureDelegate?
 
+    /// Called on the capture queue whenever a (possibly processed) camera frame is ready.
+    var onCameraFrame: ((CVPixelBuffer) -> Void)?
+
     private let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "com.recorder.camera-mic.session")
     private let videoOutput = AVCaptureVideoDataOutput()
@@ -18,6 +21,8 @@ final class CameraMicCapture: NSObject {
     private let bufferLock = NSLock()
     private var latestCameraBuffer: CVPixelBuffer?
     private var isRunning = false
+    private let backgroundProcessor = CameraBackgroundProcessor()
+    private var backgroundMode: CameraBackgroundMode = .none
 
     private(set) var previewLayer: AVCaptureVideoPreviewLayer?
 
@@ -31,10 +36,13 @@ final class CameraMicCapture: NSObject {
         enableCamera: Bool,
         cameraID: String?,
         enableMicrophone: Bool,
-        microphoneID: String?
+        microphoneID: String?,
+        cameraBackground: CameraBackgroundMode = .none
     ) throws {
         guard enableCamera || enableMicrophone else { return }
         guard !isRunning else { return }
+
+        backgroundMode = cameraBackground
 
         session.beginConfiguration()
         session.sessionPreset = .high
@@ -74,9 +82,14 @@ final class CameraMicCapture: NSObject {
                 }
             }
 
-            let layer = AVCaptureVideoPreviewLayer(session: session)
-            layer.videoGravity = .resizeAspectFill
-            previewLayer = layer
+            // Raw preview layer only when no virtual background — effects need processed frames.
+            if cameraBackground.requiresProcessing {
+                previewLayer = nil
+            } else {
+                let layer = AVCaptureVideoPreviewLayer(session: session)
+                layer.videoGravity = .resizeAspectFill
+                previewLayer = layer
+            }
         } else {
             previewLayer = nil
         }
@@ -110,6 +123,7 @@ final class CameraMicCapture: NSObject {
     func stop() {
         guard isRunning else { return }
         isRunning = false
+        onCameraFrame = nil
         sessionQueue.async { [weak self] in
             self?.session.stopRunning()
         }
@@ -117,6 +131,7 @@ final class CameraMicCapture: NSObject {
         latestCameraBuffer = nil
         bufferLock.unlock()
         previewLayer = nil
+        backgroundMode = .none
     }
 
     private func resolveDevice(mediaType: AVMediaType, preferredID: String?) -> AVCaptureDevice? {
@@ -126,6 +141,20 @@ final class CameraMicCapture: NSObject {
             return device
         }
         return AVCaptureDevice.default(for: mediaType)
+    }
+
+    private func storeCameraFrame(_ pixelBuffer: CVPixelBuffer) {
+        let output: CVPixelBuffer
+        if backgroundMode.requiresProcessing {
+            output = backgroundProcessor.process(pixelBuffer, mode: backgroundMode) ?? pixelBuffer
+        } else {
+            output = pixelBuffer
+        }
+
+        bufferLock.lock()
+        latestCameraBuffer = output
+        bufferLock.unlock()
+        onCameraFrame?(output)
     }
 }
 
@@ -137,9 +166,7 @@ extension CameraMicCapture: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapt
     ) {
         if output === videoOutput {
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-            bufferLock.lock()
-            latestCameraBuffer = pixelBuffer
-            bufferLock.unlock()
+            storeCameraFrame(pixelBuffer)
             return
         }
 
