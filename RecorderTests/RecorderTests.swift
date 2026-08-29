@@ -190,8 +190,8 @@ struct ClickRippleEvaluatorTests {
         let click = ClickEvent(timestamp: 1.0, location: CGPoint(x: 100, y: 80), button: .left)
 
         #expect(evaluator.progress(at: 1.0, click: click) == 0)
-        #expect(evaluator.progress(at: 1.4, click: click) == 1)
-        #expect(evaluator.progress(at: 1.41, click: click) == nil)
+        #expect(evaluator.progress(at: 1.0 + 0.4, click: click) == 1)
+        #expect(evaluator.progress(at: 1.0 + 0.4 + 0.01, click: click) == nil)
         #expect(evaluator.progress(at: 0.5, click: click) == nil)
     }
 

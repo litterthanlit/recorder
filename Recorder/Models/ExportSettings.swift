@@ -201,6 +201,21 @@ struct ExportStyle: Codable, Equatable {
         cursorSpotlightEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorSpotlightEnabled) ?? false
         cursorScaleOnClickEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorScaleOnClickEnabled) ?? true
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(backgroundEnabled, forKey: .backgroundEnabled)
+        try container.encode(cornerRadius, forKey: .cornerRadius)
+        try container.encode(paddingFraction, forKey: .paddingFraction)
+        try container.encode(shadowEnabled, forKey: .shadowEnabled)
+        try container.encode(watermarkEnabled, forKey: .watermarkEnabled)
+        try container.encode(watermarkText, forKey: .watermarkText)
+        try container.encode(cursorSmoothingEnabled, forKey: .cursorSmoothingEnabled)
+        try container.encode(springCameraEnabled, forKey: .springCameraEnabled)
+        try container.encode(clickRipplesEnabled, forKey: .clickRipplesEnabled)
+        try container.encode(cursorSpotlightEnabled, forKey: .cursorSpotlightEnabled)
+        try container.encode(cursorScaleOnClickEnabled, forKey: .cursorScaleOnClickEnabled)
+    }
 }
 
 struct ProjectEditSettings: Codable, Equatable {
