@@ -3,6 +3,18 @@ import Foundation
 
 struct ZoomInterpolator {
     let keyframes: [ZoomKeyframe]
+    var springEnabled: Bool
+    var springSettings: SpringSettings
+
+    init(
+        keyframes: [ZoomKeyframe],
+        springEnabled: Bool = false,
+        springSettings: SpringSettings = .demo
+    ) {
+        self.keyframes = keyframes
+        self.springEnabled = springEnabled
+        self.springSettings = springSettings
+    }
 
     func cropRect(at time: TimeInterval) -> NormalizedRect {
         guard !keyframes.isEmpty else { return .fullFrame }
@@ -23,48 +35,82 @@ struct ZoomInterpolator {
     private func rect(for keyframe: ZoomKeyframe, at time: TimeInterval) -> NormalizedRect {
         let targetScale = keyframe.scale
         let targetCenter = keyframe.center
+        let restScale: CGFloat = 1
+        let restCenter = CGPoint(x: 0.5, y: 0.5)
+        let holdEnd = holdEnd(for: keyframe)
 
         let currentScale: CGFloat
-        if time <= keyframe.peakTime {
-            let progress = normalizedProgress(
-                time: time,
-                start: keyframe.startTime,
-                end: keyframe.peakTime
-            )
-            currentScale = interpolate(from: 1, to: targetScale, progress: easeInOutCubic(progress))
-        } else if time <= holdEnd(for: keyframe) {
-            currentScale = targetScale
-        } else {
-            let holdEnd = holdEnd(for: keyframe)
-            let progress = normalizedProgress(time: time, start: holdEnd, end: keyframe.endTime)
-            currentScale = interpolate(from: targetScale, to: 1, progress: easeInOutCubic(progress))
-        }
-
         let currentCenter: CGPoint
+
         if time <= keyframe.peakTime {
-            let progress = normalizedProgress(
+            let (scale, center) = interpolateMotion(
+                fromScale: restScale,
+                toScale: targetScale,
+                fromCenter: restCenter,
+                toCenter: targetCenter,
                 time: time,
                 start: keyframe.startTime,
                 end: keyframe.peakTime
             )
-            currentCenter = interpolate(
-                from: CGPoint(x: 0.5, y: 0.5),
-                to: targetCenter,
-                progress: easeInOutCubic(progress)
-            )
-        } else if time <= holdEnd(for: keyframe) {
+            currentScale = scale
+            currentCenter = center
+        } else if time <= holdEnd {
+            currentScale = targetScale
             currentCenter = targetCenter
         } else {
-            let holdEnd = holdEnd(for: keyframe)
-            let progress = normalizedProgress(time: time, start: holdEnd, end: keyframe.endTime)
-            currentCenter = interpolate(
-                from: targetCenter,
-                to: CGPoint(x: 0.5, y: 0.5),
-                progress: easeInOutCubic(progress)
+            let (scale, center) = interpolateMotion(
+                fromScale: targetScale,
+                toScale: restScale,
+                fromCenter: targetCenter,
+                toCenter: restCenter,
+                time: time,
+                start: holdEnd,
+                end: keyframe.endTime
             )
+            currentScale = scale
+            currentCenter = center
         }
 
         return makeRect(center: currentCenter, scale: currentScale)
+    }
+
+    private func interpolateMotion(
+        fromScale: CGFloat,
+        toScale: CGFloat,
+        fromCenter: CGPoint,
+        toCenter: CGPoint,
+        time: TimeInterval,
+        start: TimeInterval,
+        end: TimeInterval
+    ) -> (CGFloat, CGPoint) {
+        if springEnabled {
+            let elapsed = time - start
+            let duration = end - start
+            return (
+                SpringCamera.interpolate(
+                    from: fromScale,
+                    to: toScale,
+                    elapsed: elapsed,
+                    duration: duration,
+                    settings: springSettings
+                ),
+                SpringCamera.interpolate(
+                    from: fromCenter,
+                    to: toCenter,
+                    elapsed: elapsed,
+                    duration: duration,
+                    settings: springSettings
+                )
+            )
+        }
+
+        let progress = easeInOutCubic(
+            normalizedProgress(time: time, start: start, end: end)
+        )
+        return (
+            interpolate(from: fromScale, to: toScale, progress: progress),
+            interpolate(from: fromCenter, to: toCenter, progress: progress)
+        )
     }
 
     private func holdEnd(for keyframe: ZoomKeyframe) -> TimeInterval {
@@ -72,8 +118,9 @@ struct ZoomInterpolator {
     }
 
     private func makeRect(center: CGPoint, scale: CGFloat) -> NormalizedRect {
-        let width = 1 / scale
-        let height = 1 / scale
+        let safeScale = max(scale, 1)
+        let width = 1 / safeScale
+        let height = 1 / safeScale
         let x = clamp(center.x - width / 2, min: 0, max: 1 - width)
         let y = clamp(center.y - height / 2, min: 0, max: 1 - height)
         return NormalizedRect(x: x, y: y, width: width, height: height)

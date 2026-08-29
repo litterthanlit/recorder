@@ -1,4 +1,3 @@
-import AVKit
 import SwiftUI
 
 struct EditorPreviewView: View {
@@ -21,66 +20,22 @@ struct EditorPreviewView: View {
             }
 
             GeometryReader { geometry in
-                let crop = editor.interpolator.cropRect(at: editor.playheadTime)
-                let scale = 1 / max(crop.width, 0.001)
-                let anchor = UnitPoint(
-                    x: crop.x + crop.width / 2,
-                    y: crop.y + crop.height / 2
-                )
                 let padding = editor.editSettings.exportStyle.backgroundEnabled
                     ? geometry.size.width * editor.editSettings.exportStyle.paddingFraction
                     : 0
 
                 ZStack {
-                    if editor.editSettings.exportStyle.backgroundEnabled {
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.09, green: 0.09, blue: 0.11),
-                                Color(red: 0.04, green: 0.04, blue: 0.06)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    } else {
-                        Color.black.opacity(0.85)
-                    }
-
-                    VideoPlayer(player: editor.player)
-                        .scaleEffect(scale, anchor: anchor)
-                        .padding(padding)
-                        .clipShape(
-                            RoundedRectangle(
-                                cornerRadius: editor.editSettings.exportStyle.backgroundEnabled
-                                    ? editor.editSettings.exportStyle.cornerRadius
-                                    : 8
-                            )
-                        )
-                        .shadow(
-                            color: editor.editSettings.exportStyle.shadowEnabled ? .black.opacity(0.35) : .clear,
-                            radius: 18,
-                            y: 8
-                        )
+                    CompositorPreviewView(editor: editor)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
 
                     if editor.isManualZoomMode {
                         manualSelectionOverlay(in: geometry.size, padding: padding)
                     }
-
-                    if editor.editSettings.exportStyle.watermarkEnabled {
-                        VStack {
-                            Spacer()
-                            HStack {
-                                Spacer()
-                                Text(editor.editSettings.exportStyle.watermarkText)
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.white.opacity(0.55))
-                                    .padding(12)
-                            }
-                        }
-                    }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            .frame(height: 320)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 360)
 
             playbackControls
         }
@@ -145,7 +100,7 @@ struct EditorPreviewView: View {
             Button {
                 editor.togglePlayback()
             } label: {
-                Image(systemName: editor.player.rate > 0 ? "pause.fill" : "play.fill")
+                Image(systemName: editor.isPlaying ? "pause.fill" : "play.fill")
             }
             .buttonStyle(.bordered)
 

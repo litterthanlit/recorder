@@ -18,7 +18,10 @@
 		B20000000000000000000009 /* AutoZoomGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* AutoZoomGenerator.swift */; };
 		B2000000000000000000000A /* ZoomInterpolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* ZoomInterpolator.swift */; };
 		B2000000000000000000000B /* VideoExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* VideoExporter.swift */; };
-		B2000000000000000000000C /* ZoomVideoCompositor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* ZoomVideoCompositor.swift */; };
+		B2000000000000000000000C /* CompositionRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* CompositionRenderer.swift */; };
+		B2000000000000000000001F /* Composition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* Composition.swift */; };
+		B20000000000000000000020 /* MotionFX.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* MotionFX.swift */; };
+		B20000000000000000000021 /* CompositorPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* CompositorPreviewView.swift */; };
 		B2000000000000000000000D /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* MenuBarView.swift */; };
 		B2000000000000000000000E /* PreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* PreviewView.swift */; };
 		B2000000000000000000000F /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* Project.swift */; };
@@ -51,7 +54,10 @@
 		A20000000000000000000009 /* AutoZoomGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoZoomGenerator.swift; sourceTree = "<group>"; };
 		A2000000000000000000000A /* ZoomInterpolator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomInterpolator.swift; sourceTree = "<group>"; };
 		A2000000000000000000000B /* VideoExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoExporter.swift; sourceTree = "<group>"; };
-		A2000000000000000000000C /* ZoomVideoCompositor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomVideoCompositor.swift; sourceTree = "<group>"; };
+		A2000000000000000000000C /* CompositionRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositionRenderer.swift; sourceTree = "<group>"; };
+		A20000000000000000000022 /* Composition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Composition.swift; sourceTree = "<group>"; };
+		A20000000000000000000023 /* MotionFX.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionFX.swift; sourceTree = "<group>"; };
+		A20000000000000000000024 /* CompositorPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositorPreviewView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000D /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000E /* PreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000F /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
@@ -100,6 +106,7 @@
 				C20000000000000000000003 /* App */,
 				C20000000000000000000004 /* Capture */,
 				C20000000000000000000005 /* Zoom */,
+				C2000000000000000000000A /* Composition */,
 				C20000000000000000000006 /* Export */,
 				C20000000000000000000009 /* Editor */,
 				C20000000000000000000007 /* UI */,
@@ -148,11 +155,20 @@
 			path = Zoom;
 			sourceTree = "<group>";
 		};
+		C2000000000000000000000A /* Composition */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000022 /* Composition.swift */,
+				A20000000000000000000023 /* MotionFX.swift */,
+			);
+			path = Composition;
+			sourceTree = "<group>";
+		};
 		C20000000000000000000006 /* Export */ = {
 			isa = PBXGroup;
 			children = (
 				A2000000000000000000000B /* VideoExporter.swift */,
-				A2000000000000000000000C /* ZoomVideoCompositor.swift */,
+				A2000000000000000000000C /* CompositionRenderer.swift */,
 			);
 			path = Export;
 			sourceTree = "<group>";
@@ -165,6 +181,7 @@
 				A20000000000000000000016 /* EditorView.swift */,
 				A20000000000000000000017 /* TimelineView.swift */,
 				A20000000000000000000018 /* EditorPreviewView.swift */,
+				A20000000000000000000024 /* CompositorPreviewView.swift */,
 				A2000000000000000000001B /* CountdownOverlay.swift */,
 				A20000000000000000000020 /* CameraBubbleOverlay.swift */,
 			);
@@ -272,7 +289,10 @@
 				B20000000000000000000009 /* AutoZoomGenerator.swift in Sources */,
 				B2000000000000000000000A /* ZoomInterpolator.swift in Sources */,
 				B2000000000000000000000B /* VideoExporter.swift in Sources */,
-				B2000000000000000000000C /* ZoomVideoCompositor.swift in Sources */,
+				B2000000000000000000000C /* CompositionRenderer.swift in Sources */,
+				B2000000000000000000001F /* Composition.swift in Sources */,
+				B20000000000000000000020 /* MotionFX.swift in Sources */,
+				B20000000000000000000021 /* CompositorPreviewView.swift in Sources */,
 				B2000000000000000000000D /* MenuBarView.swift in Sources */,
 				B2000000000000000000000E /* PreviewView.swift in Sources */,
 				B2000000000000000000000F /* Project.swift in Sources */,

@@ -17,7 +17,7 @@ struct EditorView: View {
             }
             .padding(20)
         }
-        .frame(minWidth: 760, minHeight: 640)
+        .frame(minWidth: 960, minHeight: 760)
         .onChange(of: editor.editSettings) { _ in
             editor.persistEditSettings()
         }
@@ -28,7 +28,7 @@ struct EditorView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Edit Recording")
                     .font(.title2.weight(.semibold))
-                Text("Trim, tune zooms, and export a launch-ready 1080p MP4")
+                Text("Preview matches export — spring camera, click ripples, then export")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -133,7 +133,11 @@ struct EditorView: View {
             }
 
             Toggle("Dark background frame", isOn: $editor.editSettings.exportStyle.backgroundEnabled)
+            Toggle("Spring camera", isOn: $editor.editSettings.exportStyle.springCameraEnabled)
+            Toggle("Click ripples", isOn: $editor.editSettings.exportStyle.clickRipplesEnabled)
             Toggle("Cursor smoothing", isOn: $editor.editSettings.exportStyle.cursorSmoothingEnabled)
+            Toggle("Cursor click scale", isOn: $editor.editSettings.exportStyle.cursorScaleOnClickEnabled)
+            Toggle("Cursor spotlight", isOn: $editor.editSettings.exportStyle.cursorSpotlightEnabled)
             Toggle("Watermark", isOn: $editor.editSettings.exportStyle.watermarkEnabled)
 
             if editor.editSettings.exportStyle.watermarkEnabled {

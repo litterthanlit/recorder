@@ -17,6 +17,7 @@ final class ProjectEditor: ObservableObject {
     @Published var playheadTime: TimeInterval = 0
     @Published var selectedKeyframeID: UUID?
     @Published var isManualZoomMode = false
+    @Published var isPlaying = false
     @Published private(set) var state: State = .editing
     @Published private(set) var exportProgress: Double = 0
 
@@ -42,7 +43,31 @@ final class ProjectEditor: ObservableObject {
     }
 
     var interpolator: ZoomInterpolator {
-        ZoomInterpolator(keyframes: keyframes)
+        ZoomInterpolator(
+            keyframes: keyframes,
+            springEnabled: editSettings.exportStyle.springCameraEnabled,
+            springSettings: editSettings.zoomPreset.motionFX.spring
+        )
+    }
+
+    var composition: CompositionTimeMap {
+        CompositionFactory.singleClip(
+            sourcePath: project.videoURL.path,
+            sourceIn: trimStart,
+            sourceOut: trimEnd
+        )
+    }
+
+    var renderSettings: CompositionRenderSettings {
+        CompositionRenderSettings(
+            exportStyle: editSettings.exportStyle,
+            zoomPreset: editSettings.zoomPreset,
+            cursorEvents: project.cursorEvents,
+            clickEvents: project.clickEvents,
+            sourceWidth: CGFloat(project.metadata.width),
+            sourceHeight: CGFloat(project.metadata.height),
+            drawCursor: !project.cursorEvents.isEmpty
+        )
     }
 
     var exportOutputSize: CGSize {
@@ -201,11 +226,13 @@ final class ProjectEditor: ObservableObject {
     func togglePlayback() {
         if player.rate > 0 {
             player.pause()
+            isPlaying = false
         } else {
             if playheadTime >= trimEnd - 0.05 {
                 seek(to: trimStart)
             }
             player.play()
+            isPlaying = true
         }
     }
 
@@ -230,7 +257,9 @@ final class ProjectEditor: ObservableObject {
                     trimStart: trimStart,
                     trimEnd: trimEnd,
                     exportStyle: editSettings.exportStyle,
+                    zoomPreset: editSettings.zoomPreset,
                     cursorEvents: project.cursorEvents,
+                    clickEvents: project.clickEvents,
                     drawCursor: !project.cursorEvents.isEmpty
                 )
             ) { [weak self] progress in
@@ -270,8 +299,10 @@ final class ProjectEditor: ObservableObject {
                 guard let self else { return }
                 let seconds = CMTimeGetSeconds(time)
                 self.playheadTime = seconds
+                self.isPlaying = self.player.rate > 0
                 if seconds >= self.trimEnd, self.player.rate > 0 {
                     self.player.pause()
+                    self.isPlaying = false
                     self.seek(to: self.trimEnd)
                 }
             }

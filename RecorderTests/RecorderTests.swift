@@ -83,6 +83,37 @@ struct ZoomInterpolatorTests {
         let rect = interpolator.cropRect(at: 1)
         #expect(rect.width == 1)
     }
+
+    @Test func springOvershootsThenSettlesAtPeak() {
+        let keyframes = [
+            ZoomKeyframe(
+                startTime: 1,
+                peakTime: 1.35,
+                endTime: 2,
+                center: CGPoint(x: 0.5, y: 0.5),
+                scale: 2
+            )
+        ]
+        let interpolator = ZoomInterpolator(
+            keyframes: keyframes,
+            springEnabled: true,
+            springSettings: .punch
+        )
+
+        #expect(abs(interpolator.scale(at: 1) - 1) < 0.02)
+
+        var didOvershoot = false
+        var sample = 1.02
+        while sample < 1.35 {
+            if interpolator.scale(at: sample) > 2.01 {
+                didOvershoot = true
+                break
+            }
+            sample += 0.01
+        }
+        #expect(didOvershoot)
+        #expect(abs(interpolator.scale(at: 1.35) - 2) < 0.04)
+    }
 }
 
 @Suite("ZoomKeyframeEditor")
@@ -131,5 +162,69 @@ struct CursorPathSmootherTests {
         ]
         let smoothed = smoother.smooth(events)
         #expect(smoothed[1].location.x < 50)
+    }
+}
+
+@Suite("SpringCamera")
+struct SpringCameraTests {
+    @Test func underdampedStepOvershootsThenSettles() {
+        var maximum: CGFloat = 0
+        for step in 0...100 {
+            let value = SpringCamera.underdampedStep(
+                t: CGFloat(step) / 100,
+                zeta: 0.62,
+                omega: 9
+            )
+            maximum = max(maximum, value)
+        }
+        #expect(maximum > 1.02)
+        #expect(abs(SpringCamera.underdampedStep(t: 0, zeta: 0.62, omega: 9)) < 0.001)
+        #expect(abs(SpringCamera.underdampedStep(t: 1, zeta: 0.62, omega: 9) - 1) < 0.02)
+    }
+}
+
+@Suite("ClickRippleEvaluator")
+struct ClickRippleEvaluatorTests {
+    @Test func progressIsZeroAtClickAndOneAtDuration() {
+        let evaluator = ClickRippleEvaluator(duration: 0.4, secondRingDelay: 0.08)
+        let click = ClickEvent(timestamp: 1.0, location: CGPoint(x: 100, y: 80), button: .left)
+
+        #expect(evaluator.progress(at: 1.0, click: click) == 0)
+        #expect(evaluator.progress(at: 1.4, click: click) == 1)
+        #expect(evaluator.progress(at: 1.41, click: click) == nil)
+        #expect(evaluator.progress(at: 0.5, click: click) == nil)
+    }
+
+    @Test func idleWhenNoActiveRipple() {
+        let evaluator = ClickRippleEvaluator(duration: 0.4, secondRingDelay: 0.08)
+        let click = ClickEvent(timestamp: 2.0, location: CGPoint(x: 10, y: 10), button: .left)
+        #expect(evaluator.ripples(at: 0.2, clicks: [click]).isEmpty)
+    }
+}
+
+@Suite("CompositionTimeMap")
+struct CompositionTimeMapTests {
+    @Test func oneClipMapsCompositionTimeToSourceTime() {
+        let map = CompositionFactory.singleClip(
+            sourcePath: "/tmp/video.mov",
+            sourceIn: 2,
+            sourceOut: 10
+        )
+
+        let start = map.resolve(compositionTime: 0)
+        #expect(start?.sourceTime == 2)
+
+        let middle = map.resolve(compositionTime: 3)
+        #expect(middle?.sourceTime == 5)
+        #expect(map.duration == 8)
+    }
+
+    @Test func outsideClipReturnsNil() {
+        let map = CompositionFactory.singleClip(
+            sourcePath: "/tmp/video.mov",
+            sourceIn: 0,
+            sourceOut: 4
+        )
+        #expect(map.resolve(compositionTime: 4.2) == nil)
     }
 }

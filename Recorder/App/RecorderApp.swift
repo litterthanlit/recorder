@@ -55,7 +55,7 @@ final class EditorPresenter {
             let hosting = NSHostingController(rootView: rootView)
             let window = NSWindow(contentViewController: hosting)
             window.title = "Edit Recording"
-            window.setContentSize(NSSize(width: 820, height: 680))
+            window.setContentSize(NSSize(width: 1100, height: 860))
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.isReleasedWhenClosed = false
             window.center()

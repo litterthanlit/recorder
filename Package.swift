@@ -22,7 +22,8 @@ let package = Package(
             ],
             sources: [
                 "Zoom",
-                "Editor/ZoomKeyframeEditor.swift"
+                "Editor/ZoomKeyframeEditor.swift",
+                "Composition"
             ]
         ),
         .testTarget(

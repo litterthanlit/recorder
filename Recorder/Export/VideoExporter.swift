@@ -11,7 +11,9 @@ struct ExportConfiguration {
     let trimStart: TimeInterval
     let trimEnd: TimeInterval
     let exportStyle: ExportStyle
+    let zoomPreset: ZoomPreset
     let cursorEvents: [CursorEvent]
+    let clickEvents: [ClickEvent]
     let drawCursor: Bool
 }
 
@@ -120,11 +122,13 @@ final class VideoExporter {
         let sourceWidth = abs(renderSize.width)
         let sourceHeight = abs(renderSize.height)
 
-        let compositor = ZoomVideoCompositor(
+        let compositor = CompositionRenderer(
             keyframes: configuration.keyframes,
-            settings: CompositorSettings(
+            settings: CompositionRenderSettings(
                 exportStyle: configuration.exportStyle,
+                zoomPreset: configuration.zoomPreset,
                 cursorEvents: configuration.cursorEvents,
+                clickEvents: configuration.clickEvents,
                 sourceWidth: sourceWidth,
                 sourceHeight: sourceHeight,
                 drawCursor: configuration.drawCursor

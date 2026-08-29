@@ -12,6 +12,7 @@ Use this checklist when recording the 60–90s Hypher launch video with Recorder
 - [ ] Recorder: **3s countdown** enabled
 - [ ] Recorder: **Hide menu bar & dock** enabled
 - [ ] Recorder: **Smooth cursor on export** enabled
+- [ ] Editor: **Spring camera** and **Click ripples** on (defaults)
 - [ ] Rehearse once with **⌘⇧R** start / **⌘⇧.** stop (no menu bar during take)
 
 ## Editor defaults per scene
@@ -39,10 +40,11 @@ Use this checklist when recording the 60–90s Hypher launch video with Recorder
 1. Position browser and cursor before countdown
 2. **⌘⇧R** — wait for 3-2-1, perform scene
 3. **⌘⇧.** — stop
-4. Editor opens → drag **green/orange trim handles** to cut dead air
-5. Verify zoom preset and export settings
-6. **Export MP4** → check file is 1920×1080 and under ~8MB
-7. Repeat for each scene
+4. Editor opens → confirm the preview matches the padded/zoomed look (same compositor as export)
+5. Drag **green/orange trim handles** to cut dead air
+6. Verify zoom preset; leave spring camera and click ripples on unless the scene is a static hold
+7. **Export MP4** → check file is 1920×1080 and under ~8MB
+8. Repeat for each scene
 
 ## Assembly
 

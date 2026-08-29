@@ -31,7 +31,7 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Recorder")
                 .font(.title3.weight(.semibold))
-            Text("Auto zoom + launch demo export")
+            Text("Spring zoom, click FX, launch-ready export")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

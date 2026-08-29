@@ -12,9 +12,12 @@ Native macOS screen recorder with **automatic zoom on clicks** — built for Scr
 - **Zoom presets** — Subtle, Demo, Punch (+ per-keyframe scale)
 - **Timeline editor** — drag zoom blocks, trim in/out handles
 - **Manual zoom** — draw a region on the preview to add a zoom at the playhead
+- **WYSIWYG preview** — same compositor as export (zoom, padding, cursor, ripples)
+- **Spring camera** — optional overshoot / settle instead of cubic ease
+- **Click ripples** and optional cursor spotlight / click-scale
 - **1080p / 720p export** with bitrate targeting (~8MB at 60–90s)
 - **Runlyx-style background frame** — dark gradient, rounded corners, shadow
-- **Cursor smoothing** — tracked path composited on export
+- **Cursor smoothing** — tracked path composited on export and preview
 - Optional **hypher.app watermark**
 - Hide menu bar & dock during recording
 - **Microphone** — optional narration with device picker
@@ -55,7 +58,8 @@ xcodebuild -project Recorder.xcodeproj -scheme Recorder -configuration Debug bui
 3. Click **Record** — perform actions on screen (clicks drive auto zoom).
 4. Click **Stop** — the editor window opens automatically.
 5. Drag zoom blocks on the timeline to adjust timing, or click **Add Manual Zoom** and draw a region on the preview.
-6. Click **Export MP4** when ready, then preview or reveal in Finder.
+6. Toggle spring camera, click ripples, and cursor FX — the preview matches export.
+7. Click **Export MP4** when ready, then preview or reveal in Finder.
 
 ## Project bundle
 
@@ -82,10 +86,10 @@ swift test
 ```
 Capture (ScreenCaptureKit + CGEventTap)
   → AutoZoomGenerator (clicks → keyframes)
-  → ZoomVideoCompositor (per-frame crop/zoom)
+  → CompositionRenderer (preview + export)
   → MP4 export
 ```
 
 ## Deferred
 
-System audio (app/desktop sound), vertical export, in-app multi-scene stitching.
+System audio (app/desktop sound), vertical export, in-app multi-scene stitching (composition model is in place).
