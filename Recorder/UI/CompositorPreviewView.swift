@@ -9,7 +9,7 @@ struct CompositorPreviewView: NSViewRepresentable {
     @ObservedObject var editor: ProjectEditor
 
     func makeNSView(context: Context) -> CompositorPreviewHost {
-        let host = CompositorPreviewHost(player: editor.player)
+        let host = CompositorPreviewHost(player: editor.player, cameraPlayer: editor.cameraPlayer)
         host.apply(from: editor)
         return host
     }
@@ -21,7 +21,10 @@ struct CompositorPreviewView: NSViewRepresentable {
 
 final class CompositorPreviewHost: NSView {
     private let player: AVPlayer
+    private let cameraPlayer: AVPlayer?
     private var videoOutput: AVPlayerItemVideoOutput?
+    private var cameraOutput: AVPlayerItemVideoOutput?
+    private var lastCameraBuffer: CVPixelBuffer?
     private var displayLink: CVDisplayLink?
     private var renderer: CompositionRenderer
     private var lastPixelBuffer: CVPixelBuffer?
@@ -30,8 +33,9 @@ final class CompositorPreviewHost: NSView {
     private var isDisplayLinkRunning = false
     private var itemStatusObserver: NSKeyValueObservation?
 
-    init(player: AVPlayer) {
+    init(player: AVPlayer, cameraPlayer: AVPlayer?) {
         self.player = player
+        self.cameraPlayer = cameraPlayer
         self.renderer = CompositionRenderer(
             keyframes: [],
             settings: CompositionRenderSettings(
@@ -49,6 +53,7 @@ final class CompositorPreviewHost: NSView {
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.contentsGravity = .resizeAspect
         attachVideoOutput()
+        attachCameraOutput()
     }
 
     @available(*, unavailable)
@@ -60,6 +65,9 @@ final class CompositorPreviewHost: NSView {
         stopDisplayLink()
         if let item = player.currentItem, let videoOutput {
             item.remove(videoOutput)
+        }
+        if let item = cameraPlayer?.currentItem, let cameraOutput {
+            item.remove(cameraOutput)
         }
     }
 
@@ -112,6 +120,16 @@ final class CompositorPreviewHost: NSView {
             guard item.status == .readyToPlay else { return }
             self?.renderCurrentFrame(force: true)
         }
+    }
+
+    private func attachCameraOutput() {
+        guard let item = cameraPlayer?.currentItem else { return }
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+        ])
+        output.suppressesPlayerRendering = true
+        item.add(output)
+        cameraOutput = output
     }
 
     private func startDisplayLink() {
@@ -174,14 +192,29 @@ final class CompositorPreviewHost: NSView {
 
         guard let buffer = lastPixelBuffer else { return }
 
+        // Camera and screen share a timeline, so ask for the camera frame at the same time.
+        var cameraFrameChanged = false
+        if let cameraOutput {
+            if cameraOutput.hasNewPixelBuffer(forItemTime: time),
+               let cameraBuffer = cameraOutput.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
+                lastCameraBuffer = cameraBuffer
+                cameraFrameChanged = true
+            } else if lastCameraBuffer == nil,
+                      let cameraBuffer = cameraOutput.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
+                lastCameraBuffer = cameraBuffer
+                cameraFrameChanged = true
+            }
+        }
+
         let signature = pixelSize.width &* 31 &+ pixelSize.height &* 17 &+ Int((seconds * 1000).rounded())
-        if !force, signature == lastRenderedSignature {
+        if !force, !cameraFrameChanged, signature == lastRenderedSignature {
             return
         }
         lastRenderedSignature = signature
 
         guard let rendered = try? renderer.renderFrame(
             pixelBuffer: buffer,
+            cameraBuffer: lastCameraBuffer,
             at: seconds.isFinite ? seconds : 0,
             outputWidth: pixelSize.width,
             outputHeight: pixelSize.height

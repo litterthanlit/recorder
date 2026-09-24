@@ -22,6 +22,13 @@ final class ProjectEditor: ObservableObject {
     @Published private(set) var exportProgress: Double = 0
 
     let player = AVPlayer()
+    /// Plays the separate camera track in lockstep with `player` so the preview can
+    /// composite the bubble like the export does. `nil` when there is no camera track.
+    let cameraPlayer: AVPlayer?
+
+    var hasCameraTrack: Bool {
+        cameraPlayer != nil
+    }
 
     private let videoExporter = VideoExporter()
     private var timeObserver: Any?
@@ -66,7 +73,8 @@ final class ProjectEditor: ObservableObject {
             clickEvents: project.clickEvents,
             sourceWidth: CGFloat(project.metadata.width),
             sourceHeight: CGFloat(project.metadata.height),
-            drawCursor: !project.cursorEvents.isEmpty
+            drawCursor: !project.cursorEvents.isEmpty,
+            camera: editSettings.camera
         )
     }
 
@@ -79,6 +87,13 @@ final class ProjectEditor: ObservableObject {
         self.project = project
         self.keyframes = project.keyframes.sorted { $0.startTime < $1.startTime }
         self.editSettings = project.editSettings
+        if project.hasCameraTrack {
+            let cameraPlayer = AVPlayer(playerItem: AVPlayerItem(url: project.cameraURL))
+            cameraPlayer.isMuted = true
+            self.cameraPlayer = cameraPlayer
+        } else {
+            cameraPlayer = nil
+        }
         if editSettings.trimEnd == nil {
             editSettings.trimEnd = project.metadata.duration
         }
@@ -224,19 +239,39 @@ final class ProjectEditor: ObservableObject {
     func seek(to time: TimeInterval) {
         let clamped = max(trimStart, min(time, trimEnd))
         playheadTime = clamped
-        player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600))
+        let target = CMTime(seconds: clamped, preferredTimescale: 600)
+        player.seek(to: target)
+        cameraPlayer?.seek(to: target)
     }
 
     func togglePlayback() {
         if player.rate > 0 {
-            player.pause()
-            isPlaying = false
+            pausePlayback()
         } else {
             if playheadTime >= trimEnd - 0.05 {
                 seek(to: trimStart)
             }
             player.play()
+            cameraPlayer?.play()
             isPlaying = true
+        }
+    }
+
+    func pausePlayback() {
+        player.pause()
+        cameraPlayer?.pause()
+        isPlaying = false
+    }
+
+    /// Keeps the camera player within a frame or two of the main player during playback.
+    private func syncCameraPlayer(to time: CMTime) {
+        guard let cameraPlayer else { return }
+        let drift = abs(CMTimeGetSeconds(cameraPlayer.currentTime()) - CMTimeGetSeconds(time))
+        if player.rate > 0, cameraPlayer.rate == 0 {
+            cameraPlayer.play()
+        }
+        if drift > 0.08 {
+            cameraPlayer.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
         }
     }
 
@@ -271,7 +306,9 @@ final class ProjectEditor: ObservableObject {
                     cursorEvents: project.cursorEvents,
                     clickEvents: project.clickEvents,
                     drawCursor: !project.cursorEvents.isEmpty,
-                    frameRate: project.metadata.fps
+                    frameRate: project.metadata.fps,
+                    cameraURL: project.hasCameraTrack ? project.cameraURL : nil,
+                    camera: editSettings.camera
                 )
             ) { [weak self] progress in
                 Task { @MainActor in
@@ -313,9 +350,13 @@ final class ProjectEditor: ObservableObject {
                 let seconds = CMTimeGetSeconds(time)
                 self.playheadTime = seconds
                 self.isPlaying = self.player.rate > 0
+                if self.isPlaying {
+                    self.syncCameraPlayer(to: time)
+                } else {
+                    self.cameraPlayer?.pause()
+                }
                 if seconds >= self.trimEnd, self.player.rate > 0 {
-                    self.player.pause()
-                    self.isPlaying = false
+                    self.pausePlayback()
                     self.seek(to: self.trimEnd)
                 }
             }

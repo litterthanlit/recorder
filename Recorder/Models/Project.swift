@@ -113,6 +113,18 @@ struct RecorderProject: Codable, Equatable {
         bundleURL.appendingPathComponent("export.mp4")
     }
 
+    static let cameraFileName = "camera.mov"
+
+    /// Separately recorded camera track (projects recorded before this existed, or
+    /// without the camera, don't have one).
+    var cameraURL: URL {
+        bundleURL.appendingPathComponent(Self.cameraFileName)
+    }
+
+    var hasCameraTrack: Bool {
+        FileManager.default.fileExists(atPath: cameraURL.path)
+    }
+
     init(
         metadata: ProjectMetadata,
         clickEvents: [ClickEvent],

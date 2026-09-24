@@ -18,6 +18,9 @@ struct ExportConfiguration {
     /// Output frame rate. The export runs on this fixed clock regardless of how often
     /// the (variable frame rate) source recording changed.
     let frameRate: Int
+    /// Separately recorded camera track, if any, and how to show it.
+    let cameraURL: URL?
+    let camera: CameraOverlayStyle
 }
 
 final class VideoExporter {
@@ -136,9 +139,15 @@ final class VideoExporter {
                 clickEvents: configuration.clickEvents,
                 sourceWidth: sourceWidth,
                 sourceHeight: sourceHeight,
-                drawCursor: configuration.drawCursor
+                drawCursor: configuration.drawCursor,
+                camera: configuration.camera
             )
         )
+
+        var cameraFrames: CameraFrameSource?
+        if configuration.camera.isVisible {
+            cameraFrames = try await CameraFrameSource(url: configuration.cameraURL)
+        }
 
         let trimStartTime = CMTime(seconds: trimStart, preferredTimescale: 600)
         var lastVideoTime = CMTime.zero
@@ -207,6 +216,7 @@ final class VideoExporter {
 
             let processed = try compositor.renderFrame(
                 pixelBuffer: currentFrame.buffer,
+                cameraBuffer: cameraFrames?.frame(atSourceTime: sourceTime),
                 at: sourceTime,
                 outputWidth: outputWidth,
                 outputHeight: outputHeight,
@@ -312,5 +322,50 @@ enum VideoExporterError: LocalizedError {
         case .bufferCreationFailed:
             return "Failed to create an export frame buffer."
         }
+    }
+}
+
+/// Sequential reader for the camera track that returns, for increasing source times, the
+/// most recent camera frame at or before that time (or the first frame before it starts).
+/// Camera time t lines up with screen time t (see `CameraTrackWriter`).
+private final class CameraFrameSource {
+    private let reader: AVAssetReader
+    private let output: AVAssetReaderTrackOutput
+    private var held: (buffer: CVPixelBuffer, time: TimeInterval)?
+    private var pending: (buffer: CVPixelBuffer, time: TimeInterval)?
+
+    /// Returns `nil` when there is no readable camera track.
+    init?(url: URL?) async throws {
+        guard let url, FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else { return nil }
+
+        reader = try AVAssetReader(asset: asset)
+        output = AVAssetReaderTrackOutput(
+            track: track,
+            outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        )
+        output.alwaysCopiesSampleData = false
+        guard reader.canAdd(output) else { return nil }
+        reader.add(output)
+        guard reader.startReading() else { return nil }
+        pending = readNext()
+    }
+
+    func frame(atSourceTime time: TimeInterval) -> CVPixelBuffer? {
+        while let next = pending,
+              held == nil || ConstantFrameRateTimeline.shouldAdvance(to: next.time, forSourceTime: time) {
+            held = next
+            pending = readNext()
+        }
+        return held?.buffer
+    }
+
+    private func readNext() -> (buffer: CVPixelBuffer, time: TimeInterval)? {
+        while let sample = output.copyNextSampleBuffer() {
+            guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+            return (buffer, CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)))
+        }
+        return nil
     }
 }

@@ -217,12 +217,35 @@ struct ExportStyle: Codable, Equatable {
     }
 }
 
+/// How the separately recorded camera is shown in the composition.
+struct CameraOverlayStyle: Codable, Equatable {
+    var isVisible: Bool = true
+    var position: CameraBubblePosition = .bottomRight
+
+    init(isVisible: Bool = true, position: CameraBubblePosition = .bottomRight) {
+        self.isVisible = isVisible
+        self.position = position
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+        position = try container.decodeIfPresent(CameraBubblePosition.self, forKey: .position) ?? .bottomRight
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case isVisible
+        case position
+    }
+}
+
 struct ProjectEditSettings: Codable, Equatable {
     var trimStart: TimeInterval = 0
     var trimEnd: TimeInterval?
     var exportPreset: ExportResolutionPreset = .hd1080p
     var exportStyle: ExportStyle = .runlyxDark
     var zoomPreset: ZoomPreset = .demo
+    var camera = CameraOverlayStyle()
 
     func effectiveTrimEnd(for duration: TimeInterval) -> TimeInterval {
         min(trimEnd ?? duration, duration)
@@ -332,5 +355,29 @@ extension RecordingPreferences {
     func save(to defaults: UserDefaults = .standard) {
         guard let data = try? JSONEncoder().encode(self) else { return }
         defaults.set(data, forKey: Self.defaultsKey)
+    }
+}
+
+// Tolerant decoding so settings.json written before a field existed still loads.
+extension ProjectEditSettings {
+    private enum CodingKeys: String, CodingKey {
+        case trimStart
+        case trimEnd
+        case exportPreset
+        case exportStyle
+        case zoomPreset
+        case camera
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ProjectEditSettings()
+        trimStart = try container.decodeIfPresent(TimeInterval.self, forKey: .trimStart) ?? defaults.trimStart
+        trimEnd = try container.decodeIfPresent(TimeInterval.self, forKey: .trimEnd)
+        exportPreset = try container.decodeIfPresent(ExportResolutionPreset.self, forKey: .exportPreset)
+            ?? defaults.exportPreset
+        exportStyle = try container.decodeIfPresent(ExportStyle.self, forKey: .exportStyle) ?? defaults.exportStyle
+        zoomPreset = try container.decodeIfPresent(ZoomPreset.self, forKey: .zoomPreset) ?? defaults.zoomPreset
+        camera = try container.decodeIfPresent(CameraOverlayStyle.self, forKey: .camera) ?? defaults.camera
     }
 }

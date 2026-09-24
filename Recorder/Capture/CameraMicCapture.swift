@@ -26,6 +26,9 @@ final class CameraMicCapture: NSObject {
 
     private(set) var previewLayer: AVCaptureVideoPreviewLayer?
 
+    /// Records processed camera frames to their own movie while a take is running.
+    let trackWriter = CameraTrackWriter()
+
     var currentCameraPixelBuffer: CVPixelBuffer? {
         bufferLock.lock()
         defer { bufferLock.unlock() }
@@ -134,6 +137,14 @@ final class CameraMicCapture: NSObject {
         backgroundMode = .none
     }
 
+    /// Capture timestamps are on the session's clock; convert to the host clock that
+    /// ScreenCaptureKit (and `CACurrentMediaTime()`) use so camera and screen line up.
+    private func hostTime(of sampleBuffer: CMSampleBuffer) -> CMTime {
+        let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        guard let sessionClock = session.synchronizationClock else { return time }
+        return CMSyncConvertTime(time, from: sessionClock, to: CMClockGetHostTimeClock())
+    }
+
     private func resolveDevice(mediaType: AVMediaType, preferredID: String?) -> AVCaptureDevice? {
         if let preferredID,
            let device = AVCaptureDevice(uniqueID: preferredID),
@@ -143,7 +154,7 @@ final class CameraMicCapture: NSObject {
         return AVCaptureDevice.default(for: mediaType)
     }
 
-    private func storeCameraFrame(_ pixelBuffer: CVPixelBuffer) {
+    private func storeCameraFrame(_ pixelBuffer: CVPixelBuffer, hostTime: CMTime) {
         let output: CVPixelBuffer
         if backgroundMode.requiresProcessing {
             output = backgroundProcessor.process(pixelBuffer, mode: backgroundMode) ?? pixelBuffer
@@ -154,6 +165,7 @@ final class CameraMicCapture: NSObject {
         bufferLock.lock()
         latestCameraBuffer = output
         bufferLock.unlock()
+        trackWriter.append(output, hostTime: hostTime)
         onCameraFrame?(output)
     }
 }
@@ -166,7 +178,7 @@ extension CameraMicCapture: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapt
     ) {
         if output === videoOutput {
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-            storeCameraFrame(pixelBuffer)
+            storeCameraFrame(pixelBuffer, hostTime: hostTime(of: sampleBuffer))
             return
         }
 

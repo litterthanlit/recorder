@@ -46,7 +46,7 @@ struct EditorView: View {
                 Button {
                     editor.isManualZoomMode.toggle()
                     if editor.isManualZoomMode {
-                        editor.player.pause()
+                        editor.pausePlayback()
                     }
                 } label: {
                     Label(
@@ -143,6 +143,22 @@ struct EditorView: View {
             if editor.editSettings.exportStyle.watermarkEnabled {
                 TextField("Watermark", text: $editor.editSettings.exportStyle.watermarkText)
                     .textFieldStyle(.roundedBorder)
+            }
+
+            if editor.hasCameraTrack {
+                Divider()
+
+                Toggle("Camera bubble", isOn: $editor.editSettings.camera.isVisible)
+
+                if editor.editSettings.camera.isVisible {
+                    Picker("Camera position", selection: $editor.editSettings.camera.position) {
+                        ForEach(CameraBubblePosition.allCases) { position in
+                            Text(position.label).tag(position)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 420)
+                }
             }
         }
         .padding(12)

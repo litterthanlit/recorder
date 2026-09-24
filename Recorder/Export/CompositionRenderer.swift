@@ -11,6 +11,9 @@ struct CompositionRenderSettings {
     var sourceWidth: CGFloat
     var sourceHeight: CGFloat
     var drawCursor: Bool
+    /// Placement of the separately recorded camera. Only drawn when a camera frame is
+    /// passed to `renderImage` / `renderFrame`.
+    var camera = CameraOverlayStyle()
 }
 
 final class CompositionRenderer {
@@ -85,6 +88,7 @@ final class CompositionRenderer {
 
     func renderImage(
         source: CIImage,
+        camera: CIImage? = nil,
         at time: TimeInterval,
         outputWidth: Int,
         outputHeight: Int
@@ -155,6 +159,12 @@ final class CompositionRenderer {
             )
         }
 
+        // Drawn in output space after zoom and spotlight: the bubble stays put and sharp
+        // while the screen content moves underneath it.
+        if settings.camera.isVisible, let camera {
+            finalImage = compositeCameraBubble(camera, onto: finalImage, contentFrame: fitted.frame)
+        }
+
         if settings.exportStyle.watermarkEnabled {
             let outputRect = CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight)
             finalImage = drawWatermark(on: finalImage, outputRect: outputRect)
@@ -168,6 +178,7 @@ final class CompositionRenderer {
     ///   are recycled from it instead of allocated per frame.
     func renderFrame(
         pixelBuffer: CVPixelBuffer,
+        cameraBuffer: CVPixelBuffer? = nil,
         at time: TimeInterval,
         outputWidth: Int,
         outputHeight: Int,
@@ -176,6 +187,7 @@ final class CompositionRenderer {
         let inputImage = CIImage(cvPixelBuffer: pixelBuffer)
         let finalImage = renderImage(
             source: inputImage,
+            camera: cameraBuffer.map { CIImage(cvPixelBuffer: $0) },
             at: time,
             outputWidth: outputWidth,
             outputHeight: outputHeight
@@ -359,6 +371,75 @@ final class CompositionRenderer {
         }
         cachedWatermark = (key, textImage)
         return textImage.composited(over: image)
+    }
+
+    /// Circular camera bubble in a corner of the video frame, with a white rim and a soft
+    /// shadow. Built from Core Image generators so nothing is rasterized on the CPU.
+    private func compositeCameraBubble(_ camera: CIImage, onto image: CIImage, contentFrame: CGRect) -> CIImage {
+        guard contentFrame.width > 0, contentFrame.height > 0,
+              camera.extent.width > 0, camera.extent.height > 0
+        else { return image }
+
+        let bubble = CameraBubbleLayout.frame(in: contentFrame.size, position: settings.camera.position)
+            .offsetBy(dx: contentFrame.minX, dy: contentFrame.minY)
+        let radius = bubble.width / 2
+        let center = CGPoint(x: bubble.midX, y: bubble.midY)
+
+        // Aspect-fill the camera frame into the bubble's square.
+        let extent = camera.extent
+        let scale = max(bubble.width / extent.width, bubble.height / extent.height)
+        let fitted = camera
+            .transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let placed = fitted
+            .transformed(by: CGAffineTransform(
+                translationX: center.x - extent.width * scale / 2,
+                y: center.y - extent.height * scale / 2
+            ))
+            .cropped(to: bubble)
+
+        let rimWidth = max(2, radius * 0.045)
+        let rimRadius = radius + rimWidth
+
+        let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.35))
+            .cropped(to: bubble.insetBy(dx: -rimWidth * 4, dy: -rimWidth * 4))
+            .applyingFilter("CIBlendWithMask", parameters: [
+                kCIInputMaskImageKey: circleMask(
+                    center: CGPoint(x: center.x, y: center.y - rimWidth * 1.5),
+                    radius: rimRadius
+                )
+            ])
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: rimWidth * 3])
+            .cropped(to: bubble.insetBy(dx: -rimWidth * 12, dy: -rimWidth * 12))
+
+        let rim = CIImage(color: CIColor(red: 1, green: 1, blue: 1, alpha: 0.92))
+            .cropped(to: bubble.insetBy(dx: -rimWidth - 2, dy: -rimWidth - 2))
+            .applyingFilter("CIBlendWithMask", parameters: [
+                kCIInputMaskImageKey: circleMask(center: center, radius: rimRadius)
+            ])
+
+        let face = placed.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputMaskImageKey: circleMask(center: center, radius: radius)
+        ])
+
+        return face
+            .composited(over: rim)
+            .composited(over: shadow)
+            .composited(over: image)
+    }
+
+    /// White disc with a one-pixel anti-aliased edge, transparent elsewhere.
+    private func circleMask(center: CGPoint, radius: CGFloat) -> CIImage {
+        let bounds = CGRect(x: center.x - radius - 2, y: center.y - radius - 2, width: radius * 2 + 4, height: radius * 2 + 4)
+        guard let filter = CIFilter(name: "CIRadialGradient") else {
+            return CIImage.empty()
+        }
+        filter.setValue(CIVector(x: center.x, y: center.y), forKey: "inputCenter")
+        filter.setValue(max(0, radius - 1), forKey: "inputRadius0")
+        filter.setValue(radius, forKey: "inputRadius1")
+        filter.setValue(CIColor(red: 1, green: 1, blue: 1, alpha: 1), forKey: "inputColor0")
+        filter.setValue(CIColor(red: 0, green: 0, blue: 0, alpha: 0), forKey: "inputColor1")
+        return (filter.outputImage ?? CIImage.empty()).cropped(to: bounds)
     }
 
     private func cursorLocation(at time: TimeInterval) -> CGPoint? {

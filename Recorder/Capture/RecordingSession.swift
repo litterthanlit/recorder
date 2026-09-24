@@ -155,6 +155,12 @@ final class RecordingSession: ObservableObject {
                 presentationMode.enter()
             }
 
+            if preferences.cameraEnabled {
+                cameraMicCapture.trackWriter.prepare(
+                    outputURL: bundleURL.appendingPathComponent(RecorderProject.cameraFileName)
+                )
+            }
+
             try cameraMicCapture.start(
                 enableCamera: preferences.cameraEnabled,
                 cameraID: preferences.selectedCameraID,
@@ -181,18 +187,12 @@ final class RecordingSession: ObservableObject {
                 excludeWindowIDs.append(bubbleID)
             }
 
-            let cameraCapture = cameraMicCapture
             let recorderOptions = ScreenRecorderOptions(
                 captureTarget: preferences.captureTarget,
                 windowID: preferences.selectedWindowID,
                 showCursor: !preferences.cursorSmoothingEnabled,
                 excludeWindowIDs: excludeWindowIDs,
-                enableMicrophone: preferences.microphoneEnabled,
-                enableCamera: preferences.cameraEnabled,
-                cameraPosition: preferences.cameraPosition,
-                cameraFrameProvider: {
-                    cameraCapture.currentCameraPixelBuffer
-                }
+                enableMicrophone: preferences.microphoneEnabled
             )
             try await screenRecorder.startRecording(to: videoURL, options: recorderOptions)
 
@@ -207,6 +207,7 @@ final class RecordingSession: ObservableObject {
             elapsedTime = 0
             clickCount = 0
         } catch {
+            cameraMicCapture.trackWriter.cancel()
             teardownCaptureHelpers()
             countdownOverlay.cancel()
             hasStartedInputTracking = false
@@ -234,9 +235,12 @@ final class RecordingSession: ObservableObject {
             do {
                 recordingResult = try await screenRecorder.stopRecording()
             } catch {
+                cameraMicCapture.trackWriter.cancel()
                 teardownCaptureHelpers()
                 throw interruption ?? error
             }
+            // Written to camera.mov in the bundle, which the editor picks up by name.
+            _ = await cameraMicCapture.trackWriter.finish()
             teardownCaptureHelpers()
 
             let generator = AutoZoomGenerator(
@@ -248,6 +252,7 @@ final class RecordingSession: ObservableObject {
 
             var editSettings = ProjectEditSettings()
             editSettings.exportStyle.cursorSmoothingEnabled = preferences.cursorSmoothingEnabled
+            editSettings.camera.position = preferences.cameraPosition
 
             let metadata = ProjectMetadata(
                 id: currentProjectID,
@@ -346,12 +351,19 @@ final class RecordingSession: ObservableObject {
         cameraMicCapture.stop()
     }
 
-    private func beginInputTrackingAlignedToVideo() {
+    /// - Parameter firstFrameHostTime: capture time of video t = 0 on the host clock.
+    private func beginInputTrackingAlignedToVideo(firstFrameHostTime: CMTime) {
         guard case .recording = state, !hasStartedInputTracking else { return }
         hasStartedInputTracking = true
 
-        // Epoch matches video t=0 (first written sample).
-        recordingStartTime = CACurrentMediaTime()
+        // Use the frame's own capture time rather than "now": the notification reaches the
+        // main thread some milliseconds later, which would make every zoom land late.
+        // CACurrentMediaTime() is on the same host clock.
+        let firstFrameSeconds = CMTimeGetSeconds(firstFrameHostTime)
+        recordingStartTime = firstFrameSeconds.isFinite && firstFrameSeconds > 0
+            ? firstFrameSeconds
+            : CACurrentMediaTime()
+        cameraMicCapture.trackWriter.setEpoch(firstFrameHostTime)
 
         inputTracker.configure(
             startTime: recordingStartTime,
@@ -392,9 +404,9 @@ final class RecordingSession: ObservableObject {
 }
 
 extension RecordingSession: ScreenRecorderDelegate {
-    nonisolated func screenRecorderDidReceiveFirstFrame(_ recorder: ScreenRecorder) {
+    nonisolated func screenRecorder(_ recorder: ScreenRecorder, didReceiveFirstFrameAt hostTime: CMTime) {
         Task { @MainActor in
-            self.beginInputTrackingAlignedToVideo()
+            self.beginInputTrackingAlignedToVideo(firstFrameHostTime: hostTime)
         }
     }
 

@@ -1,13 +1,14 @@
 import AppKit
 import AVFoundation
-import CoreImage
 import CoreMedia
 import CoreVideo
 import Foundation
 import ScreenCaptureKit
 
 protocol ScreenRecorderDelegate: AnyObject {
-    func screenRecorderDidReceiveFirstFrame(_ recorder: ScreenRecorder)
+    /// `hostTime` is the first frame's capture time on the host clock (the same clock as
+    /// `CACurrentMediaTime()`); it is t = 0 of the recording.
+    func screenRecorder(_ recorder: ScreenRecorder, didReceiveFirstFrameAt hostTime: CMTime)
     func screenRecorder(_ recorder: ScreenRecorder, didWriteFrameAt time: TimeInterval)
     func screenRecorder(_ recorder: ScreenRecorder, didFailWith error: Error)
 }
@@ -18,9 +19,6 @@ struct ScreenRecorderOptions {
     var showCursor: Bool = true
     var excludeWindowIDs: [UInt32] = []
     var enableMicrophone: Bool = false
-    var enableCamera: Bool = false
-    var cameraPosition: CameraBubblePosition = .bottomRight
-    var cameraFrameProvider: (() -> CVPixelBuffer?)?
 }
 
 final class ScreenRecorder: NSObject {
@@ -42,7 +40,6 @@ final class ScreenRecorder: NSObject {
     /// Last frame handed to the writer; re-appended at stop so a still ending isn't cut off.
     private var lastWrittenPixelBuffer: CVPixelBuffer?
     private let writerQueue = DispatchQueue(label: "com.recorder.writer")
-    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private var options = ScreenRecorderOptions()
 
     private(set) var captureWidth: Int = 0
@@ -347,14 +344,9 @@ final class ScreenRecorder: NSObject {
         let relativeTime = CMTimeSubtract(presentationTime, firstSampleTime ?? .zero)
         let frameDuration = resolvedFrameDuration(for: sampleBuffer)
 
-        let bufferToWrite: CVPixelBuffer
-        if options.enableCamera,
-           let cameraBuffer = options.cameraFrameProvider?(),
-           let composited = compositeCamera(onto: pixelBuffer, camera: cameraBuffer) {
-            bufferToWrite = composited
-        } else {
-            bufferToWrite = pixelBuffer
-        }
+        // The camera is recorded to its own track (CameraTrackWriter) and composited at
+        // render time, so screen frames are written untouched.
+        let bufferToWrite = pixelBuffer
 
         let appended: Bool
         if let adaptor = pixelBufferAdaptor {
@@ -375,7 +367,7 @@ final class ScreenRecorder: NSObject {
             guard let self else { return }
             if isFirstFrame, !self.didNotifyFirstFrame {
                 self.didNotifyFirstFrame = true
-                self.delegate?.screenRecorderDidReceiveFirstFrame(self)
+                self.delegate?.screenRecorder(self, didReceiveFirstFrameAt: presentationTime)
             }
             self.delegate?.screenRecorder(self, didWriteFrameAt: CMTimeGetSeconds(relativeTime))
         }
@@ -430,93 +422,6 @@ final class ScreenRecorder: NSObject {
             guard let self else { return }
             self.delegate?.screenRecorder(self, didFailWith: error)
         }
-    }
-
-    private func compositeCamera(onto screenBuffer: CVPixelBuffer, camera: CVPixelBuffer) -> CVPixelBuffer? {
-        let screenImage = CIImage(cvPixelBuffer: screenBuffer)
-        let bounds = screenImage.extent
-        let bubbleRect = CameraBubbleLayout.frame(
-            in: bounds.size,
-            position: options.cameraPosition
-        )
-
-        let cameraImage = CIImage(cvPixelBuffer: camera)
-        let camExtent = cameraImage.extent
-        let scale = max(bubbleRect.width / camExtent.width, bubbleRect.height / camExtent.height)
-        let scaled = cameraImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        let scaledExtent = scaled.extent
-        let cropOrigin = CGPoint(
-            x: scaledExtent.midX - bubbleRect.width / 2,
-            y: scaledExtent.midY - bubbleRect.height / 2
-        )
-        let cropped = scaled.cropped(
-            to: CGRect(origin: cropOrigin, size: bubbleRect.size)
-        )
-        let positioned = cropped.transformed(
-            by: CGAffineTransform(
-                translationX: bubbleRect.minX - cropped.extent.minX,
-                y: bubbleRect.minY - cropped.extent.minY
-            )
-        )
-
-        let borderWidth = min(bounds.width, bounds.height) * CameraBubbleLayout.borderWidthFraction
-        let borderRect = bubbleRect.insetBy(dx: -borderWidth, dy: -borderWidth)
-        let whiteBorder = CIImage(color: CIColor(red: 1, green: 1, blue: 1, alpha: 0.92))
-            .cropped(to: borderRect)
-        let borderMask = circularMask(rect: borderRect, canvas: bounds)
-        let maskedBorder = whiteBorder.applyingFilter("CIBlendWithMask", parameters: [
-            kCIInputMaskImageKey: borderMask
-        ])
-
-        let bubbleMask = circularMask(rect: bubbleRect, canvas: bounds)
-        let maskedCamera = positioned.applyingFilter("CIBlendWithMask", parameters: [
-            kCIInputMaskImageKey: bubbleMask
-        ])
-
-        let composed = maskedCamera
-            .composited(over: maskedBorder)
-            .composited(over: screenImage)
-            .cropped(to: bounds)
-
-        var output: CVPixelBuffer?
-        let status = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            Int(bounds.width),
-            Int(bounds.height),
-            kCVPixelFormatType_32BGRA,
-            [
-                kCVPixelBufferIOSurfacePropertiesKey: [:]
-            ] as CFDictionary,
-            &output
-        )
-        guard status == kCVReturnSuccess, let output else { return nil }
-        ciContext.render(composed, to: output)
-        return output
-    }
-
-    private func circularMask(rect: CGRect, canvas: CGRect) -> CIImage {
-        let width = max(1, Int(canvas.width))
-        let height = max(1, Int(canvas.height))
-        guard let context = CGContext(
-            data: nil,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: width * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            return CIImage(color: .white).cropped(to: canvas)
-        }
-
-        context.clear(CGRect(x: 0, y: 0, width: width, height: height))
-        context.setFillColor(NSColor.white.cgColor)
-        context.fillEllipse(in: rect)
-
-        guard let cgImage = context.makeImage() else {
-            return CIImage(color: .white).cropped(to: canvas)
-        }
-        return CIImage(cgImage: cgImage)
     }
 
     /// ScreenCaptureKit often reports invalid/zero sample durations — fall back to 1/fps.
