@@ -27,16 +27,15 @@ enum ExportResolutionPreset: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// Target bitrate for launch-friendly file sizes (~8MB at 60–90s for 1080p).
-    var targetBitrate: Int {
-        switch self {
-        case .source:
-            return 2_000_000
-        case .hd1080p:
-            return 700_000
-        case .hd720p:
-            return 450_000
-        }
+    /// Bitrate for high-quality scene exports that will be edited and re-encoded later.
+    ///
+    /// Screen content with zooms changes every pixel during camera moves, so it needs far
+    /// more than a size-capped delivery encode: ~0.08 bits per pixel per frame at 60 fps
+    /// (≈10 Mbps at 1080p). Apply file-size limits to the final assembled video instead.
+    func targetBitrate(for outputSize: CGSize, fps: Int = 60) -> Int {
+        let bitsPerPixelPerFrame = 0.08
+        let bitrate = Double(outputSize.width * outputSize.height) * Double(max(fps, 1)) * bitsPerPixelPerFrame
+        return max(2_000_000, Int(bitrate.rounded()))
     }
 }
 
@@ -277,4 +276,61 @@ struct RecordingPreferences: Codable, Equatable {
     var cameraBackground: CameraBackgroundMode = .none
 
     static let `default` = RecordingPreferences()
+}
+
+// Decoding is tolerant so preferences saved by an older build still load after new
+// fields are added. Defined in an extension to keep the memberwise initializer.
+extension RecordingPreferences {
+    private enum CodingKeys: String, CodingKey {
+        case countdownSeconds
+        case captureTarget
+        case selectedWindowID
+        case hideChromeDuringRecording
+        case cursorSmoothingEnabled
+        case microphoneEnabled
+        case selectedMicrophoneID
+        case cameraEnabled
+        case selectedCameraID
+        case cameraPosition
+        case cameraBackground
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = RecordingPreferences()
+        countdownSeconds = try container.decodeIfPresent(Int.self, forKey: .countdownSeconds) ?? defaults.countdownSeconds
+        captureTarget = try container.decodeIfPresent(CaptureTargetKind.self, forKey: .captureTarget) ?? defaults.captureTarget
+        selectedWindowID = try container.decodeIfPresent(UInt32.self, forKey: .selectedWindowID)
+        hideChromeDuringRecording = try container.decodeIfPresent(Bool.self, forKey: .hideChromeDuringRecording)
+            ?? defaults.hideChromeDuringRecording
+        cursorSmoothingEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorSmoothingEnabled)
+            ?? defaults.cursorSmoothingEnabled
+        microphoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .microphoneEnabled) ?? defaults.microphoneEnabled
+        selectedMicrophoneID = try container.decodeIfPresent(String.self, forKey: .selectedMicrophoneID)
+        cameraEnabled = try container.decodeIfPresent(Bool.self, forKey: .cameraEnabled) ?? defaults.cameraEnabled
+        selectedCameraID = try container.decodeIfPresent(String.self, forKey: .selectedCameraID)
+        cameraPosition = try container.decodeIfPresent(CameraBubblePosition.self, forKey: .cameraPosition)
+            ?? defaults.cameraPosition
+        cameraBackground = try container.decodeIfPresent(CameraBackgroundMode.self, forKey: .cameraBackground)
+            ?? defaults.cameraBackground
+    }
+
+    private static let defaultsKey = "recordingPreferences"
+
+    /// Loads the last-used preferences. Window IDs don't survive relaunches, so the
+    /// window selection is dropped.
+    static func load(from defaults: UserDefaults = .standard) -> RecordingPreferences {
+        guard let data = defaults.data(forKey: defaultsKey),
+              var preferences = try? JSONDecoder().decode(RecordingPreferences.self, from: data)
+        else {
+            return .default
+        }
+        preferences.selectedWindowID = nil
+        return preferences
+    }
+
+    func save(to defaults: UserDefaults = .standard) {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        defaults.set(data, forKey: Self.defaultsKey)
+    }
 }

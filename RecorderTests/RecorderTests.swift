@@ -29,6 +29,31 @@ struct AutoZoomGeneratorTests {
         #expect(keyframes[1].startTime >= keyframes[0].endTime)
     }
 
+    @Test func frequentClicksDoNotDriftLater() {
+        let generator = AutoZoomGenerator(
+            settings: AutoZoomSettings(zoomScale: 1.6, holdDuration: 1.3),
+            frameWidth: 1920,
+            frameHeight: 1080
+        )
+        let clickTimes: [TimeInterval] = [1, 2, 3, 4, 5, 6, 7, 8]
+        let events = clickTimes.enumerated().map { index, time in
+            ClickEvent(
+                timestamp: time,
+                location: CGPoint(x: index.isMultiple(of: 2) ? 300 : 1500, y: 500),
+                button: .left
+            )
+        }
+
+        let keyframes = generator.generate(from: events)
+        #expect(keyframes.count == clickTimes.count)
+        for (keyframe, clickTime) in zip(keyframes, clickTimes) {
+            #expect(abs(keyframe.peakTime - clickTime) < 0.001)
+        }
+        for index in 1..<keyframes.count {
+            #expect(keyframes[index].startTime >= keyframes[index - 1].endTime - 0.0001)
+        }
+    }
+
     @Test func emptyEventsProduceNoKeyframes() {
         let generator = AutoZoomGenerator(frameWidth: 1920, frameHeight: 1080)
         #expect(generator.generate(from: []).isEmpty)
@@ -114,6 +139,23 @@ struct ZoomInterpolatorTests {
         #expect(didOvershoot)
         #expect(abs(interpolator.scale(at: 1.35) - 2) < 0.04)
     }
+
+    @Test func chainedKeyframesPanWithoutReturningToFullFrame() {
+        let keyframes = [
+            ZoomKeyframe(startTime: 0, peakTime: 0.35, endTime: 1, center: CGPoint(x: 0.3, y: 0.5), scale: 2),
+            ZoomKeyframe(startTime: 1, peakTime: 1.35, endTime: 2, center: CGPoint(x: 0.7, y: 0.5), scale: 2)
+        ]
+        let interpolator = ZoomInterpolator(keyframes: keyframes)
+
+        var sample = 0.35
+        while sample <= 1.35 {
+            #expect(interpolator.cropRect(at: sample).width < 0.51)
+            sample += 0.05
+        }
+        let midPan = interpolator.cropRect(at: 1.175)
+        #expect(midPan.x + midPan.width / 2 > 0.3)
+        #expect(midPan.x + midPan.width / 2 < 0.7)
+    }
 }
 
 @Suite("ZoomKeyframeEditor")
@@ -127,6 +169,51 @@ struct ZoomKeyframeEditorTests {
         #expect(keyframe.source == .manual)
         #expect(keyframe.peakTime == 2)
         #expect(keyframe.scale > 1)
+    }
+
+    @Test func selectionNearTopOfPreviewMapsToTopOfSource() {
+        // 16:10 source inside a 16:9 preview with padding -> pillarboxed content.
+        let canvas = CGSize(width: 1600, height: 900)
+        let frame = ZoomKeyframeEditor.fittedContentFrame(contentAspect: 1.6, in: canvas, padding: 96)
+        #expect(abs(frame.height - 708) < 0.5)
+        #expect(abs(frame.midX - 800) < 0.5)
+
+        // Drag across the top-left quarter of the visible video (view y grows downward).
+        let selection = CGRect(x: frame.minX, y: frame.minY, width: frame.width / 2, height: frame.height / 2)
+        let rect = ZoomKeyframeEditor.sourceRect(
+            forSelection: selection,
+            contentFrame: frame,
+            visibleCrop: .fullFrame
+        )
+        #expect(rect != nil)
+        #expect(abs(rect!.minX - 0) < 0.001)
+        #expect(abs(rect!.minY - 0.5) < 0.001)
+        #expect(abs(rect!.width - 0.5) < 0.001)
+        #expect(abs(rect!.height - 0.5) < 0.001)
+    }
+
+    @Test func selectionMapsThroughCurrentZoom() {
+        let frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        let visible = NormalizedRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5)
+        let rect = ZoomKeyframeEditor.sourceRect(
+            forSelection: CGRect(x: 0, y: 50, width: 50, height: 50),
+            contentFrame: frame,
+            visibleCrop: visible
+        )
+        #expect(rect != nil)
+        #expect(abs(rect!.minX - 0.5) < 0.001)
+        #expect(abs(rect!.minY - 0.5) < 0.001)
+        #expect(abs(rect!.width - 0.25) < 0.001)
+    }
+
+    @Test func selectionOutsideVideoIsIgnored() {
+        let frame = CGRect(x: 100, y: 0, width: 100, height: 100)
+        let rect = ZoomKeyframeEditor.sourceRect(
+            forSelection: CGRect(x: 0, y: 0, width: 50, height: 50),
+            contentFrame: frame,
+            visibleCrop: .fullFrame
+        )
+        #expect(rect == nil)
     }
 
     @Test func chainsOverlapsAfterManualAdd() {

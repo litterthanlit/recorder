@@ -152,9 +152,13 @@ final class ProjectEditor: ObservableObject {
         persistKeyframes()
     }
 
-    func updateKeyframe(_ keyframe: ZoomKeyframe) {
+    /// - Parameter commit: pass `false` for live drag updates; overlaps are resolved and
+    ///   the project saved once, when the drag ends (see `resolveKeyframeOverlaps`).
+    ///   Resolving on every tick would permanently trim neighbors the block passes over.
+    func updateKeyframe(_ keyframe: ZoomKeyframe, commit: Bool = true) {
         guard let index = keyframes.firstIndex(where: { $0.id == keyframe.id }) else { return }
         keyframes[index] = ZoomKeyframeEditor.clampKeyframe(keyframe, duration: duration)
+        guard commit else { return }
         ZoomKeyframeEditor.resolveOverlaps(&keyframes)
         persistKeyframes()
     }
@@ -236,7 +240,13 @@ final class ProjectEditor: ObservableObject {
         }
     }
 
+    var isExporting: Bool {
+        if case .exporting = state { return true }
+        return false
+    }
+
     func export() async {
+        guard !isExporting else { return }
         state = .exporting(progress: 0)
         exportProgress = 0
 
@@ -253,7 +263,7 @@ final class ProjectEditor: ObservableObject {
                 configuration: ExportConfiguration(
                     keyframes: keyframes,
                     outputSize: outputSize,
-                    bitrate: editSettings.exportPreset.targetBitrate,
+                    bitrate: editSettings.exportPreset.targetBitrate(for: outputSize, fps: project.metadata.fps),
                     trimStart: trimStart,
                     trimEnd: trimEnd,
                     exportStyle: editSettings.exportStyle,
@@ -264,8 +274,10 @@ final class ProjectEditor: ObservableObject {
                 )
             ) { [weak self] progress in
                 Task { @MainActor in
-                    self?.exportProgress = progress
-                    self?.state = .exporting(progress: progress)
+                    // Progress updates can land after the export has already finished.
+                    guard let self, self.isExporting else { return }
+                    self.exportProgress = progress
+                    self.state = .exporting(progress: progress)
                 }
             }
             state = .exported

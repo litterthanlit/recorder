@@ -21,6 +21,34 @@ final class CompositionRenderer {
     private var smoothedCursorEvents: [CursorEvent]
     private var rippleEvaluator: ClickRippleEvaluator
     private var motionFX: MotionFXSettings
+    private var maskCache: [MaskKey: CIImage] = [:]
+    private var cachedWatermark: (key: WatermarkKey, image: CIImage)?
+
+    private struct MaskKey: Hashable {
+        let x: CGFloat
+        let y: CGFloat
+        let width: CGFloat
+        let height: CGFloat
+        let radius: CGFloat
+        let canvasWidth: CGFloat
+        let canvasHeight: CGFloat
+
+        init(rect: CGRect, radius: CGFloat, canvasSize: CGSize) {
+            x = rect.origin.x
+            y = rect.origin.y
+            width = rect.width
+            height = rect.height
+            self.radius = radius
+            canvasWidth = canvasSize.width
+            canvasHeight = canvasSize.height
+        }
+    }
+
+    private struct WatermarkKey: Equatable {
+        let text: String
+        let width: CGFloat
+        let height: CGFloat
+    }
 
     init(keyframes: [ZoomKeyframe], settings: CompositionRenderSettings, ciContext: CIContext? = nil) {
         self.ciContext = ciContext ?? CIContext(options: [.useSoftwareRenderer: false])
@@ -274,52 +302,52 @@ final class CompositionRenderer {
         return (filter.outputImage ?? CIImage.empty()).cropped(to: rect)
     }
 
+    /// `rect` is in Core Image space (bottom-left origin), which matches an unflipped
+    /// bitmap context, so it is drawn as-is. Masks only change when the layout does,
+    /// so they are cached instead of being re-rasterized every frame.
     private func roundedRectMask(rect: CGRect, radius: CGFloat, canvasSize: CGSize) -> CIImage {
-        let width = max(Int(canvasSize.width), 1)
-        let height = max(Int(canvasSize.height), 1)
-        guard let context = CGContext(
-            data: nil,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: width * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            return CIImage(color: .white).cropped(to: rect)
+        let key = MaskKey(rect: rect, radius: radius, canvasSize: canvasSize)
+        if let cached = maskCache[key] {
+            return cached
         }
 
-        context.setFillColor(NSColor.white.cgColor)
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: 1, y: -1)
-        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-        context.addPath(path.cgPath)
-        context.fillPath()
-
-        guard let cgImage = context.makeImage() else {
-            return CIImage(color: .white).cropped(to: rect)
+        let mask = renderBitmap(size: canvasSize) { context in
+            context.setFillColor(NSColor.white.cgColor)
+            let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+            context.addPath(path.cgPath)
+            context.fillPath()
         }
-        return CIImage(cgImage: cgImage)
+
+        if maskCache.count > 16 {
+            maskCache.removeAll()
+        }
+        maskCache[key] = mask
+        return mask
     }
 
     private func drawWatermark(on image: CIImage, outputRect: CGRect) -> CIImage {
         let text = settings.exportStyle.watermarkText
+        let key = WatermarkKey(text: text, width: outputRect.width, height: outputRect.height)
+        if let cachedWatermark, cachedWatermark.key == key {
+            return cachedWatermark.image.composited(over: image)
+        }
+
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 18, weight: .medium),
             .foregroundColor: NSColor.white.withAlphaComponent(0.55)
         ]
         let size = (text as NSString).size(withAttributes: attributes)
-        let textRect = CGRect(
-            x: outputRect.maxX - size.width - 24,
-            y: 24,
-            width: size.width,
-            height: size.height
-        )
+        // Unflipped context: y is measured from the bottom, so this is the bottom-right corner.
+        let origin = CGPoint(x: outputRect.maxX - size.width - 24, y: 24)
         let textImage = renderBitmap(size: outputRect.size) { context in
-            context.translateBy(x: 0, y: outputRect.height)
-            context.scaleBy(x: 1, y: -1)
-            (text as NSString).draw(in: textRect, withAttributes: attributes)
+            // AppKit string drawing targets NSGraphicsContext.current, which is nil on
+            // the render queues unless we install one around the bitmap context.
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            (text as NSString).draw(at: origin, withAttributes: attributes)
+            NSGraphicsContext.restoreGraphicsState()
         }
+        cachedWatermark = (key, textImage)
         return textImage.composited(over: image)
     }
 
@@ -346,10 +374,12 @@ final class CompositionRenderer {
 
         let canvas = CGSize(width: sourceWidth, height: sourceHeight)
         let cursorImage = renderBitmap(size: canvas) { context in
+            // Flip so the arrow path (defined top-down) points the right way. Tracked
+            // locations are bottom-up (Core Image space), so convert the tip too.
             context.translateBy(x: 0, y: sourceHeight)
             context.scaleBy(x: 1, y: -1)
 
-            let tip = CGPoint(x: cursorLocation.x, y: cursorLocation.y)
+            let tip = CGPoint(x: cursorLocation.x, y: sourceHeight - cursorLocation.y)
             context.translateBy(x: tip.x, y: tip.y)
             context.scaleBy(x: scale, y: scale)
 
@@ -392,10 +422,8 @@ final class CompositionRenderer {
         guard !ripples.isEmpty else { return image }
 
         let canvas = CGSize(width: sourceWidth, height: sourceHeight)
+        // Click locations are bottom-up, matching an unflipped bitmap context.
         let rippleImage = renderBitmap(size: canvas) { context in
-            context.translateBy(x: 0, y: sourceHeight)
-            context.scaleBy(x: 1, y: -1)
-
             for ripple in ripples {
                 let radius = motionFX.rippleRadius * (0.18 + 0.82 * ripple.progress)
                 let alpha = (1 - ripple.progress) * (ripple.ring == 0 ? 0.7 : 0.42)
@@ -428,7 +456,7 @@ final class CompositionRenderer {
         }
         return CGPoint(
             x: contentFrame.minX + localX * contentFrame.width,
-            y: contentFrame.maxY - localY * contentFrame.height
+            y: contentFrame.minY + localY * contentFrame.height
         )
     }
 

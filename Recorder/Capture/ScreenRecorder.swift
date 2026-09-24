@@ -38,6 +38,9 @@ final class ScreenRecorder: NSObject {
     private var outputURL: URL?
     private var isRecording = false
     private var didNotifyFirstFrame = false
+    private var didReportFailure = false
+    /// Last frame handed to the writer; re-appended at stop so a still ending isn't cut off.
+    private var lastWrittenPixelBuffer: CVPixelBuffer?
     private let writerQueue = DispatchQueue(label: "com.recorder.writer")
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private var options = ScreenRecorderOptions()
@@ -66,7 +69,9 @@ final class ScreenRecorder: NSObject {
     }
 
     func startRecording(to url: URL, options: ScreenRecorderOptions = ScreenRecorderOptions()) async throws {
-        guard !isRecording else { return }
+        guard !isRecording else {
+            throw ScreenRecorderError.alreadyRecording
+        }
         self.options = options
 
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
@@ -125,17 +130,26 @@ final class ScreenRecorder: NSObject {
             includeAudio: options.enableMicrophone
         )
 
-        let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
-        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: writerQueue)
-        try await stream.startCapture()
-
-        self.stream = stream
-        sessionStartTime = CACurrentMediaTime()
         firstSampleTime = nil
         firstAudioSampleTime = nil
         lastWrittenTime = .zero
+        lastWrittenPixelBuffer = nil
         didNotifyFirstFrame = false
+        didReportFailure = false
         outputURL = url
+
+        let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
+        do {
+            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: writerQueue)
+            try await stream.startCapture()
+        } catch {
+            assetWriter?.cancelWriting()
+            assetWriter = nil
+            throw error
+        }
+
+        self.stream = stream
+        sessionStartTime = CACurrentMediaTime()
         isRecording = true
     }
 
@@ -145,15 +159,20 @@ final class ScreenRecorder: NSObject {
         }
     }
 
+    /// Stops capture and finalizes the movie. Safe to call after a stream error: the
+    /// writer is always finished so whatever was recorded stays playable.
     func stopRecording() async throws -> RecordingResult {
         guard isRecording else {
             throw ScreenRecorderError.notRecording
         }
 
+        let stopHostTime = CMClockGetTime(CMClockGetHostTimeClock())
         isRecording = false
 
         if let stream {
-            try await stream.stopCapture()
+            // The stream may already have stopped on its own (window closed, error, user
+            // stopped sharing). Finishing the file matters more than this call succeeding.
+            try? await stream.stopCapture()
         }
         stream = nil
 
@@ -164,14 +183,38 @@ final class ScreenRecorder: NSObject {
                     return
                 }
 
-                self.writerInput?.markAsFinished()
-                self.audioWriterInput?.markAsFinished()
-                let writer = self.assetWriter
                 let outputURL = self.outputURL
 
-                writer?.finishWriting {
-                    if writer?.status == .failed {
-                        continuation.resume(throwing: writer?.error ?? ScreenRecorderError.writerFailed)
+                guard let writer = self.assetWriter,
+                      writer.status == .writing,
+                      let firstSampleTime = self.firstSampleTime
+                else {
+                    let failedWriter = self.assetWriter
+                    failedWriter?.cancelWriting()
+                    self.assetWriter = nil
+                    continuation.resume(throwing: failedWriter?.error ?? ScreenRecorderError.noFramesCaptured)
+                    return
+                }
+
+                // ScreenCaptureKit only delivers frames when the screen changes, so a still
+                // ending has no frames. Repeat the last frame at the stop time to keep it.
+                let stopTime = CMTimeSubtract(stopHostTime, firstSampleTime)
+                if stopTime > self.lastWrittenTime,
+                   let lastBuffer = self.lastWrittenPixelBuffer,
+                   let writerInput = self.writerInput,
+                   writerInput.isReadyForMoreMediaData,
+                   self.pixelBufferAdaptor?.append(lastBuffer, withPresentationTime: stopTime) == true {
+                    self.lastWrittenTime = stopTime
+                }
+
+                self.writerInput?.markAsFinished()
+                self.audioWriterInput?.markAsFinished()
+                writer.endSession(atSourceTime: self.lastWrittenTime)
+                self.lastWrittenPixelBuffer = nil
+
+                writer.finishWriting {
+                    if writer.status == .failed {
+                        continuation.resume(throwing: writer.error ?? ScreenRecorderError.writerFailed)
                         return
                     }
 
@@ -276,6 +319,8 @@ final class ScreenRecorder: NSObject {
             audioWriterInput = nil
         }
 
+        // Write in fragments so a crash mid-take leaves a recoverable movie.
+        writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
 
@@ -319,11 +364,12 @@ final class ScreenRecorder: NSObject {
         }
 
         if !appended {
-            delegate?.screenRecorder(self, didFailWith: assetWriter.error ?? ScreenRecorderError.writerFailed)
+            reportFailure(assetWriter.error ?? ScreenRecorderError.writerFailed)
             return
         }
 
         lastWrittenTime = CMTimeAdd(relativeTime, frameDuration)
+        lastWrittenPixelBuffer = bufferToWrite
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -371,7 +417,18 @@ final class ScreenRecorder: NSObject {
 
         guard let copiedBuffer else { return }
         if !audioWriterInput.append(copiedBuffer) {
-            delegate?.screenRecorder(self, didFailWith: assetWriter.error ?? ScreenRecorderError.writerFailed)
+            reportFailure(assetWriter.error ?? ScreenRecorderError.writerFailed)
+        }
+    }
+
+    /// Reports a capture failure once per recording (appends keep failing after the first).
+    /// Called on the writer queue.
+    private func reportFailure(_ error: Error) {
+        guard !didReportFailure else { return }
+        didReportFailure = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.screenRecorder(self, didFailWith: error)
         }
     }
 
@@ -481,9 +538,8 @@ extension ScreenRecorder: SCStreamOutput {
 
 extension ScreenRecorder: SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.delegate?.screenRecorder(self, didFailWith: error)
+        writerQueue.async { [weak self] in
+            self?.reportFailure(error)
         }
     }
 }
@@ -506,7 +562,8 @@ enum ScreenRecorderError: LocalizedError {
     case windowNotAvailable
     case notRecording
     case writerFailed
-    case screenCapturePermissionDenied
+    case alreadyRecording
+    case noFramesCaptured
 
     var errorDescription: String? {
         switch self {
@@ -518,8 +575,10 @@ enum ScreenRecorderError: LocalizedError {
             return "Recording is not active."
         case .writerFailed:
             return "Failed to write the screen recording."
-        case .screenCapturePermissionDenied:
-            return "Screen Recording permission is required."
+        case .alreadyRecording:
+            return "A recording is already in progress."
+        case .noFramesCaptured:
+            return "No frames were captured, so nothing was saved."
         }
     }
 }

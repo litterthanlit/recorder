@@ -20,7 +20,11 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var clickCount: Int = 0
     @Published private(set) var exportProgress: Double = 0
     @Published private(set) var activeEditor: ProjectEditor?
-    @Published var preferences = RecordingPreferences.default
+    @Published var preferences = RecordingPreferences.load() {
+        didSet { preferences.save() }
+    }
+    /// A one-line message about the last take (e.g. it was cut short by an error).
+    @Published private(set) var notice: String?
     @Published private(set) var availableWindows: [CaptureWindowInfo] = []
     @Published private(set) var availableCameras: [MediaDeviceInfo] = []
     @Published private(set) var availableMicrophones: [MediaDeviceInfo] = []
@@ -47,11 +51,22 @@ final class RecordingSession: ObservableObject {
         availableCameras = MediaDevices.cameras()
         availableMicrophones = MediaDevices.microphones()
 
-        if preferences.selectedCameraID == nil {
+        // Saved device IDs can go stale (device unplugged); fall back to the default.
+        if preferences.selectedCameraID.map({ id in !availableCameras.contains { $0.id == id } }) ?? true {
             preferences.selectedCameraID = MediaDevices.defaultCameraID()
         }
-        if preferences.selectedMicrophoneID == nil {
+        if preferences.selectedMicrophoneID.map({ id in !availableMicrophones.contains { $0.id == id } }) ?? true {
             preferences.selectedMicrophoneID = MediaDevices.defaultMicrophoneID()
+        }
+    }
+
+    /// True while a take is being set up, captured, or saved.
+    var isBusy: Bool {
+        switch state {
+        case .countdown, .recording, .processing:
+            return true
+        case .idle, .editing, .exporting, .finished, .failed:
+            return false
         }
     }
 
@@ -66,8 +81,18 @@ final class RecordingSession: ObservableObject {
         }
     }
 
+    /// Starts a new take. Works from any state that isn't already recording, so a bad
+    /// take can be abandoned without exporting it.
     func start() async {
-        guard case .idle = state else { return }
+        switch state {
+        case .idle:
+            break
+        case .failed, .editing, .finished:
+            reset()
+        case .countdown, .recording, .processing, .exporting:
+            return
+        }
+        notice = nil
         guard PermissionsManager.shared.hasRequiredPermissions else {
             state = .failed("Screen Recording and Accessibility permissions are required.")
             return
@@ -191,15 +216,28 @@ final class RecordingSession: ObservableObject {
 
     func stop() async {
         guard case .recording = state else { return }
+        await finishRecording(interruption: nil)
+    }
 
+    /// Finalizes the current take. When `interruption` is set, capture stopped on its own
+    /// (error, window closed, user stopped sharing); whatever was recorded is still saved.
+    private func finishRecording(interruption: Error?) async {
         stopElapsedTimer()
-        teardownCaptureHelpers()
         state = .processing
 
         do {
             let trackingResult = inputTracker.stop()
             hasStartedInputTracking = false
-            let recordingResult = try await screenRecorder.stopRecording()
+            // Stop capture before tearing down the camera, mic, and presentation mode so
+            // the end of the take doesn't show the bubble vanishing or the Dock returning.
+            let recordingResult: RecordingResult
+            do {
+                recordingResult = try await screenRecorder.stopRecording()
+            } catch {
+                teardownCaptureHelpers()
+                throw interruption ?? error
+            }
+            teardownCaptureHelpers()
 
             let generator = AutoZoomGenerator(
                 settings: ProjectEditSettings().zoomPreset.settings,
@@ -238,12 +276,23 @@ final class RecordingSession: ObservableObject {
 
             try ProjectStore.save(project)
 
+            if let interruption {
+                notice = "Recording stopped early (\(interruption.localizedDescription)). What was captured was saved."
+            }
             let editor = ProjectEditor(project: project)
             activeEditor = editor
             state = .editing(project)
         } catch {
             state = .failed(error.localizedDescription)
         }
+    }
+
+    /// Capture failed mid-take: finalize the file so the take isn't lost, then report.
+    private func handleCaptureFailure(_ error: Error) {
+        // Start-up errors are thrown from `start()`, and a stop in progress already
+        // finalizes the file, so only an active take needs handling here.
+        guard case .recording = state else { return }
+        Task { await finishRecording(interruption: error) }
     }
 
     func editor(for projectID: UUID) -> ProjectEditor? {
@@ -258,6 +307,8 @@ final class RecordingSession: ObservableObject {
     }
 
     func markExported(_ project: RecorderProject) {
+        // An editor from an earlier take can finish exporting while a new one is recording.
+        guard !isBusy else { return }
         state = .finished(project)
     }
 
@@ -279,6 +330,7 @@ final class RecordingSession: ObservableObject {
         elapsedTime = 0
         clickCount = 0
         exportProgress = 0
+        notice = nil
         currentBundleURL = nil
         activeEditor = nil
     }
@@ -316,10 +368,10 @@ final class RecordingSession: ObservableObject {
             try inputTracker.start()
             startElapsedTimer()
         } catch {
-            teardownCaptureHelpers()
-            stopElapsedTimer()
+            // Capture is already running; save it (without clicks) rather than leaving
+            // the recorder running with nothing tracking it.
             hasStartedInputTracking = false
-            state = .failed(error.localizedDescription)
+            handleCaptureFailure(error)
         }
     }
 
@@ -352,11 +404,7 @@ extension RecordingSession: ScreenRecorderDelegate {
 
     nonisolated func screenRecorder(_ recorder: ScreenRecorder, didFailWith error: Error) {
         Task { @MainActor in
-            self.stopElapsedTimer()
-            self.teardownCaptureHelpers()
-            _ = self.inputTracker.stop()
-            self.hasStartedInputTracking = false
-            self.state = .failed(error.localizedDescription)
+            self.handleCaptureFailure(error)
         }
     }
 }
@@ -368,11 +416,7 @@ extension RecordingSession: CameraMicCaptureDelegate {
 
     nonisolated func cameraMicCapture(_ capture: CameraMicCapture, didFailWith error: Error) {
         Task { @MainActor in
-            self.stopElapsedTimer()
-            self.teardownCaptureHelpers()
-            _ = self.inputTracker.stop()
-            self.hasStartedInputTracking = false
-            self.state = .failed(error.localizedDescription)
+            self.handleCaptureFailure(error)
         }
     }
 }

@@ -133,7 +133,7 @@ struct TimelineView: View {
                                 duration: duration
                             )
                             updated = ZoomKeyframeEditor.clampKeyframe(updated, duration: duration)
-                            editor.updateKeyframe(updated)
+                            editor.updateKeyframe(updated, commit: false)
                         }
                         .onEnded { _ in
                             dragOrigin = nil

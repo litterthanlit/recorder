@@ -20,16 +20,12 @@ struct EditorPreviewView: View {
             }
 
             GeometryReader { geometry in
-                let padding = editor.editSettings.exportStyle.backgroundEnabled
-                    ? geometry.size.width * editor.editSettings.exportStyle.paddingFraction
-                    : 0
-
                 ZStack {
                     CompositorPreviewView(editor: editor)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
 
                     if editor.isManualZoomMode {
-                        manualSelectionOverlay(in: geometry.size, padding: padding)
+                        manualSelectionOverlay(contentFrame: contentFrame(in: geometry.size))
                     }
                 }
             }
@@ -41,56 +37,56 @@ struct EditorPreviewView: View {
         }
     }
 
-    @ViewBuilder
-    private func manualSelectionOverlay(in size: CGSize, padding: CGFloat) -> some View {
-        let innerSize = CGSize(width: size.width - padding * 2, height: size.height - padding * 2)
-        let selectionRect = currentSelectionRect(in: innerSize)
+    /// Where the compositor draws the video inside the preview, in view coordinates.
+    private func contentFrame(in size: CGSize) -> CGRect {
+        let style = editor.editSettings.exportStyle
+        let padding = style.backgroundEnabled ? size.width * style.paddingFraction : 0
+        let aspect = CGFloat(editor.project.metadata.width) / CGFloat(max(editor.project.metadata.height, 1))
+        return ZoomKeyframeEditor.fittedContentFrame(contentAspect: aspect, in: size, padding: padding)
+    }
 
-        ZStack {
+    @ViewBuilder
+    private func manualSelectionOverlay(contentFrame: CGRect) -> some View {
+        ZStack(alignment: .topLeading) {
             Color.black.opacity(0.001)
                 .contentShape(Rectangle())
-                .padding(padding)
                 .gesture(
                     DragGesture(minimumDistance: 2)
                         .onChanged { value in
                             if dragStart == nil {
-                                dragStart = CGPoint(
-                                    x: value.startLocation.x - padding,
-                                    y: value.startLocation.y - padding
-                                )
+                                dragStart = value.startLocation
                             }
-                            dragCurrent = CGPoint(
-                                x: value.location.x - padding,
-                                y: value.location.y - padding
-                            )
+                            dragCurrent = value.location
                         }
                         .onEnded { value in
-                            let start = dragStart ?? CGPoint(
-                                x: value.startLocation.x - padding,
-                                y: value.startLocation.y - padding
-                            )
-                            let end = CGPoint(
-                                x: value.location.x - padding,
-                                y: value.location.y - padding
-                            )
-                            let rect = pixelRect(from: start, to: end, in: innerSize)
-                            if rect.width > 8, rect.height > 8 {
-                                editor.addManualZoom(from: normalizedRect(from: rect, in: innerSize))
-                            }
+                            let selection = pixelRect(from: dragStart ?? value.startLocation, to: value.location)
                             dragStart = nil
                             dragCurrent = nil
+                            guard selection.width > 8, selection.height > 8,
+                                  let sourceRect = ZoomKeyframeEditor.sourceRect(
+                                      forSelection: selection,
+                                      contentFrame: contentFrame,
+                                      // The preview may already be zoomed; map through what is on screen.
+                                      visibleCrop: editor.interpolator.cropRect(at: editor.playheadTime)
+                                  )
+                            else { return }
+                            editor.addManualZoom(from: sourceRect)
                         }
                 )
 
-            if let selectionRect {
+            Rectangle()
+                .strokeBorder(Color.white.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                .frame(width: contentFrame.width, height: contentFrame.height)
+                .offset(x: contentFrame.minX, y: contentFrame.minY)
+                .allowsHitTesting(false)
+
+            if let selectionRect = currentSelectionRect()?.intersection(contentFrame), !selectionRect.isNull {
                 Rectangle()
                     .strokeBorder(Color.orange, lineWidth: 2)
                     .background(Color.orange.opacity(0.15))
                     .frame(width: selectionRect.width, height: selectionRect.height)
-                    .position(
-                        x: selectionRect.midX + padding,
-                        y: selectionRect.midY + padding
-                    )
+                    .offset(x: selectionRect.minX, y: selectionRect.minY)
+                    .allowsHitTesting(false)
             }
         }
     }
@@ -118,26 +114,17 @@ struct EditorPreviewView: View {
         }
     }
 
-    private func currentSelectionRect(in size: CGSize) -> CGRect? {
+    private func currentSelectionRect() -> CGRect? {
         guard let dragStart, let dragCurrent else { return nil }
-        return pixelRect(from: dragStart, to: dragCurrent, in: size)
+        return pixelRect(from: dragStart, to: dragCurrent)
     }
 
-    private func pixelRect(from start: CGPoint, to end: CGPoint, in size: CGSize) -> CGRect {
-        let minX = min(start.x, end.x)
-        let minY = min(start.y, end.y)
-        let width = abs(end.x - start.x)
-        let height = abs(end.y - start.y)
-        return CGRect(x: minX, y: minY, width: width, height: height)
-    }
-
-    private func normalizedRect(from rect: CGRect, in size: CGSize) -> CGRect {
-        guard size.width > 0, size.height > 0 else { return .zero }
-        return CGRect(
-            x: rect.minX / size.width,
-            y: rect.minY / size.height,
-            width: rect.width / size.width,
-            height: rect.height / size.height
+    private func pixelRect(from start: CGPoint, to end: CGPoint) -> CGRect {
+        CGRect(
+            x: min(start.x, end.x),
+            y: min(start.y, end.y),
+            width: abs(end.x - start.x),
+            height: abs(end.y - start.y)
         )
     }
 

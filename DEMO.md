@@ -43,8 +43,8 @@ Use this checklist when recording the 60–90s Hypher launch video with Recorder
 4. Editor opens → confirm the preview matches the padded/zoomed look (same compositor as export)
 5. Drag **green/orange trim handles** to cut dead air
 6. Verify zoom preset; leave spring camera and click ripples on unless the scene is a static hold
-7. **Export MP4** → check file is 1920×1080 and under ~8MB
-8. Repeat for each scene
+7. **Export MP4** → check file is 1920×1080 (scene exports are high-quality intermediates; the size limit applies to the final assembly)
+8. Repeat for each scene — **⌘⇧R** works straight from the editor for the next take or a retake
 
 ## Assembly
 

@@ -9,27 +9,41 @@ enum ZoomKeyframeEditor {
     static let minimumManualScale: CGFloat = 1.2
     static let maximumManualScale: CGFloat = 3.0
 
+    /// Makes keyframes non-overlapping without moving them in time.
+    ///
+    /// When two zooms overlap, the earlier one is cut short at a shared boundary and the
+    /// later one starts there, so each zoom still peaks when its click happened. The
+    /// interpolator treats such back-to-back keyframes as a pan from one target to the
+    /// next instead of zooming out to full frame in between.
     static func resolveOverlaps(_ keyframes: inout [ZoomKeyframe]) {
         guard keyframes.count > 1 else { return }
 
-        keyframes.sort { $0.startTime < $1.startTime }
+        keyframes.sort { $0.peakTime < $1.peakTime }
 
         for index in 1..<keyframes.count {
-            let previous = keyframes[index - 1]
+            var previous = keyframes[index - 1]
             var current = keyframes[index]
 
-            if current.startTime < previous.endTime {
-                let shiftedStart = previous.endTime
-                let duration = current.endTime - current.startTime
-                let peakOffset = current.peakTime - current.startTime
+            guard current.startTime < previous.endTime else { continue }
 
-                current.startTime = shiftedStart
-                current.peakTime = shiftedStart + peakOffset
-                current.endTime = shiftedStart + duration
-                keyframes[index] = current
-            }
+            let boundary = max(current.startTime, previous.peakTime)
+            previous.endTime = boundary
+            current.startTime = boundary
+            current.peakTime = max(current.peakTime, boundary)
+            current.endTime = max(current.endTime, current.peakTime)
+
+            keyframes[index - 1] = previous
+            keyframes[index] = current
         }
     }
+
+    /// True when `next` begins exactly where `previous` ends, i.e. the camera should
+    /// travel directly between their targets.
+    static func areChained(_ previous: ZoomKeyframe, _ next: ZoomKeyframe) -> Bool {
+        abs(next.startTime - previous.endTime) < chainTolerance
+    }
+
+    static let chainTolerance: TimeInterval = 0.001
 
     static func clampKeyframe(_ keyframe: ZoomKeyframe, duration: TimeInterval) -> ZoomKeyframe {
         var updated = keyframe
@@ -98,6 +112,54 @@ enum ZoomKeyframeEditor {
             center: center,
             scale: scale,
             source: .manual
+        )
+    }
+
+    /// Where the renderer draws the video inside a canvas: aspect-fit within the padded
+    /// area and centered. Mirrors `CompositionRenderer.fitContent`.
+    static func fittedContentFrame(contentAspect: CGFloat, in canvas: CGSize, padding: CGFloat) -> CGRect {
+        let available = CGSize(width: canvas.width - padding * 2, height: canvas.height - padding * 2)
+        guard contentAspect > 0, available.width > 0, available.height > 0 else { return .zero }
+
+        let scale = min(available.width / contentAspect, available.height)
+        let size = CGSize(width: contentAspect * scale, height: scale)
+        return CGRect(
+            x: padding + (available.width - size.width) / 2,
+            y: padding + (available.height - size.height) / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    /// Converts a selection drawn over the preview into a normalized source rect.
+    ///
+    /// - Parameters:
+    ///   - selection: the dragged rectangle in view coordinates (top-left origin, y down).
+    ///   - contentFrame: where the video is drawn in the same view coordinates.
+    ///   - visibleCrop: the part of the source currently shown (the preview may already be zoomed).
+    /// - Returns: a rect in normalized source space with a bottom-left origin (y up), the
+    ///   same space as click locations and keyframe centers, or `nil` if the selection
+    ///   misses the video.
+    static func sourceRect(
+        forSelection selection: CGRect,
+        contentFrame: CGRect,
+        visibleCrop: NormalizedRect
+    ) -> CGRect? {
+        guard contentFrame.width > 0, contentFrame.height > 0 else { return nil }
+        let clipped = selection.intersection(contentFrame)
+        guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { return nil }
+
+        let localMinX = (clipped.minX - contentFrame.minX) / contentFrame.width
+        let localMaxX = (clipped.maxX - contentFrame.minX) / contentFrame.width
+        // View y grows downward; source y grows upward.
+        let localMinY = (contentFrame.maxY - clipped.maxY) / contentFrame.height
+        let localMaxY = (contentFrame.maxY - clipped.minY) / contentFrame.height
+
+        return CGRect(
+            x: visibleCrop.x + localMinX * visibleCrop.width,
+            y: visibleCrop.y + localMinY * visibleCrop.height,
+            width: (localMaxX - localMinX) * visibleCrop.width,
+            height: (localMaxY - localMinY) * visibleCrop.height
         )
     }
 

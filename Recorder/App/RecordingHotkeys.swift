@@ -1,46 +1,103 @@
 import AppKit
 import Carbon.HIToolbox
-import SwiftUI
 
-@MainActor
+/// System-wide ⌘⇧R / ⌘⇧. hotkeys.
+///
+/// Registered with `RegisterEventHotKey` rather than an `NSEvent` global monitor: a
+/// monitor only observes keys, so ⌘⇧R would also reach the app being recorded (a hard
+/// reload in Chrome, Reader in Safari). A registered hotkey is consumed, matches the exact
+/// modifiers, and needs no Accessibility permission. Callbacks arrive on the main thread.
 final class RecordingHotkeys {
     var onStart: (() -> Void)?
     var onStop: (() -> Void)?
 
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
+    private static let signature: OSType = 0x5243_5244 // "RCRD"
+
+    private enum Hotkey: UInt32 {
+        case start = 1
+        case stop = 2
+    }
+
+    private var hotKeyRefs: [EventHotKeyRef] = []
+    private var eventHandler: EventHandlerRef?
+
+    deinit {
+        stop()
+    }
 
     func start() {
         stop()
 
-        let handler: (NSEvent) -> Void = { [weak self] event in
-            guard event.modifierFlags.contains([.command, .shift]) else { return }
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        let userData = Unmanaged.passUnretained(self).toOpaque()
+        let status = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, event, userData in
+                guard let event, let userData else { return OSStatus(eventNotHandledErr) }
 
-            switch event.keyCode {
-            case UInt16(kVK_ANSI_R):
-                self?.onStart?()
-            case UInt16(kVK_ANSI_Period):
-                self?.onStop?()
-            default:
-                break
-            }
-        }
+                var hotKeyID = EventHotKeyID()
+                let status = GetEventParameter(
+                    event,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hotKeyID
+                )
+                guard status == OSStatus(noErr), hotKeyID.signature == RecordingHotkeys.signature else {
+                    return OSStatus(eventNotHandledErr)
+                }
 
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: handler)
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            handler(event)
-            return event
-        }
+                let hotkeys = Unmanaged<RecordingHotkeys>.fromOpaque(userData).takeUnretainedValue()
+                switch Hotkey(rawValue: hotKeyID.id) {
+                case .start:
+                    hotkeys.onStart?()
+                case .stop:
+                    hotkeys.onStop?()
+                case nil:
+                    return OSStatus(eventNotHandledErr)
+                }
+                return OSStatus(noErr)
+            },
+            1,
+            &eventType,
+            userData,
+            &eventHandler
+        )
+        guard status == OSStatus(noErr) else { return }
+
+        register(.start, keyCode: kVK_ANSI_R)
+        register(.stop, keyCode: kVK_ANSI_Period)
     }
 
     func stop() {
-        if let globalMonitor {
-            NSEvent.removeMonitor(globalMonitor)
-            self.globalMonitor = nil
+        for ref in hotKeyRefs {
+            UnregisterEventHotKey(ref)
         }
-        if let localMonitor {
-            NSEvent.removeMonitor(localMonitor)
-            self.localMonitor = nil
+        hotKeyRefs.removeAll()
+
+        if let eventHandler {
+            RemoveEventHandler(eventHandler)
+            self.eventHandler = nil
+        }
+    }
+
+    private func register(_ hotkey: Hotkey, keyCode: Int) {
+        var ref: EventHotKeyRef?
+        let status = RegisterEventHotKey(
+            UInt32(keyCode),
+            UInt32(cmdKey | shiftKey),
+            EventHotKeyID(signature: Self.signature, id: hotkey.rawValue),
+            GetApplicationEventTarget(),
+            0,
+            &ref
+        )
+        if status == OSStatus(noErr), let ref {
+            hotKeyRefs.append(ref)
         }
     }
 }
@@ -52,15 +109,9 @@ final class RecordingHotkeysController: ObservableObject {
     func bind(session: RecordingSession) {
         hotkeys.onStart = {
             Task { @MainActor in
-                switch session.state {
-                case .idle, .failed:
-                    if case .failed = session.state {
-                        session.reset()
-                    }
-                    await session.start()
-                default:
-                    break
-                }
+                // `start()` ignores the key while a take is already in progress and
+                // otherwise begins a new take from any state (including the editor).
+                await session.start()
             }
         }
         hotkeys.onStop = {

@@ -11,7 +11,7 @@ struct ZoomInterpolator {
         springEnabled: Bool = false,
         springSettings: SpringSettings = .demo
     ) {
-        self.keyframes = keyframes
+        self.keyframes = keyframes.sorted { $0.startTime < $1.startTime }
         self.springEnabled = springEnabled
         self.springSettings = springSettings
     }
@@ -19,9 +19,16 @@ struct ZoomInterpolator {
     func cropRect(at time: TimeInterval) -> NormalizedRect {
         guard !keyframes.isEmpty else { return .fullFrame }
 
-        for keyframe in keyframes {
+        for (index, keyframe) in keyframes.enumerated() {
             if time >= keyframe.startTime && time <= keyframe.endTime {
-                return rect(for: keyframe, at: time)
+                let previous = index > 0 ? keyframes[index - 1] : nil
+                let next = index + 1 < keyframes.count ? keyframes[index + 1] : nil
+                return rect(
+                    for: keyframe,
+                    at: time,
+                    chainedFrom: previous.flatMap { ZoomKeyframeEditor.areChained($0, keyframe) ? $0 : nil },
+                    chainsInto: next.map { ZoomKeyframeEditor.areChained(keyframe, $0) } ?? false
+                )
             }
         }
 
@@ -32,21 +39,33 @@ struct ZoomInterpolator {
         cropRect(at: time).scaleEstimate
     }
 
-    private func rect(for keyframe: ZoomKeyframe, at time: TimeInterval) -> NormalizedRect {
+    /// - Parameters:
+    ///   - chainedFrom: the keyframe that ends where this one starts; the camera pans
+    ///     from its target instead of starting at full frame.
+    ///   - chainsInto: whether the next keyframe starts where this one ends; if so the
+    ///     camera holds here and the next keyframe performs the move.
+    private func rect(
+        for keyframe: ZoomKeyframe,
+        at time: TimeInterval,
+        chainedFrom previous: ZoomKeyframe?,
+        chainsInto: Bool
+    ) -> NormalizedRect {
         let targetScale = keyframe.scale
         let targetCenter = keyframe.center
         let restScale: CGFloat = 1
         let restCenter = CGPoint(x: 0.5, y: 0.5)
-        let holdEnd = holdEnd(for: keyframe)
+        let startScale = previous?.scale ?? restScale
+        let startCenter = previous?.center ?? restCenter
+        let holdUntil = chainsInto ? keyframe.endTime : holdEnd(for: keyframe)
 
         let currentScale: CGFloat
         let currentCenter: CGPoint
 
         if time <= keyframe.peakTime {
             let (scale, center) = interpolateMotion(
-                fromScale: restScale,
+                fromScale: startScale,
                 toScale: targetScale,
-                fromCenter: restCenter,
+                fromCenter: startCenter,
                 toCenter: targetCenter,
                 time: time,
                 start: keyframe.startTime,
@@ -54,7 +73,7 @@ struct ZoomInterpolator {
             )
             currentScale = scale
             currentCenter = center
-        } else if time <= holdEnd {
+        } else if time <= holdUntil {
             currentScale = targetScale
             currentCenter = targetCenter
         } else {
@@ -64,7 +83,7 @@ struct ZoomInterpolator {
                 fromCenter: targetCenter,
                 toCenter: restCenter,
                 time: time,
-                start: holdEnd,
+                start: holdUntil,
                 end: keyframe.endTime
             )
             currentScale = scale

@@ -153,14 +153,7 @@ struct EditorView: View {
     private var exportSection: some View {
         switch editor.state {
         case .editing:
-            Button {
-                Task { await editor.export() }
-            } label: {
-                Label("Export MP4", systemImage: "square.and.arrow.up")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            exportButton(title: "Export MP4")
 
         case let .exporting(progress):
             VStack(alignment: .leading, spacing: 8) {
@@ -169,20 +162,37 @@ struct EditorView: View {
             }
 
         case .exported:
-            HStack {
-                Label("Export complete", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                Spacer()
-                Button("Show in Finder") {
-                    editor.revealExportInFinder()
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("Export complete", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button("Show in Finder") {
+                        editor.revealExportInFinder()
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
+                exportButton(title: "Export Again")
             }
 
         case let .failed(message):
-            Label(message, systemImage: "xmark.octagon.fill")
-                .foregroundStyle(.red)
-                .font(.caption)
+            VStack(alignment: .leading, spacing: 10) {
+                Label(message, systemImage: "xmark.octagon.fill")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+                exportButton(title: "Retry Export")
+            }
         }
+    }
+
+    private func exportButton(title: String) -> some View {
+        Button {
+            Task { await editor.export() }
+        } label: {
+            Label(title, systemImage: "square.and.arrow.up")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
     }
 }

@@ -233,6 +233,12 @@ struct MenuBarView: View {
 
     @ViewBuilder
     private var statusSection: some View {
+        if let notice = session.notice {
+            Label(notice, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+
         switch session.state {
         case .idle:
             Text("Ready to record your screen.")
@@ -325,19 +331,28 @@ struct MenuBarView: View {
         case .processing, .exporting:
             EmptyView()
 
-        case .editing:
-            Button {
-                if case let .editing(project) = session.state {
-                    onOpenEditor(project)
-                }
-            } label: {
-                Label("Open Editor", systemImage: "slider.horizontal.3")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-
-        case .finished:
+        case let .editing(project):
             HStack {
+                Button {
+                    onOpenEditor(project)
+                } label: {
+                    Label("Open Editor", systemImage: "slider.horizontal.3")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                newRecordingButton
+            }
+
+        case let .finished(project):
+            HStack {
+                Button {
+                    onOpenEditor(project)
+                } label: {
+                    Label("Edit", systemImage: "slider.horizontal.3")
+                }
+                .buttonStyle(.bordered)
+
                 Button {
                     session.revealExportInFinder()
                 } label: {
@@ -345,12 +360,21 @@ struct MenuBarView: View {
                 }
                 .buttonStyle(.bordered)
 
-                Button("New Recording") {
-                    session.reset()
-                }
-                .buttonStyle(.borderedProminent)
+                newRecordingButton
             }
         }
+    }
+
+    /// Leaves the current take on disk (it stays in ~/Movies/Recorder) and gets ready for
+    /// the next one. ⌘⇧R does the same and starts recording straight away.
+    private var newRecordingButton: some View {
+        Button {
+            session.reset()
+        } label: {
+            Label("New Recording", systemImage: "record.circle")
+        }
+        .buttonStyle(.bordered)
+        .help("Start over with a new take (⌘⇧R)")
     }
 
     private func formattedTime(_ interval: TimeInterval) -> String {

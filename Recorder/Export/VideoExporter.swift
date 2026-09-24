@@ -136,8 +136,32 @@ final class VideoExporter {
         )
 
         let trimStartTime = CMTime(seconds: trimStart, preferredTimescale: 600)
+        var lastVideoTime = CMTime.zero
+
+        // Each input must be marked finished as soon as its source runs dry. AVAssetWriter
+        // interleaves inputs and will otherwise hold one back forever waiting for the other.
+        var audioFinished = audioReaderOutput == nil || audioWriterInput == nil
+        func pumpAudio() throws {
+            guard !audioFinished, let audioReaderOutput, let audioWriterInput else { return }
+            while audioWriterInput.isReadyForMoreMediaData {
+                guard let audioSample = audioReaderOutput.copyNextSampleBuffer() else {
+                    audioWriterInput.markAsFinished()
+                    audioFinished = true
+                    return
+                }
+                try appendShiftedAudio(
+                    audioSample,
+                    to: audioWriterInput,
+                    trimStartTime: trimStartTime,
+                    writer: writer
+                )
+            }
+        }
 
         while reader.status == .reading {
+            try Task.checkCancellation()
+            try pumpAudio()
+
             guard writerInput.isReadyForMoreMediaData else {
                 try await Task.sleep(nanoseconds: 2_000_000)
                 continue
@@ -166,18 +190,7 @@ final class VideoExporter {
             if !adaptor.append(processed, withPresentationTime: presentationTime) {
                 throw writer.error ?? VideoExporterError.writerSetupFailed
             }
-
-            if let audioReaderOutput, let audioWriterInput {
-                while audioWriterInput.isReadyForMoreMediaData,
-                      let audioSample = audioReaderOutput.copyNextSampleBuffer() {
-                    try appendShiftedAudio(
-                        audioSample,
-                        to: audioWriterInput,
-                        trimStartTime: trimStartTime,
-                        writer: writer
-                    )
-                }
-            }
+            lastVideoTime = presentationTime
 
             let progress = exportDuration > 0
                 ? min(1, (seconds - trimStart) / exportDuration)
@@ -185,24 +198,26 @@ final class VideoExporter {
             progressHandler(progress)
         }
 
-        if let audioReaderOutput, let audioWriterInput {
-            while audioWriterInput.isReadyForMoreMediaData,
-                  let audioSample = audioReaderOutput.copyNextSampleBuffer() {
-                try appendShiftedAudio(
-                    audioSample,
-                    to: audioWriterInput,
-                    trimStartTime: trimStartTime,
-                    writer: writer
-                )
-            }
-            audioWriterInput.markAsFinished()
-        }
-
         writerInput.markAsFinished()
+
+        while !audioFinished {
+            try Task.checkCancellation()
+            try pumpAudio()
+            if !audioFinished {
+                try await Task.sleep(nanoseconds: 2_000_000)
+            }
+        }
 
         if reader.status == .failed {
             throw reader.error ?? VideoExporterError.readerFailed
         }
+
+        // Keep a static tail: without this the file ends at the last source frame,
+        // which can be well before the trim end when the screen stopped changing.
+        writer.endSession(atSourceTime: CMTimeMaximum(
+            lastVideoTime,
+            CMTime(seconds: exportDuration, preferredTimescale: 600)
+        ))
 
         try await finishWriting(writer)
         progressHandler(1)

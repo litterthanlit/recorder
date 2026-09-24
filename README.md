@@ -6,7 +6,7 @@ Native macOS screen recorder with **automatic zoom on clicks** — built for Scr
 
 - Menu bar app — record full display or a single window
 - **3-2-1 countdown** before recording starts
-- **Global hotkeys** — ⌘⇧R start, ⌘⇧. stop
+- **Global hotkeys** — ⌘⇧R start (also from the editor, for a retake), ⌘⇧. stop. Registered as system hotkeys, so they don't reach the app being recorded
 - Click tracking via Accessibility API (CGEventTap)
 - Auto-generated zoom keyframes with smooth ease-in/out camera motion
 - **Zoom presets** — Subtle, Demo, Punch (+ per-keyframe scale)
@@ -15,7 +15,7 @@ Native macOS screen recorder with **automatic zoom on clicks** — built for Scr
 - **WYSIWYG preview** — same compositor as export (zoom, padding, cursor, ripples)
 - **Spring camera** — optional overshoot / settle instead of cubic ease
 - **Click ripples** and optional cursor spotlight / click-scale
-- **1080p / 720p export** with bitrate targeting (~8MB at 60–90s)
+- **1080p / 720p export** at high quality (~10 Mbps at 1080p60) for editing; size-cap the final assembly
 - **Runlyx-style background frame** — dark gradient, rounded corners, shadow
 - **Cursor smoothing** — tracked path composited on export and preview
 - Optional **hypher.app watermark**
@@ -71,6 +71,8 @@ Each recording saves:
 | `events.json` | Click event log |
 | `keyframes.json` | Generated zoom keyframes |
 | `meta.json` | Capture metadata (size, fps, duration) |
+| `cursor.json` | Cursor path (for the smoothed cursor) |
+| `settings.json` | Editor settings (trim, presets, style) |
 | `export.mp4` | Final video with zoom applied |
 
 ## Tests
@@ -80,6 +82,8 @@ Zoom engine unit tests (Swift Testing):
 ```bash
 swift test
 ```
+
+CI (`.github/workflows/ci.yml`) runs these tests and builds the app on a macOS runner for every push.
 
 ## Architecture
 
