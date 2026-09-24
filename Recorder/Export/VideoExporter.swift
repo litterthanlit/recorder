@@ -81,19 +81,18 @@ final class VideoExporter {
         let outputWidth = Int(configuration.outputSize.width)
         let outputHeight = Int(configuration.outputSize.height)
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        let codec = VideoCodecChoice.forFrame(width: outputWidth, height: outputHeight)
         let writerInput = AVAssetWriterInput(
             mediaType: .video,
-            outputSettings: [
-                AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: outputWidth,
-                AVVideoHeightKey: outputHeight,
-                AVVideoCompressionPropertiesKey: [
+            outputSettings: codec.outputSettings(
+                width: outputWidth,
+                height: outputHeight,
+                compression: [
                     AVVideoAverageBitRateKey: configuration.bitrate,
-                    AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
                     AVVideoExpectedSourceFrameRateKey: max(1, configuration.frameRate),
                     AVVideoMaxKeyFrameIntervalKey: max(1, configuration.frameRate) * 2
                 ]
-            ]
+            )
         )
         writerInput.expectsMediaDataInRealTime = false
 
@@ -362,5 +361,27 @@ private final class CameraFrameSource {
             return (buffer, CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)))
         }
         return nil
+    }
+}
+
+extension VideoCodecChoice {
+    /// `AVAssetWriterInput` video settings; adds the profile for H.264 (the H.264 profile
+    /// constant is invalid for HEVC, which uses its default Main profile).
+    func outputSettings(width: Int, height: Int, compression: [String: Any]) -> [String: Any] {
+        var compression = compression
+        let codecType: AVVideoCodecType
+        switch self {
+        case .h264:
+            codecType = .h264
+            compression[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+        case .hevc:
+            codecType = .hevc
+        }
+        return [
+            AVVideoCodecKey: codecType,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoCompressionPropertiesKey: compression
+        ]
     }
 }

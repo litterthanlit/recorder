@@ -652,3 +652,23 @@ struct CaptureGeometryTests {
         #expect(abs(point.y - 1080) < 1e-9)
     }
 }
+
+@Suite("VideoCodecChoice")
+struct VideoCodecChoiceTests {
+    @Test func commonSizesUseH264() {
+        #expect(VideoCodecChoice.forFrame(width: 1920, height: 1080) == .h264)
+        #expect(VideoCodecChoice.forFrame(width: 3024, height: 1964) == .h264)  // 14" MacBook Pro
+        #expect(VideoCodecChoice.forFrame(width: 3456, height: 2234) == .h264)  // 16" MacBook Pro
+        #expect(VideoCodecChoice.forFrame(width: 3840, height: 2160) == .h264)  // 4K
+        #expect(VideoCodecChoice.forFrame(width: 4096, height: 2304) == .h264)  // level 5.2 limit
+    }
+
+    @Test func fiveAndSixKUseHEVC() {
+        #expect(VideoCodecChoice.forFrame(width: 5120, height: 2880) == .hevc)  // Studio Display
+        #expect(VideoCodecChoice.forFrame(width: 6016, height: 3384) == .hevc)  // Pro Display XDR
+    }
+
+    @Test func tallFramesOverTheSideLimitUseHEVC() {
+        #expect(VideoCodecChoice.forFrame(width: 1200, height: 4200) == .hevc)
+    }
+}

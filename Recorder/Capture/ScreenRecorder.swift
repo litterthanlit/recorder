@@ -300,15 +300,11 @@ final class ScreenRecorder: NSObject {
         }
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
-        let settings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: width,
-            AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: width * height * 4,
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
-            ]
-        ]
+        let settings = VideoCodecChoice.forFrame(width: width, height: height).outputSettings(
+            width: width,
+            height: height,
+            compression: [AVVideoAverageBitRateKey: width * height * 4]
+        )
 
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true

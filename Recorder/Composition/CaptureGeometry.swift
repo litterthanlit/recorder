@@ -51,3 +51,18 @@ enum CaptureGeometry {
         return max(2, rounded - rounded % 2)
     }
 }
+
+/// Which codec a frame size needs.
+enum VideoCodecChoice: Equatable {
+    case h264
+    case hevc
+
+    /// H.264 (level 5.2) allows at most 36,864 16×16 macroblocks per frame, and Apple's
+    /// hardware encoder tops out at 4096 pixels on a side, so a 5K or 6K Retina display at
+    /// native size can't be encoded. HEVC handles those sizes.
+    static func forFrame(width: Int, height: Int) -> VideoCodecChoice {
+        let macroblocks = ((width + 15) / 16) * ((height + 15) / 16)
+        let fitsH264 = width <= 4096 && height <= 4096 && macroblocks <= 36_864
+        return fitsH264 ? .h264 : .hevc
+    }
+}
