@@ -495,3 +495,83 @@ struct MediaTimingTests {
         #expect(abs(time.seconds - 0.3) < 1e-6)
     }
 }
+
+@Suite("EditHistory")
+struct EditHistoryTests {
+    @Test func undoAndRedoWalkThroughStates() {
+        var history = EditHistory<Int>()
+        var state = 0
+
+        history.record(state, actionName: "One", now: 0)
+        state = 1
+        history.record(state, actionName: "Two", now: 5)
+        state = 2
+
+        #expect(history.canUndo)
+        #expect(history.undoActionName == "Two")
+
+        state = history.undo(from: state) ?? state
+        #expect(state == 1)
+        #expect(history.redoActionName == "Two")
+
+        state = history.undo(from: state) ?? state
+        #expect(state == 0)
+        #expect(!history.canUndo)
+        #expect(history.undo(from: state) == nil)
+
+        state = history.redo(from: state) ?? state
+        #expect(state == 1)
+        state = history.redo(from: state) ?? state
+        #expect(state == 2)
+        #expect(!history.canRedo)
+    }
+
+    @Test func newEditClearsRedo() {
+        var history = EditHistory<Int>()
+        history.record(0, actionName: "Edit", now: 0)
+        _ = history.undo(from: 1)
+        #expect(history.canRedo)
+
+        history.record(0, actionName: "Other edit", now: 10)
+        #expect(!history.canRedo)
+        #expect(history.undoActionName == "Other edit")
+    }
+
+    @Test func rapidEditsWithSameKeyCoalesce() {
+        var history = EditHistory<String>(coalescingInterval: 1.0)
+        // Typing "abc": each keystroke records the text from before it.
+        history.record("", actionName: "Type", coalescingKey: AnyHashable("text"), now: 0.0)
+        history.record("a", actionName: "Type", coalescingKey: AnyHashable("text"), now: 0.3)
+        history.record("ab", actionName: "Type", coalescingKey: AnyHashable("text"), now: 0.6)
+
+        #expect(history.undoStack.count == 1)
+        // Undo goes back to before the burst.
+        #expect(history.undo(from: "abc") == "")
+    }
+
+    @Test func coalescingStopsAfterAPauseOrADifferentKey() {
+        var history = EditHistory<Int>(coalescingInterval: 1.0)
+        history.record(0, actionName: "Type", coalescingKey: AnyHashable("text"), now: 0)
+        history.record(1, actionName: "Type", coalescingKey: AnyHashable("text"), now: 5)
+        history.record(2, actionName: "Toggle", coalescingKey: AnyHashable("toggle"), now: 5.1)
+        history.record(3, actionName: "Toggle", now: 5.2)
+        #expect(history.undoStack.count == 4)
+    }
+
+    @Test func undoBreaksCoalescing() {
+        var history = EditHistory<Int>(coalescingInterval: 1.0)
+        history.record(0, actionName: "Type", coalescingKey: AnyHashable("text"), now: 0)
+        _ = history.undo(from: 1)
+        history.record(0, actionName: "Type", coalescingKey: AnyHashable("text"), now: 0.2)
+        #expect(history.undoStack.count == 1)
+        #expect(!history.canRedo)
+    }
+
+    @Test func keepsOnlyTheMostRecentSteps() {
+        var history = EditHistory<Int>(limit: 3)
+        for value in 0..<5 {
+            history.record(value, actionName: "Step \(value)", now: Double(value) * 10)
+        }
+        #expect(history.undoStack.map(\.state) == [2, 3, 4])
+    }
+}

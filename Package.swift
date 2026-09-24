@@ -23,6 +23,7 @@ let package = Package(
             sources: [
                 "Zoom",
                 "Editor/ZoomKeyframeEditor.swift",
+                "Editor/EditHistory.swift",
                 "Composition"
             ]
         ),

@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B20000000000000000000026 /* RecentProjectsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000029 /* RecentProjectsView.swift */; };
+		B20000000000000000000025 /* ProjectLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000028 /* ProjectLibrary.swift */; };
+		B20000000000000000000024 /* EditHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* EditHistory.swift */; };
 		B20000000000000000000001 /* RecorderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* RecorderApp.swift */; };
 		B20000000000000000000002 /* PermissionsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* PermissionsManager.swift */; };
 		B20000000000000000000003 /* NSScreen+DisplayID.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* NSScreen+DisplayID.swift */; };
@@ -45,6 +48,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A20000000000000000000029 /* RecentProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentProjectsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000028 /* ProjectLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectLibrary.swift; sourceTree = "<group>"; };
+		A20000000000000000000027 /* EditHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditHistory.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* RecorderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* PermissionsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsManager.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* NSScreen+DisplayID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSScreen+DisplayID.swift"; sourceTree = "<group>"; };
@@ -129,6 +135,7 @@
 				A20000000000000000000002 /* PermissionsManager.swift */,
 				A20000000000000000000003 /* NSScreen+DisplayID.swift */,
 				A2000000000000000000001C /* RecordingHotkeys.swift */,
+				A20000000000000000000028 /* ProjectLibrary.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -190,6 +197,7 @@
 				A20000000000000000000024 /* CompositorPreviewView.swift */,
 				A2000000000000000000001B /* CountdownOverlay.swift */,
 				A20000000000000000000020 /* CameraBubbleOverlay.swift */,
+				A20000000000000000000029 /* RecentProjectsView.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -199,6 +207,7 @@
 			children = (
 				A20000000000000000000014 /* ZoomKeyframeEditor.swift */,
 				A20000000000000000000015 /* ProjectEditor.swift */,
+				A20000000000000000000027 /* EditHistory.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -305,6 +314,7 @@
 				B2000000000000000000000F /* Project.swift in Sources */,
 				B20000000000000000000011 /* ZoomKeyframeEditor.swift in Sources */,
 				B20000000000000000000012 /* ProjectEditor.swift in Sources */,
+				B20000000000000000000024 /* EditHistory.swift in Sources */,
 				B20000000000000000000013 /* EditorView.swift in Sources */,
 				B20000000000000000000014 /* TimelineView.swift in Sources */,
 				B20000000000000000000015 /* EditorPreviewView.swift in Sources */,
@@ -312,10 +322,12 @@
 				B20000000000000000000017 /* CursorEvent.swift in Sources */,
 				B20000000000000000000018 /* CountdownOverlay.swift in Sources */,
 				B20000000000000000000019 /* RecordingHotkeys.swift in Sources */,
+				B20000000000000000000025 /* ProjectLibrary.swift in Sources */,
 				B2000000000000000000001A /* PresentationModeManager.swift in Sources */,
 				B2000000000000000000001B /* MediaDevices.swift in Sources */,
 				B2000000000000000000001C /* CameraMicCapture.swift in Sources */,
 				B2000000000000000000001D /* CameraBubbleOverlay.swift in Sources */,
+				B20000000000000000000026 /* RecentProjectsView.swift in Sources */,
 				B2000000000000000000001E /* CameraBackgroundProcessor.swift in Sources */,
 				B20000000000000000000022 /* CameraTrackWriter.swift in Sources */,
 			);

@@ -6,6 +6,7 @@ import SwiftUI
 final class AppState: ObservableObject {
     let session = RecordingSession()
     let permissions = PermissionsManager.shared
+    let library = ProjectLibrary()
 
     private let hotkeys = RecordingHotkeysController()
     private let editorPresenter = EditorPresenter()
@@ -19,11 +20,52 @@ final class AppState: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] state in
                 guard let self else { return }
-                if case let .editing(project) = state {
+                switch state {
+                case let .editing(project):
                     self.presentEditor(for: project)
+                    self.library.refresh()
+                case .finished:
+                    self.library.refresh()
+                default:
+                    break
                 }
             }
             .store(in: &cancellables)
+    }
+
+    /// Opens a project from the Recent list.
+    func openProject(_ summary: ProjectSummary) {
+        // If it's already open, use the editor's copy: it may have edits not saved yet.
+        if let editor = session.editor(for: summary.id) {
+            session.openProject(editor.project)
+            return
+        }
+
+        let bundleURL = summary.bundleURL
+        Task {
+            let loaded = await Task.detached(priority: .userInitiated) {
+                try? ProjectStore.loadProject(from: bundleURL)
+            }.value
+            guard let loaded else {
+                // Missing or damaged on disk; drop it from the list.
+                library.refresh()
+                return
+            }
+            session.openProject(loaded)
+        }
+    }
+
+    /// Moves a project to the Trash, closing it first if it's open.
+    func moveToTrash(_ summary: ProjectSummary) {
+        guard !session.isBusy else { return }
+        editorPresenter.close(projectID: summary.id)
+        session.forgetProject(id: summary.id)
+        do {
+            try library.moveToTrash(summary)
+        } catch {
+            NSSound.beep()
+            library.refresh()
+        }
     }
 
     func presentEditor(for project: RecorderProject) {
@@ -39,8 +81,18 @@ final class AppState: ObservableObject {
 @MainActor
 final class EditorPresenter {
     private var windowController: NSWindowController?
+    private var presentedProjectID: UUID?
+
+    /// Closes the editor window if it's showing this project, releasing its editor.
+    func close(projectID: UUID) {
+        guard presentedProjectID == projectID, let window = windowController?.window else { return }
+        window.close()
+        window.contentViewController = nil
+        presentedProjectID = nil
+    }
 
     func present(editor: ProjectEditor, onExported: @escaping (RecorderProject) -> Void) {
+        presentedProjectID = editor.project.metadata.id
         let rootView = EditorView(editor: editor)
             .onChange(of: editor.state) { newState in
                 if case .exported = newState {
@@ -77,8 +129,15 @@ struct RecorderApp: App {
             MenuBarView(
                 session: appState.session,
                 permissions: appState.permissions,
+                library: appState.library,
                 onOpenEditor: { project in
                     appState.presentEditor(for: project)
+                },
+                onOpenProject: { summary in
+                    appState.openProject(summary)
+                },
+                onTrashProject: { summary in
+                    appState.moveToTrash(summary)
                 }
             )
         }

@@ -240,6 +240,83 @@ enum ProjectStore {
     }
 }
 
+/// What the Recent Projects list shows. Built from a project's `meta.json` only, so
+/// listing never loads click or cursor data.
+struct ProjectSummary: Identifiable, Equatable {
+    let id: UUID
+    let bundleURL: URL
+    let createdAt: Date
+    let duration: TimeInterval
+    let title: String
+    let hasExport: Bool
+
+    var videoURL: URL {
+        bundleURL.appendingPathComponent("video.mov")
+    }
+
+    var exportURL: URL {
+        bundleURL.appendingPathComponent("export.mp4")
+    }
+
+    init(metadata: ProjectMetadata, bundleURL: URL, hasExport: Bool) {
+        id = metadata.id
+        self.bundleURL = bundleURL
+        createdAt = metadata.createdAt
+        duration = metadata.duration
+        title = Self.title(for: metadata)
+        self.hasExport = hasExport
+    }
+
+    /// "Google Chrome — Hypher", "Google Chrome", or "Full display".
+    static func title(for metadata: ProjectMetadata) -> String {
+        switch metadata.captureTarget {
+        case .display:
+            return "Full display"
+        case .window:
+            let app = metadata.appName?.trimmingCharacters(in: .whitespaces) ?? ""
+            let window = metadata.windowTitle?.trimmingCharacters(in: .whitespaces) ?? ""
+            switch (app.isEmpty, window.isEmpty) {
+            case (false, false):
+                return "\(app) — \(window)"
+            case (false, true):
+                return app
+            case (true, false):
+                return window
+            case (true, true):
+                return "Window recording"
+            }
+        }
+    }
+}
+
+extension ProjectStore {
+    /// Projects in the library, newest first. Bundles that can't be read are skipped.
+    static func listProjects(limit: Int? = nil) -> [ProjectSummary] {
+        let fileManager = FileManager.default
+        guard let urls = try? fileManager.contentsOfDirectory(
+            at: projectsDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        let summaries = urls
+            .filter { $0.pathExtension == RecorderProject.bundleExtension }
+            .compactMap { url -> ProjectSummary? in
+                guard let metadata = try? loadMetadata(from: url) else { return nil }
+                let hasExport = fileManager.fileExists(atPath: url.appendingPathComponent("export.mp4").path)
+                return ProjectSummary(metadata: metadata, bundleURL: url, hasExport: hasExport)
+            }
+            .sorted { $0.createdAt > $1.createdAt }
+
+        if let limit {
+            return Array(summaries.prefix(limit))
+        }
+        return summaries
+    }
+}
+
 /// Saves editor changes off the main thread, coalescing bursts (dragging a trim handle,
 /// typing a watermark) into one write shortly after they stop.
 final class ProjectAutosaver: @unchecked Sendable {

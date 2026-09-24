@@ -1,6 +1,13 @@
 import AppKit
 import AVFoundation
 import Foundation
+import SwiftUI
+
+/// The part of the editor that undo and redo restore.
+struct EditorSnapshot: Equatable {
+    var keyframes: [ZoomKeyframe]
+    var editSettings: ProjectEditSettings
+}
 
 @MainActor
 final class ProjectEditor: ObservableObject {
@@ -12,14 +19,19 @@ final class ProjectEditor: ObservableObject {
     }
 
     @Published var project: RecorderProject
-    @Published var keyframes: [ZoomKeyframe]
-    @Published var editSettings: ProjectEditSettings
+    /// Changed only through the editing methods below, so every change can be undone.
+    @Published private(set) var keyframes: [ZoomKeyframe]
+    @Published private(set) var editSettings: ProjectEditSettings
     @Published var playheadTime: TimeInterval = 0
     @Published var selectedKeyframeID: UUID?
     @Published var isManualZoomMode = false
     @Published var isPlaying = false
     @Published private(set) var state: State = .editing
     @Published private(set) var exportProgress: Double = 0
+    @Published private(set) var canUndo = false
+    @Published private(set) var canRedo = false
+    @Published private(set) var undoActionName: String?
+    @Published private(set) var redoActionName: String?
 
     let player = AVPlayer()
     /// Plays the separate camera track in lockstep with `player` so the preview can
@@ -34,6 +46,13 @@ final class ProjectEditor: ObservableObject {
     private let autosaver = ProjectAutosaver()
     private var timeObserver: Any?
     private var terminationObserver: NSObjectProtocol?
+    private var history = EditHistory<EditorSnapshot>()
+    /// State at the start of a drag or slider gesture that's still in progress.
+    private var interaction: (start: EditorSnapshot, actionName: String)?
+
+    private var snapshot: EditorSnapshot {
+        EditorSnapshot(keyframes: keyframes, editSettings: editSettings)
+    }
 
     var duration: TimeInterval {
         project.metadata.duration
@@ -128,115 +147,109 @@ final class ProjectEditor: ObservableObject {
         selectedKeyframeID = id
     }
 
+    // MARK: - Editing
+
     func resolveKeyframeOverlaps() {
-        var updated = keyframes
-        ZoomKeyframeEditor.resolveOverlaps(&updated)
-        keyframes = updated
-        persistKeyframes()
+        performEdit("Move Zoom") {
+            ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+        }
     }
 
     func deleteSelectedKeyframe() {
         guard let selectedKeyframeID else { return }
-        keyframes.removeAll { $0.id == selectedKeyframeID }
+        performEdit("Delete Zoom") {
+            keyframes.removeAll { $0.id == selectedKeyframeID }
+        }
         self.selectedKeyframeID = nil
-        persistKeyframes()
     }
 
     func moveSelectedKeyframe(by delta: TimeInterval) {
-        guard let selectedKeyframeID,
-              let index = keyframes.firstIndex(where: { $0.id == selectedKeyframeID })
-        else { return }
-
-        keyframes[index] = ZoomKeyframeEditor.moveKeyframe(
-            keyframes[index],
-            by: delta,
-            duration: duration
-        )
-        ZoomKeyframeEditor.resolveOverlaps(&keyframes)
-        persistKeyframes()
+        guard let selectedKeyframeID else { return }
+        performEdit("Move Zoom") {
+            guard let index = keyframes.firstIndex(where: { $0.id == selectedKeyframeID }) else { return }
+            keyframes[index] = ZoomKeyframeEditor.moveKeyframe(keyframes[index], by: delta, duration: duration)
+            ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+        }
     }
 
     func updateSelectedKeyframeStart(to time: TimeInterval) {
-        guard let selectedKeyframeID,
-              let index = keyframes.firstIndex(where: { $0.id == selectedKeyframeID })
-        else { return }
-
-        keyframes[index] = ZoomKeyframeEditor.resizeKeyframeStart(
-            keyframes[index],
-            to: time,
-            duration: duration
-        )
-        ZoomKeyframeEditor.resolveOverlaps(&keyframes)
-        persistKeyframes()
+        guard let selectedKeyframeID else { return }
+        performEdit("Resize Zoom") {
+            guard let index = keyframes.firstIndex(where: { $0.id == selectedKeyframeID }) else { return }
+            keyframes[index] = ZoomKeyframeEditor.resizeKeyframeStart(keyframes[index], to: time, duration: duration)
+            ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+        }
     }
 
     func updateSelectedKeyframeEnd(to time: TimeInterval) {
-        guard let selectedKeyframeID,
-              let index = keyframes.firstIndex(where: { $0.id == selectedKeyframeID })
-        else { return }
-
-        keyframes[index] = ZoomKeyframeEditor.resizeKeyframeEnd(
-            keyframes[index],
-            to: time,
-            duration: duration
-        )
-        ZoomKeyframeEditor.resolveOverlaps(&keyframes)
-        persistKeyframes()
+        guard let selectedKeyframeID else { return }
+        performEdit("Resize Zoom") {
+            guard let index = keyframes.firstIndex(where: { $0.id == selectedKeyframeID }) else { return }
+            keyframes[index] = ZoomKeyframeEditor.resizeKeyframeEnd(keyframes[index], to: time, duration: duration)
+            ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+        }
     }
 
-    /// - Parameter commit: pass `false` for live drag updates; overlaps are resolved and
-    ///   the project saved once, when the drag ends (see `resolveKeyframeOverlaps`).
-    ///   Resolving on every tick would permanently trim neighbors the block passes over.
+    /// - Parameter commit: pass `false` for live drag updates inside
+    ///   `beginInteractiveEdit` / `endInteractiveEdit`; overlaps are resolved once, when
+    ///   the drag ends. Resolving on every tick would trim neighbors the block passes over.
     func updateKeyframe(_ keyframe: ZoomKeyframe, commit: Bool = true) {
-        guard let index = keyframes.firstIndex(where: { $0.id == keyframe.id }) else { return }
-        keyframes[index] = ZoomKeyframeEditor.clampKeyframe(keyframe, duration: duration)
-        guard commit else { return }
-        ZoomKeyframeEditor.resolveOverlaps(&keyframes)
-        persistKeyframes()
+        performEdit("Move Zoom", coalescingKey: AnyHashable(keyframe.id), continuous: !commit) {
+            guard let index = keyframes.firstIndex(where: { $0.id == keyframe.id }) else { return }
+            keyframes[index] = ZoomKeyframeEditor.clampKeyframe(keyframe, duration: duration)
+            if commit {
+                ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+            }
+        }
     }
 
     func updateSelectedKeyframeScale(_ scale: CGFloat) {
-        guard let selectedKeyframeID,
-              let index = keyframes.firstIndex(where: { $0.id == selectedKeyframeID })
-        else { return }
-        keyframes[index].scale = max(1.1, min(3.0, scale))
-        persistKeyframes()
+        guard let selectedKeyframeID else { return }
+        performEdit(
+            "Zoom Scale",
+            coalescingKey: AnyHashable("scale-\(selectedKeyframeID)"),
+            continuous: true
+        ) {
+            guard let index = keyframes.firstIndex(where: { $0.id == selectedKeyframeID }) else { return }
+            keyframes[index].scale = max(1.1, min(3.0, scale))
+        }
     }
 
     func setTrimStart(_ value: TimeInterval) {
-        editSettings.trimStart = max(0, min(value, trimEnd - 0.1))
+        performEdit("Trim", coalescingKey: AnyHashable("trim"), continuous: true) {
+            editSettings.trimStart = max(0, min(value, trimEnd - 0.1))
+        }
         if playheadTime < editSettings.trimStart {
             seek(to: editSettings.trimStart)
         }
-        persistSettings()
     }
 
     func setTrimEnd(_ value: TimeInterval) {
-        editSettings.trimEnd = min(duration, max(value, trimStart + 0.1))
+        performEdit("Trim", coalescingKey: AnyHashable("trim"), continuous: true) {
+            editSettings.trimEnd = min(duration, max(value, trimStart + 0.1))
+        }
         if playheadTime > trimEnd {
             seek(to: trimEnd)
         }
-        persistSettings()
     }
 
+    /// Regenerates auto zooms for the preset (manual zooms are kept). Edits to auto zooms
+    /// are replaced, which is one undo away.
     func applyZoomPreset(_ preset: ZoomPreset, regenerateAuto: Bool = true) {
-        editSettings.zoomPreset = preset
-        guard regenerateAuto else {
-            persistSettings()
-            return
-        }
+        performEdit("Change Zoom Preset") {
+            editSettings.zoomPreset = preset
+            guard regenerateAuto else { return }
 
-        let generator = AutoZoomGenerator(
-            settings: preset.settings,
-            frameWidth: CGFloat(project.metadata.width),
-            frameHeight: CGFloat(project.metadata.height)
-        )
-        let autoKeyframes = generator.generate(from: project.clickEvents)
-        let manualKeyframes = keyframes.filter { $0.source == .manual }
-        keyframes = (autoKeyframes + manualKeyframes).sorted { $0.startTime < $1.startTime }
-        ZoomKeyframeEditor.resolveOverlaps(&keyframes)
-        persistKeyframes()
-        persistSettings()
+            let generator = AutoZoomGenerator(
+                settings: preset.settings,
+                frameWidth: CGFloat(project.metadata.width),
+                frameHeight: CGFloat(project.metadata.height)
+            )
+            let autoKeyframes = generator.generate(from: project.clickEvents)
+            let manualKeyframes = keyframes.filter { $0.source == .manual }
+            keyframes = (autoKeyframes + manualKeyframes).sorted { $0.startTime < $1.startTime }
+            ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+        }
     }
 
     func addManualZoom(from normalizedRect: CGRect) {
@@ -246,12 +259,125 @@ final class ProjectEditor: ObservableObject {
             duration: duration,
             settings: editSettings.zoomPreset.settings
         )
-        keyframes.append(keyframe)
-        ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+        performEdit("Add Zoom") {
+            keyframes.append(keyframe)
+            ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+        }
         selectedKeyframeID = keyframe.id
         isManualZoomMode = false
-        persistKeyframes()
     }
+
+    /// A binding to one edit setting whose changes can be undone.
+    /// - Parameter coalesce: merge rapid changes (typing) into one undo step.
+    func settingBinding<Value: Equatable>(
+        _ keyPath: WritableKeyPath<ProjectEditSettings, Value>,
+        actionName: String,
+        coalesce: Bool = false
+    ) -> Binding<Value> {
+        Binding(
+            get: { self.editSettings[keyPath: keyPath] },
+            set: { newValue in
+                guard self.editSettings[keyPath: keyPath] != newValue else { return }
+                self.performEdit(actionName, coalescingKey: coalesce ? AnyHashable(keyPath) : nil) {
+                    self.editSettings[keyPath: keyPath] = newValue
+                }
+            }
+        )
+    }
+
+    // MARK: - Undo
+
+    func undo() {
+        endInteractiveEdit()
+        guard let previous = history.undo(from: snapshot) else { return }
+        restore(previous)
+    }
+
+    func redo() {
+        endInteractiveEdit()
+        guard let next = history.redo(from: snapshot) else { return }
+        restore(next)
+    }
+
+    /// Starts a continuous edit (dragging a zoom block or trim handle, moving a slider).
+    /// Everything changed until `endInteractiveEdit()` becomes one undo step.
+    func beginInteractiveEdit(_ actionName: String) {
+        guard interaction == nil else { return }
+        interaction = (snapshot, actionName)
+    }
+
+    /// Finishes a continuous edit: resolves zoom overlaps once and records the undo step.
+    func endInteractiveEdit() {
+        guard let finished = interaction else { return }
+        interaction = nil
+
+        var resolved = keyframes
+        ZoomKeyframeEditor.resolveOverlaps(&resolved)
+        if resolved != keyframes {
+            keyframes = resolved
+        }
+        recordEdit(from: finished.start, actionName: finished.actionName, coalescingKey: nil)
+    }
+
+    /// Applies `change` and records it for undo.
+    /// - Parameter continuous: `true` for updates that arrive many times per gesture.
+    ///   During an interactive edit they are folded into that edit's single step;
+    ///   otherwise they coalesce by `coalescingKey`.
+    private func performEdit(
+        _ actionName: String,
+        coalescingKey: AnyHashable? = nil,
+        continuous: Bool = false,
+        _ change: () -> Void
+    ) {
+        if interaction != nil {
+            if continuous {
+                change()
+                persist()
+                return
+            }
+            // A discrete edit while a gesture never reported its end: close it first.
+            endInteractiveEdit()
+        }
+
+        let before = snapshot
+        change()
+        recordEdit(from: before, actionName: actionName, coalescingKey: coalescingKey)
+    }
+
+    private func recordEdit(from before: EditorSnapshot, actionName: String, coalescingKey: AnyHashable?) {
+        guard before != snapshot else { return }
+        history.record(
+            before,
+            actionName: actionName,
+            coalescingKey: coalescingKey,
+            now: ProcessInfo.processInfo.systemUptime
+        )
+        persist()
+        refreshUndoState()
+    }
+
+    private func restore(_ state: EditorSnapshot) {
+        keyframes = state.keyframes
+        editSettings = state.editSettings
+        if let selectedKeyframeID, !keyframes.contains(where: { $0.id == selectedKeyframeID }) {
+            self.selectedKeyframeID = nil
+        }
+        // Keep the playhead inside a restored trim range.
+        if playheadTime < trimStart || playheadTime > trimEnd {
+            seek(to: playheadTime)
+        }
+        persist()
+        refreshUndoState()
+    }
+
+    private func refreshUndoState() {
+        canUndo = history.canUndo
+        canRedo = history.canRedo
+        undoActionName = history.undoActionName
+        redoActionName = history.redoActionName
+    }
+
+    // MARK: - Playback
 
     func seek(to time: TimeInterval) {
         let clamped = max(trimStart, min(time, trimEnd))
@@ -303,8 +429,8 @@ final class ProjectEditor: ObservableObject {
         exportProgress = 0
 
         do {
-            persistKeyframes()
-            persistSettings()
+            endInteractiveEdit()
+            persist()
             autosaver.flush()
 
             let sourceSize = CGSize(width: project.metadata.width, height: project.metadata.height)
@@ -347,16 +473,8 @@ final class ProjectEditor: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([project.exportURL])
     }
 
-    func persistEditSettings() {
-        persistSettings()
-    }
-
-    private func persistKeyframes() {
+    private func persist() {
         project.keyframes = keyframes
-        autosaver.schedule(project)
-    }
-
-    private func persistSettings() {
         project.editSettings = editSettings
         autosaver.schedule(project)
     }

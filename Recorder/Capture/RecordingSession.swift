@@ -321,6 +321,30 @@ final class RecordingSession: ObservableObject {
         }
     }
 
+    /// Opens a saved project in the editor (from the Recent list). Ignored mid-take.
+    func openProject(_ project: RecorderProject) {
+        guard !isBusy else { return }
+        notice = nil
+        openEditor(for: project)
+        state = .editing(project)
+    }
+
+    /// Lets go of a project that's about to be moved to the Trash, if it's the one being
+    /// edited or shown.
+    func forgetProject(id: UUID) {
+        guard !isBusy else { return }
+        let shownProjectID: UUID?
+        switch state {
+        case let .editing(project), let .finished(project):
+            shownProjectID = project.metadata.id
+        case .idle, .countdown, .recording, .processing, .exporting, .failed:
+            shownProjectID = nil
+        }
+        if activeEditor?.project.metadata.id == id || shownProjectID == id {
+            reset()
+        }
+    }
+
     func markExported(_ project: RecorderProject) {
         // An editor from an earlier take can finish exporting while a new one is recording.
         guard !isBusy else { return }

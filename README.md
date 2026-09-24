@@ -11,6 +11,8 @@ Native macOS screen recorder with **automatic zoom on clicks** — built for Scr
 - Auto-generated zoom keyframes with smooth ease-in/out camera motion
 - **Zoom presets** — Subtle, Demo, Punch (+ per-keyframe scale)
 - **Timeline editor** — drag zoom blocks, trim in/out handles
+- **Undo / redo** — ⌘Z / ⇧⌘Z for every edit (a whole drag or slider move is one step); ⌘⌫ deletes the selected zoom
+- **Recent projects** — the menu bar panel lists your latest recordings with thumbnails; open one to keep editing or re-export, or move it to the Trash
 - **Manual zoom** — draw a region on the preview to add a zoom at the playhead
 - **WYSIWYG preview** — same compositor as export (zoom, padding, cursor, ripples)
 - **Spring camera** — optional overshoot / settle instead of cubic ease
@@ -60,6 +62,7 @@ xcodebuild -project Recorder.xcodeproj -scheme Recorder -configuration Debug bui
 5. Drag zoom blocks on the timeline to adjust timing, or click **Add Manual Zoom** and draw a region on the preview.
 6. Toggle spring camera, click ripples, and cursor FX — the preview matches export.
 7. Click **Export MP4** when ready, then preview or reveal in Finder.
+8. Reopen any earlier take from **Recent** in the menu bar panel (right-click or ⋯ for Show in Finder / Move to Trash).
 
 ## Project bundle
 

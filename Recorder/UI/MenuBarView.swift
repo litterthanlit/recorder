@@ -3,7 +3,10 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var session: RecordingSession
     @ObservedObject var permissions: PermissionsManager
+    @ObservedObject var library: ProjectLibrary
     var onOpenEditor: (RecorderProject) -> Void
+    var onOpenProject: (ProjectSummary) -> Void
+    var onTrashProject: (ProjectSummary) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -15,6 +18,17 @@ struct MenuBarView: View {
                 recordingOptionsSection
                 statusSection
                 controlsSection
+
+                // Hidden mid-take so the panel stays focused on the recording.
+                if !session.isBusy {
+                    Divider()
+                    RecentProjectsView(
+                        library: library,
+                        onOpen: onOpenProject,
+                        onTrash: onTrashProject
+                    )
+                }
+
                 hotkeyHints
             }
         }
@@ -23,6 +37,7 @@ struct MenuBarView: View {
         .onAppear {
             permissions.refresh()
             session.refreshMediaDevices()
+            library.refresh()
             Task { await session.refreshWindows() }
         }
     }

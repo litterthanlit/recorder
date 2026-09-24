@@ -85,6 +85,9 @@ struct TimelineView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        if trimDrag == nil {
+                            editor.beginInteractiveEdit("Trim")
+                        }
                         trimDrag = kind
                         let fraction = max(0, min(1, value.location.x / width))
                         let newTime = duration * Double(fraction)
@@ -96,6 +99,7 @@ struct TimelineView: View {
                     }
                     .onEnded { _ in
                         trimDrag = nil
+                        editor.endInteractiveEdit()
                     }
             )
     }
@@ -124,6 +128,7 @@ struct TimelineView: View {
                             editor.selectKeyframe(keyframe.id)
                             if dragOrigin?.id != keyframe.id {
                                 dragOrigin = keyframe
+                                editor.beginInteractiveEdit("Move Zoom")
                             }
                             guard let dragOrigin else { return }
                             let deltaTime = Double(value.translation.width / timelineWidth) * duration
@@ -137,7 +142,8 @@ struct TimelineView: View {
                         }
                         .onEnded { _ in
                             dragOrigin = nil
-                            editor.resolveKeyframeOverlaps()
+                            // Resolves overlaps and records the whole drag as one undo step.
+                            editor.endInteractiveEdit()
                             editor.selectKeyframe(keyframe.id)
                         }
                 )

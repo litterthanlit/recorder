@@ -18,9 +18,6 @@ struct EditorView: View {
             .padding(20)
         }
         .frame(minWidth: 960, minHeight: 760)
-        .onChange(of: editor.editSettings) { _ in
-            editor.persistEditSettings()
-        }
     }
 
     private var header: some View {
@@ -33,10 +30,36 @@ struct EditorView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+
+            HStack(spacing: 6) {
+                Button {
+                    editor.undo()
+                } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!editor.canUndo)
+                .help(editor.undoActionName.map { "Undo \($0) (⌘Z)" } ?? "Nothing to undo")
+                .accessibilityLabel(editor.undoActionName.map { "Undo \($0)" } ?? "Undo")
+
+                Button {
+                    editor.redo()
+                } label: {
+                    Label("Redo", systemImage: "arrow.uturn.forward")
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!editor.canRedo)
+                .help(editor.redoActionName.map { "Redo \($0) (⇧⌘Z)" } ?? "Nothing to redo")
+                .accessibilityLabel(editor.redoActionName.map { "Redo \($0)" } ?? "Redo")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.bordered)
+
             Button("Close") {
                 dismiss()
                 NSApp.keyWindow?.close()
             }
+            .padding(.leading, 8)
         }
     }
 
@@ -63,6 +86,8 @@ struct EditorView: View {
                     Label("Delete Selected", systemImage: "trash")
                 }
                 .buttonStyle(.bordered)
+                .keyboardShortcut(.delete, modifiers: .command)
+                .help("Delete the selected zoom (⌘⌫)")
                 .disabled(editor.selectedKeyframeID == nil)
 
                 Spacer()
@@ -101,7 +126,15 @@ struct EditorView: View {
                             },
                             set: { editor.updateSelectedKeyframeScale($0) }
                         ),
-                        in: 1.2...2.5
+                        in: 1.2...2.5,
+                        onEditingChanged: { isEditing in
+                            // One undo step per slider drag.
+                            if isEditing {
+                                editor.beginInteractiveEdit("Zoom Scale")
+                            } else {
+                                editor.endInteractiveEdit()
+                            }
+                        }
                     )
                     .frame(maxWidth: 160)
 
@@ -119,7 +152,7 @@ struct EditorView: View {
                 .font(.headline)
 
             HStack(spacing: 12) {
-                Picker("Resolution", selection: $editor.editSettings.exportPreset) {
+                Picker("Resolution", selection: editor.settingBinding(\.exportPreset, actionName: "Change Resolution")) {
                     ForEach(ExportResolutionPreset.allCases) { preset in
                         Text(preset.label).tag(preset)
                     }
@@ -132,26 +165,26 @@ struct EditorView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Toggle("Dark background frame", isOn: $editor.editSettings.exportStyle.backgroundEnabled)
-            Toggle("Spring camera", isOn: $editor.editSettings.exportStyle.springCameraEnabled)
-            Toggle("Click ripples", isOn: $editor.editSettings.exportStyle.clickRipplesEnabled)
-            Toggle("Cursor smoothing", isOn: $editor.editSettings.exportStyle.cursorSmoothingEnabled)
-            Toggle("Cursor click scale", isOn: $editor.editSettings.exportStyle.cursorScaleOnClickEnabled)
-            Toggle("Cursor spotlight", isOn: $editor.editSettings.exportStyle.cursorSpotlightEnabled)
-            Toggle("Watermark", isOn: $editor.editSettings.exportStyle.watermarkEnabled)
+            Toggle("Dark background frame", isOn: editor.settingBinding(\.exportStyle.backgroundEnabled, actionName: "Background Frame"))
+            Toggle("Spring camera", isOn: editor.settingBinding(\.exportStyle.springCameraEnabled, actionName: "Spring Camera"))
+            Toggle("Click ripples", isOn: editor.settingBinding(\.exportStyle.clickRipplesEnabled, actionName: "Click Ripples"))
+            Toggle("Cursor smoothing", isOn: editor.settingBinding(\.exportStyle.cursorSmoothingEnabled, actionName: "Cursor Smoothing"))
+            Toggle("Cursor click scale", isOn: editor.settingBinding(\.exportStyle.cursorScaleOnClickEnabled, actionName: "Cursor Click Scale"))
+            Toggle("Cursor spotlight", isOn: editor.settingBinding(\.exportStyle.cursorSpotlightEnabled, actionName: "Cursor Spotlight"))
+            Toggle("Watermark", isOn: editor.settingBinding(\.exportStyle.watermarkEnabled, actionName: "Watermark"))
 
             if editor.editSettings.exportStyle.watermarkEnabled {
-                TextField("Watermark", text: $editor.editSettings.exportStyle.watermarkText)
+                TextField("Watermark", text: editor.settingBinding(\.exportStyle.watermarkText, actionName: "Watermark Text", coalesce: true))
                     .textFieldStyle(.roundedBorder)
             }
 
             if editor.hasCameraTrack {
                 Divider()
 
-                Toggle("Camera bubble", isOn: $editor.editSettings.camera.isVisible)
+                Toggle("Camera bubble", isOn: editor.settingBinding(\.camera.isVisible, actionName: "Camera Bubble"))
 
                 if editor.editSettings.camera.isVisible {
-                    Picker("Camera position", selection: $editor.editSettings.camera.position) {
+                    Picker("Camera position", selection: editor.settingBinding(\.camera.position, actionName: "Camera Position")) {
                         ForEach(CameraBubblePosition.allCases) { position in
                             Text(position.label).tag(position)
                         }
