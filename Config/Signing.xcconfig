@@ -12,13 +12,17 @@
 // which writes Config/Local.xcconfig (git-ignored). Without it the build falls back to
 // ad-hoc signing, so the project still builds for anyone, including CI.
 
+//
+// Builds for other people (outside the App Store) are signed with a Developer ID
+// Application certificate and notarized; scripts/release.sh does that by building with
+// RECORDER_SIGNING=developerid.
+
 PRODUCT_BUNDLE_IDENTIFIER = app.hypher.recorder
 CODE_SIGN_ENTITLEMENTS = Recorder/Recorder.entitlements
 ENABLE_HARDENED_RUNTIME = YES
-CODE_SIGN_STYLE = Automatic
 
-// "adhoc" or "team". Local.xcconfig sets "team" together with DEVELOPMENT_TEAM, and
-// may also override PRODUCT_BUNDLE_IDENTIFIER.
+// "adhoc", "team" or "developerid". Local.xcconfig sets "team" together with
+// DEVELOPMENT_TEAM, and may also override PRODUCT_BUNDLE_IDENTIFIER.
 RECORDER_SIGNING = adhoc
 DEVELOPMENT_TEAM =
 
@@ -26,4 +30,15 @@ DEVELOPMENT_TEAM =
 
 RECORDER_CODE_SIGN_IDENTITY_adhoc = -
 RECORDER_CODE_SIGN_IDENTITY_team = Apple Development
+RECORDER_CODE_SIGN_IDENTITY_developerid = Developer ID Application
 CODE_SIGN_IDENTITY = $(RECORDER_CODE_SIGN_IDENTITY_$(RECORDER_SIGNING))
+
+// Developer ID needs no provisioning profile, so sign manually with the certificate.
+RECORDER_CODE_SIGN_STYLE_adhoc = Automatic
+RECORDER_CODE_SIGN_STYLE_team = Automatic
+RECORDER_CODE_SIGN_STYLE_developerid = Manual
+CODE_SIGN_STYLE = $(RECORDER_CODE_SIGN_STYLE_$(RECORDER_SIGNING))
+
+// Notarization requires a secure timestamp.
+RECORDER_OTHER_CODE_SIGN_FLAGS_developerid = --timestamp
+OTHER_CODE_SIGN_FLAGS = $(inherited) $(RECORDER_OTHER_CODE_SIGN_FLAGS_$(RECORDER_SIGNING))

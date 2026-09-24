@@ -50,6 +50,16 @@ jobs:
           expect_setting "$team_settings" CODE_SIGN_IDENTITY 'Apple Development'
           expect_setting "$team_settings" DEVELOPMENT_TEAM ABCDE12345
 
+          # Developer ID (scripts/release.sh): manual signing with a secure timestamp.
+          release_settings="$(xcodebuild -project Recorder.xcodeproj -target Recorder -configuration Release -showBuildSettings RECORDER_SIGNING=developerid DEVELOPMENT_TEAM=ABCDE12345 2>/dev/null)"
+          expect_setting "$release_settings" CODE_SIGN_IDENTITY 'Developer ID Application'
+          expect_setting "$release_settings" CODE_SIGN_STYLE Manual
+          expect_setting "$release_settings" ENABLE_HARDENED_RUNTIME YES
+          grep -qE '^[[:space:]]*OTHER_CODE_SIGN_FLAGS = .*--timestamp' <<<"$release_settings" \
+            || { echo "::error::Developer ID builds must sign with --timestamp"; exit 1; }
+          expect_setting "$settings" CODE_SIGN_STYLE Automatic
+          bash -n scripts/release.sh
+
           # Hardened runtime blocks Apple Events (the Dock toggle) without this.
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.automation.apple-events' Recorder/Recorder.entitlements)" = true
 
