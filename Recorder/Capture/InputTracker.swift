@@ -133,10 +133,12 @@ final class InputTracker {
     }
 
     private func convertToCaptureCoordinates(global: CGPoint) -> CGPoint {
-        let relativeX = (global.x - captureOrigin.x) * scaleFactor
-        let relativeYFromTop = (global.y - captureOrigin.y) * scaleFactor
-        let flippedY = captureSize.height - relativeYFromTop
-        return CGPoint(x: relativeX, y: flippedY)
+        CaptureGeometry.capturePoint(
+            global: global,
+            origin: captureOrigin,
+            scale: scaleFactor,
+            pixelHeight: captureSize.height
+        )
     }
 }
 

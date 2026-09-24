@@ -575,3 +575,56 @@ struct EditHistoryTests {
         #expect(history.undoStack.map(\.state) == [2, 3, 4])
     }
 }
+
+@Suite("CaptureGeometry")
+struct CaptureGeometryTests {
+    @Test func pixelSizeScalesPoints() {
+        let size = CaptureGeometry.pixelSize(points: CGSize(width: 1512, height: 982), scale: 2)
+        #expect(size.width == 3024)
+        #expect(size.height == 1964)
+    }
+
+    @Test func pixelSizeRoundsDownToEvenNumbers() {
+        let size = CaptureGeometry.pixelSize(points: CGSize(width: 801, height: 599), scale: 1)
+        #expect(size.width == 800)
+        #expect(size.height == 598)
+    }
+
+    @Test func pixelSizeHandlesFractionalScaleAndEmptySizes() {
+        let fractional = CaptureGeometry.pixelSize(points: CGSize(width: 1001, height: 700.5), scale: 1.5)
+        #expect(fractional.width % 2 == 0)
+        #expect(fractional.height % 2 == 0)
+        #expect(abs(fractional.width - 1502) <= 1)
+
+        let empty = CaptureGeometry.pixelSize(points: .zero, scale: 2)
+        #expect(empty.width == 2)
+        #expect(empty.height == 2)
+    }
+
+    @Test func capturePointFlipsToBottomLeftPixels() {
+        // Main display: origin at (0, 0), 2x.
+        let topLeft = CaptureGeometry.capturePoint(
+            global: CGPoint(x: 10, y: 20), origin: .zero, scale: 2, pixelHeight: 1964
+        )
+        #expect(abs(topLeft.x - 20) < 1e-9)
+        #expect(abs(topLeft.y - (1964 - 40)) < 1e-9)
+    }
+
+    @Test func capturePointIsRelativeToWindowOrigin() {
+        // A 400x300 pt window whose top-left is at (100, 50) in global space.
+        let center = CaptureGeometry.capturePoint(
+            global: CGPoint(x: 300, y: 200), origin: CGPoint(x: 100, y: 50), scale: 2, pixelHeight: 600
+        )
+        #expect(abs(center.x - 400) < 1e-9)
+        #expect(abs(center.y - 300) < 1e-9)
+    }
+
+    @Test func capturePointOnSecondaryDisplayLeftOfMain() {
+        // A display arranged to the left of the main one has a negative global origin.
+        let point = CaptureGeometry.capturePoint(
+            global: CGPoint(x: -1900, y: 0), origin: CGPoint(x: -1920, y: 0), scale: 1, pixelHeight: 1080
+        )
+        #expect(abs(point.x - 20) < 1e-9)
+        #expect(abs(point.y - 1080) < 1e-9)
+    }
+}

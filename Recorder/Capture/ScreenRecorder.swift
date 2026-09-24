@@ -82,7 +82,9 @@ final class ScreenRecorder: NSObject {
                 throw ScreenRecorderError.noDisplayAvailable
             }
             filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
-            displayScale = NSScreen.main?.backingScaleFactor ?? 2
+            // NSScreen.main is the screen with the key window, not necessarily this display.
+            let screen = NSScreen.screens.first { $0.displayIdentifier == display.displayID }
+            displayScale = screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
             windowTitle = nil
             appName = nil
             configureCaptureGeometry(display: display, displayScale: displayScale)
@@ -94,14 +96,11 @@ final class ScreenRecorder: NSObject {
                 throw ScreenRecorderError.windowNotAvailable
             }
             let windowCenter = CGPoint(x: window.frame.midX, y: window.frame.midY)
-            let screen = NSScreen.screens.first { $0.frame.contains(windowCenter) } ?? NSScreen.main
-            let display = content.displays.first(where: { $0.displayID == screen?.displayIdentifier })
-                ?? content.displays.first(where: { $0.displayID == CGMainDisplayID() })
-                ?? content.displays.first
-            guard let display else {
-                throw ScreenRecorderError.noDisplayAvailable
-            }
-            filter = SCContentFilter(display: display, including: [window])
+            let screen = Self.screen(containingGlobalPoint: windowCenter) ?? NSScreen.main
+            // A display filter that includes one window still captures the whole display,
+            // squeezed into the window-sized output. This filter captures just the window,
+            // wherever it is, even when covered by other windows.
+            filter = SCContentFilter(desktopIndependentWindow: window)
             displayScale = screen?.backingScaleFactor ?? 2
             windowTitle = window.title
             appName = window.owningApplication?.applicationName
@@ -240,26 +239,25 @@ final class ScreenRecorder: NSObject {
     }
 
     private func configureCaptureGeometry(display: SCDisplay, displayScale: CGFloat) {
-        let logicalWidth = Int(display.width)
-        let logicalHeight = Int(display.height)
-        captureWidth = Int(Double(logicalWidth) * displayScale)
-        captureHeight = Int(Double(logicalHeight) * displayScale)
+        // Global display space (top-left origin), the same space as CGEvent.location.
+        // NSScreen.frame is bottom-left based and only matches for the main display.
+        let bounds = CGDisplayBounds(display.displayID)
+        captureOrigin = bounds.origin
+        captureSizePoints = CGSize(width: display.width, height: display.height)
+        (captureWidth, captureHeight) = CaptureGeometry.pixelSize(points: captureSizePoints, scale: displayScale)
+    }
 
-        if let screen = NSScreen.screens.first(where: { $0.displayIdentifier == display.displayID }) ?? NSScreen.main {
-            captureOrigin = screen.frame.origin
-            captureSizePoints = screen.frame.size
-        } else {
-            captureOrigin = .zero
-            captureSizePoints = CGSize(width: logicalWidth, height: logicalHeight)
-        }
+    /// The screen containing a point in global display space (top-left origin, as
+    /// `SCWindow.frame` uses), not the bottom-left based space `NSScreen.frame` uses.
+    private static func screen(containingGlobalPoint point: CGPoint) -> NSScreen? {
+        NSScreen.screens.first { CGDisplayBounds($0.displayIdentifier).contains(point) }
     }
 
     private func configureWindowGeometry(window: SCWindow, displayScale: CGFloat) {
         let frame = window.frame
         captureOrigin = frame.origin
         captureSizePoints = frame.size
-        captureWidth = Int(frame.width * displayScale)
-        captureHeight = Int(frame.height * displayScale)
+        (captureWidth, captureHeight) = CaptureGeometry.pixelSize(points: frame.size, scale: displayScale)
     }
 
     private func setupWriter(outputURL: URL, width: Int, height: Int, includeAudio: Bool) throws {
