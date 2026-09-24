@@ -3,7 +3,7 @@ import CoreImage
 import CoreVideo
 import Foundation
 
-struct CompositionRenderSettings {
+struct CompositionRenderSettings: Equatable {
     var exportStyle: ExportStyle
     var zoomPreset: ZoomPreset
     var cursorEvents: [CursorEvent]
@@ -14,8 +14,20 @@ struct CompositionRenderSettings {
     /// Placement of the separately recorded camera. Only drawn when a camera frame is
     /// passed to `renderImage` / `renderFrame`.
     var camera = CameraOverlayStyle()
+    /// Source pixels per screen point (the capture's backing scale factor), so the
+    /// smoothed cursor is drawn at the size the real cursor had on screen.
+    var sourcePixelsPerPoint: CGFloat = 1
 }
 
+/// Composites one output frame: zoom crop, click ripples, cursor, background frame,
+/// spotlight, camera bubble, and watermark.
+///
+/// Per-frame work is Core Image generators, transforms, and blends, so it runs on the
+/// GPU. The few things that need CPU drawing (the cursor arrow, watermark text, and the
+/// rounded background frame) are rasterized once and reused until what they depend on
+/// changes, instead of being redrawn at full resolution every frame.
+///
+/// Not thread-safe: use each renderer from one queue.
 final class CompositionRenderer {
     private let ciContext: CIContext
     private var interpolator: ZoomInterpolator
@@ -24,37 +36,19 @@ final class CompositionRenderer {
     private var smoothedCursorEvents: [CursorEvent]
     private var rippleEvaluator: ClickRippleEvaluator
     private var motionFX: MotionFXSettings
-    private var maskCache: [MaskKey: CIImage] = [:]
-    private var cachedWatermark: (key: WatermarkKey, image: CIImage)?
 
-    private struct MaskKey: Hashable {
-        let x: CGFloat
-        let y: CGFloat
-        let width: CGFloat
-        let height: CGFloat
-        let radius: CGFloat
-        let canvasWidth: CGFloat
-        let canvasHeight: CGFloat
+    private var cursorSprite: CursorSprite?
+    private var cachedWatermark: (text: String, image: CIImage)?
+    private var cachedBackdrop: (key: BackdropKey, layers: BackdropLayers)?
 
-        init(rect: CGRect, radius: CGFloat, canvasSize: CGSize) {
-            x = rect.origin.x
-            y = rect.origin.y
-            width = rect.width
-            height = rect.height
-            self.radius = radius
-            canvasWidth = canvasSize.width
-            canvasHeight = canvasSize.height
-        }
-    }
-
-    private struct WatermarkKey: Equatable {
-        let text: String
-        let width: CGFloat
-        let height: CGFloat
-    }
+    private static let workingColorSpace = CGColorSpace(name: CGColorSpace.sRGB)
 
     init(keyframes: [ZoomKeyframe], settings: CompositionRenderSettings, ciContext: CIContext? = nil) {
-        self.ciContext = ciContext ?? CIContext(options: [.useSoftwareRenderer: false])
+        // Every frame is different, so caching intermediates only costs memory.
+        self.ciContext = ciContext ?? CIContext(options: [
+            .useSoftwareRenderer: false,
+            .cacheIntermediates: false
+        ])
         self.settings = settings
         self.motionFX = settings.zoomPreset.motionFX
         self.interpolator = ZoomInterpolator(
@@ -63,12 +57,13 @@ final class CompositionRenderer {
             springSettings: settings.zoomPreset.motionFX.spring
         )
         self.rippleEvaluator = ClickRippleEvaluator(settings: settings.zoomPreset.motionFX)
-        self.smoothedCursorEvents = settings.exportStyle.cursorSmoothingEnabled
-            ? cursorSmoother.smooth(settings.cursorEvents)
-            : settings.cursorEvents
+        self.smoothedCursorEvents = Self.cursorPath(for: settings, smoother: cursorSmoother)
     }
 
     func update(keyframes: [ZoomKeyframe], settings: CompositionRenderSettings) {
+        let cursorInputsChanged = settings.cursorEvents != self.settings.cursorEvents
+            || settings.exportStyle.cursorSmoothingEnabled != self.settings.exportStyle.cursorSmoothingEnabled
+
         self.settings = settings
         self.motionFX = settings.zoomPreset.motionFX
         interpolator = ZoomInterpolator(
@@ -77,9 +72,9 @@ final class CompositionRenderer {
             springSettings: settings.zoomPreset.motionFX.spring
         )
         rippleEvaluator = ClickRippleEvaluator(settings: settings.zoomPreset.motionFX)
-        smoothedCursorEvents = settings.exportStyle.cursorSmoothingEnabled
-            ? cursorSmoother.smooth(settings.cursorEvents)
-            : settings.cursorEvents
+        if cursorInputsChanged {
+            smoothedCursorEvents = Self.cursorPath(for: settings, smoother: cursorSmoother)
+        }
     }
 
     func cropRect(at time: TimeInterval) -> NormalizedRect {
@@ -99,21 +94,11 @@ final class CompositionRenderer {
 
         var decorated = source
         if settings.exportStyle.clickRipplesEnabled {
-            decorated = compositeRipples(
-                onto: decorated,
-                at: time,
-                sourceWidth: sourceWidth,
-                sourceHeight: sourceHeight
-            )
+            decorated = compositeRipples(onto: decorated, at: time)
         }
 
         if settings.drawCursor {
-            decorated = compositeCursor(
-                onto: decorated,
-                at: time,
-                sourceWidth: sourceWidth,
-                sourceHeight: sourceHeight
-            )
+            decorated = compositeCursor(onto: decorated, at: time)
         }
 
         let cropX = cropRect.x * sourceWidth
@@ -166,8 +151,7 @@ final class CompositionRenderer {
         }
 
         if settings.exportStyle.watermarkEnabled {
-            let outputRect = CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight)
-            finalImage = drawWatermark(on: finalImage, outputRect: outputRect)
+            finalImage = compositeWatermark(onto: finalImage, outputWidth: outputWidth)
         }
 
         return finalImage.cropped(to: CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight))
@@ -198,15 +182,7 @@ final class CompositionRenderer {
         if let pool {
             status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &outputBuffer)
         } else {
-            // IOSurface-backed so Core Image can render on the GPU without a CPU copy.
-            status = CVPixelBufferCreate(
-                kCFAllocatorDefault,
-                outputWidth,
-                outputHeight,
-                kCVPixelFormatType_32BGRA,
-                [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary] as CFDictionary,
-                &outputBuffer
-            )
+            status = Self.createIOSurfaceBuffer(width: outputWidth, height: outputHeight, buffer: &outputBuffer)
         }
 
         guard status == kCVReturnSuccess, let outputBuffer else {
@@ -217,9 +193,7 @@ final class CompositionRenderer {
         return outputBuffer
     }
 
-    func createCGImage(_ image: CIImage, size: CGSize) -> CGImage? {
-        ciContext.createCGImage(image, from: CGRect(origin: .zero, size: size))
-    }
+    // MARK: - Layout
 
     private struct FittedContent {
         let image: CIImage
@@ -273,47 +247,92 @@ final class CompositionRenderer {
             .cropped(to: CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight))
     }
 
+    // MARK: - Background frame
+
+    /// The gradient, drop shadow, and rounded-corner mask only change with the layout,
+    /// so they are rendered once into GPU-resident buffers and reused every frame.
+    private struct BackdropLayers {
+        let background: CIImage
+        let contentMask: CIImage
+    }
+
+    private struct BackdropKey: Equatable {
+        let outputWidth: Int
+        let outputHeight: Int
+        /// Content frame and corner radius in hundredths of a pixel, so floating-point
+        /// noise in the per-frame layout math doesn't defeat the cache.
+        let frame: [Int]
+        let cornerRadius: Int
+        let shadowEnabled: Bool
+
+        init(outputWidth: Int, outputHeight: Int, contentFrame: CGRect, cornerRadius: CGFloat, shadowEnabled: Bool) {
+            func quantized(_ value: CGFloat) -> Int { Int((value * 100).rounded()) }
+            self.outputWidth = outputWidth
+            self.outputHeight = outputHeight
+            frame = [contentFrame.minX, contentFrame.minY, contentFrame.width, contentFrame.height].map(quantized)
+            self.cornerRadius = quantized(cornerRadius)
+            self.shadowEnabled = shadowEnabled
+        }
+    }
+
     private func compositeOnBackground(
         _ content: CIImage,
         contentFrame: CGRect,
         outputWidth: Int,
         outputHeight: Int
     ) -> CIImage {
-        let outputRect = CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight)
-        let background = makeBackground(in: outputRect)
+        let layers = backdropLayers(contentFrame: contentFrame, outputWidth: outputWidth, outputHeight: outputHeight)
+        let maskedContent = content.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputMaskImageKey: layers.contentMask
+        ])
+        return maskedContent.composited(over: layers.background)
+    }
 
-        let mask = roundedRectMask(
-            rect: contentFrame,
-            radius: settings.exportStyle.cornerRadius,
-            canvasSize: outputRect.size
+    private func backdropLayers(contentFrame: CGRect, outputWidth: Int, outputHeight: Int) -> BackdropLayers {
+        let style = settings.exportStyle
+        let key = BackdropKey(
+            outputWidth: outputWidth,
+            outputHeight: outputHeight,
+            contentFrame: contentFrame,
+            cornerRadius: style.cornerRadius,
+            shadowEnabled: style.shadowEnabled
         )
+        if let cachedBackdrop, cachedBackdrop.key == key {
+            return cachedBackdrop.layers
+        }
 
-        var composed = background
+        let outputSize = CGSize(width: outputWidth, height: outputHeight)
+        let outputRect = CGRect(origin: .zero, size: outputSize)
 
-        if settings.exportStyle.shadowEnabled {
-            let shadowRect = contentFrame.offsetBy(dx: 0, dy: -6)
+        var background = makeBackgroundGradient(in: outputRect)
+        if style.shadowEnabled {
+            // Core Image space is y-up, so a negative offset puts the shadow below.
             let shadowMask = roundedRectMask(
-                rect: shadowRect,
-                radius: settings.exportStyle.cornerRadius,
-                canvasSize: outputRect.size
+                rect: contentFrame.offsetBy(dx: 0, dy: -6),
+                radius: style.cornerRadius,
+                canvasSize: outputSize
             )
             let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.35))
                 .cropped(to: outputRect)
                 .applyingFilter("CIBlendWithMask", parameters: [
-                    kCIInputMaskImageKey: shadowMask.applyingFilter("CIGaussianBlur", parameters: [
-                        kCIInputRadiusKey: 16
-                    ])
+                    kCIInputMaskImageKey: shadowMask
+                        .clampedToExtent()
+                        .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 16])
+                        .cropped(to: outputRect)
                 ])
-            composed = shadow.composited(over: composed)
+            background = shadow.composited(over: background)
         }
 
-        let maskedContent = content.applyingFilter("CIBlendWithMask", parameters: [
-            kCIInputMaskImageKey: mask
-        ])
-        return maskedContent.composited(over: composed)
+        let contentMask = roundedRectMask(rect: contentFrame, radius: style.cornerRadius, canvasSize: outputSize)
+        let layers = BackdropLayers(
+            background: materialize(background, size: outputSize),
+            contentMask: materialize(contentMask, size: outputSize)
+        )
+        cachedBackdrop = (key, layers)
+        return layers
     }
 
-    private func makeBackground(in rect: CGRect) -> CIImage {
+    private func makeBackgroundGradient(in rect: CGRect) -> CIImage {
         guard let filter = CIFilter(name: "CILinearGradient") else {
             return CIImage(color: CIColor(red: 0.06, green: 0.06, blue: 0.08, alpha: 1)).cropped(to: rect)
         }
@@ -324,57 +343,60 @@ final class CompositionRenderer {
         return (filter.outputImage ?? CIImage.empty()).cropped(to: rect)
     }
 
-    /// `rect` is in Core Image space (bottom-left origin), which matches an unflipped
-    /// bitmap context, so it is drawn as-is. Masks only change when the layout does,
-    /// so they are cached instead of being re-rasterized every frame.
+    /// Anti-aliased white rounded rectangle on transparent. `rect` is in Core Image space
+    /// (bottom-left origin), which matches an unflipped bitmap context.
     private func roundedRectMask(rect: CGRect, radius: CGFloat, canvasSize: CGSize) -> CIImage {
-        let key = MaskKey(rect: rect, radius: radius, canvasSize: canvasSize)
-        if let cached = maskCache[key] {
-            return cached
-        }
-
-        let mask = renderBitmap(size: canvasSize) { context in
+        renderBitmap(size: canvasSize) { context in
             context.setFillColor(NSColor.white.cgColor)
             let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
             context.addPath(path.cgPath)
             context.fillPath()
         }
-
-        if maskCache.count > 16 {
-            maskCache.removeAll()
-        }
-        maskCache[key] = mask
-        return mask
     }
 
-    private func drawWatermark(on image: CIImage, outputRect: CGRect) -> CIImage {
+    // MARK: - Watermark
+
+    private func compositeWatermark(onto image: CIImage, outputWidth: Int) -> CIImage {
         let text = settings.exportStyle.watermarkText
-        let key = WatermarkKey(text: text, width: outputRect.width, height: outputRect.height)
-        if let cachedWatermark, cachedWatermark.key == key {
-            return cachedWatermark.image.composited(over: image)
+        let textImage: CIImage
+        if let cachedWatermark, cachedWatermark.text == text {
+            textImage = cachedWatermark.image
+        } else {
+            textImage = makeWatermarkImage(text: text)
+            cachedWatermark = (text, textImage)
         }
 
+        // Bottom-right corner, 24 px in from each edge.
+        let extent = textImage.extent
+        return textImage
+            .transformed(by: CGAffineTransform(
+                translationX: CGFloat(outputWidth) - extent.width - 24,
+                y: 24
+            ))
+            .composited(over: image)
+    }
+
+    /// Just the text, in a bitmap the size of the text.
+    private func makeWatermarkImage(text: String) -> CIImage {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 18, weight: .medium),
             .foregroundColor: NSColor.white.withAlphaComponent(0.55)
         ]
         let size = (text as NSString).size(withAttributes: attributes)
-        // Unflipped context: y is measured from the bottom, so this is the bottom-right corner.
-        let origin = CGPoint(x: outputRect.maxX - size.width - 24, y: 24)
-        let textImage = renderBitmap(size: outputRect.size) { context in
+        return renderBitmap(size: CGSize(width: size.width + 2, height: size.height + 2)) { context in
             // AppKit string drawing targets NSGraphicsContext.current, which is nil on
             // the render queues unless we install one around the bitmap context.
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-            (text as NSString).draw(at: origin, withAttributes: attributes)
+            (text as NSString).draw(at: CGPoint(x: 1, y: 1), withAttributes: attributes)
             NSGraphicsContext.restoreGraphicsState()
         }
-        cachedWatermark = (key, textImage)
-        return textImage.composited(over: image)
     }
 
+    // MARK: - Camera bubble
+
     /// Circular camera bubble in a corner of the video frame, with a white rim and a soft
-    /// shadow. Built from Core Image generators so nothing is rasterized on the CPU.
+    /// shadow.
     private func compositeCameraBubble(_ camera: CIImage, onto image: CIImage, contentFrame: CGRect) -> CIImage {
         guard contentFrame.width > 0, contentFrame.height > 0,
               camera.extent.width > 0, camera.extent.height > 0
@@ -388,10 +410,9 @@ final class CompositionRenderer {
         // Aspect-fill the camera frame into the bubble's square.
         let extent = camera.extent
         let scale = max(bubble.width / extent.width, bubble.height / extent.height)
-        let fitted = camera
+        let placed = camera
             .transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
             .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        let placed = fitted
             .transformed(by: CGAffineTransform(
                 translationX: center.x - extent.width * scale / 2,
                 y: center.y - extent.height * scale / 2
@@ -400,26 +421,20 @@ final class CompositionRenderer {
 
         let rimWidth = max(2, radius * 0.045)
         let rimRadius = radius + rimWidth
+        let white = CIColor(red: 1, green: 1, blue: 1, alpha: 1)
 
-        let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.35))
-            .cropped(to: bubble.insetBy(dx: -rimWidth * 4, dy: -rimWidth * 4))
-            .applyingFilter("CIBlendWithMask", parameters: [
-                kCIInputMaskImageKey: circleMask(
-                    center: CGPoint(x: center.x, y: center.y - rimWidth * 1.5),
-                    radius: rimRadius
-                )
-            ])
-            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: rimWidth * 3])
-            .cropped(to: bubble.insetBy(dx: -rimWidth * 12, dy: -rimWidth * 12))
+        let shadow = disc(
+            center: CGPoint(x: center.x, y: center.y - rimWidth * 1.5),
+            radius: rimRadius,
+            color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.35)
+        )
+        .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: rimWidth * 3])
+        .cropped(to: bubble.insetBy(dx: -rimWidth * 12, dy: -rimWidth * 12))
 
-        let rim = CIImage(color: CIColor(red: 1, green: 1, blue: 1, alpha: 0.92))
-            .cropped(to: bubble.insetBy(dx: -rimWidth - 2, dy: -rimWidth - 2))
-            .applyingFilter("CIBlendWithMask", parameters: [
-                kCIInputMaskImageKey: circleMask(center: center, radius: rimRadius)
-            ])
+        let rim = disc(center: center, radius: rimRadius, color: CIColor(red: 1, green: 1, blue: 1, alpha: 0.92))
 
         let face = placed.applyingFilter("CIBlendWithMask", parameters: [
-            kCIInputMaskImageKey: circleMask(center: center, radius: radius)
+            kCIInputMaskImageKey: disc(center: center, radius: radius, color: white)
         ])
 
         return face
@@ -428,51 +443,65 @@ final class CompositionRenderer {
             .composited(over: image)
     }
 
-    /// White disc with a one-pixel anti-aliased edge, transparent elsewhere.
-    private func circleMask(center: CGPoint, radius: CGFloat) -> CIImage {
-        let bounds = CGRect(x: center.x - radius - 2, y: center.y - radius - 2, width: radius * 2 + 4, height: radius * 2 + 4)
-        guard let filter = CIFilter(name: "CIRadialGradient") else {
-            return CIImage.empty()
-        }
-        filter.setValue(CIVector(x: center.x, y: center.y), forKey: "inputCenter")
-        filter.setValue(max(0, radius - 1), forKey: "inputRadius0")
-        filter.setValue(radius, forKey: "inputRadius1")
-        filter.setValue(CIColor(red: 1, green: 1, blue: 1, alpha: 1), forKey: "inputColor0")
-        filter.setValue(CIColor(red: 0, green: 0, blue: 0, alpha: 0), forKey: "inputColor1")
-        return (filter.outputImage ?? CIImage.empty()).cropped(to: bounds)
+    // MARK: - Cursor
+
+    /// The arrow is rasterized once at source pixel density; each frame only moves and
+    /// scales it, instead of drawing a full-resolution bitmap per frame.
+    private struct CursorSprite {
+        let image: CIImage
+        /// Arrow tip in `image` coordinates.
+        let tip: CGPoint
+        /// Sprite pixels per point of arrow.
+        let density: CGFloat
     }
 
     private func cursorLocation(at time: TimeInterval) -> CGPoint? {
         cursorSmoother.location(at: time, in: smoothedCursorEvents)
     }
 
-    private func compositeCursor(
-        onto image: CIImage,
-        at time: TimeInterval,
-        sourceWidth: CGFloat,
-        sourceHeight: CGFloat
-    ) -> CIImage {
+    private func compositeCursor(onto image: CIImage, at time: TimeInterval) -> CIImage {
         guard let cursorLocation = cursorLocation(at: time) else {
             return image
         }
 
-        let scale: CGFloat
+        let clickScale: CGFloat
         if settings.exportStyle.cursorScaleOnClickEnabled {
-            scale = CursorClickScale.scale(at: time, clicks: settings.clickEvents, settings: motionFX)
+            clickScale = CursorClickScale.scale(at: time, clicks: settings.clickEvents, settings: motionFX)
         } else {
-            scale = 1
+            clickScale = 1
         }
 
-        let canvas = CGSize(width: sourceWidth, height: sourceHeight)
-        let cursorImage = renderBitmap(size: canvas) { context in
-            // Flip so the arrow path (defined top-down) points the right way. Tracked
-            // locations are bottom-up (Core Image space), so convert the tip too.
-            context.translateBy(x: 0, y: sourceHeight)
-            context.scaleBy(x: 1, y: -1)
+        let pointScale = max(settings.sourcePixelsPerPoint, 1)
+        let sprite: CursorSprite
+        if let cursorSprite, cursorSprite.density == pointScale {
+            sprite = cursorSprite
+        } else {
+            sprite = makeCursorSprite(density: pointScale)
+            cursorSprite = sprite
+        }
 
-            let tip = CGPoint(x: cursorLocation.x, y: sourceHeight - cursorLocation.y)
-            context.translateBy(x: tip.x, y: tip.y)
-            context.scaleBy(x: scale, y: scale)
+        // Sprite pixels -> source pixels, scaled about the tip, tip placed on the cursor.
+        let scale = pointScale * clickScale / sprite.density
+        let placed = sprite.image
+            .transformed(by: CGAffineTransform(translationX: -sprite.tip.x, y: -sprite.tip.y))
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            .transformed(by: CGAffineTransform(translationX: cursorLocation.x, y: cursorLocation.y))
+
+        return placed.composited(over: image)
+    }
+
+    private func makeCursorSprite(density: CGFloat) -> CursorSprite {
+        // Arrow spans 12.5 × 18 points (plus a 1.5/2 point shadow offset); keep a margin
+        // for the stroke and shadow.
+        let margin: CGFloat = 2
+        let pointSize = CGSize(width: 14 + margin * 2, height: 20 + margin * 2)
+        let pixelSize = CGSize(width: pointSize.width * density, height: pointSize.height * density)
+
+        let image = renderBitmap(size: pixelSize) { context in
+            // Draw top-down in points so the path reads like the arrow it describes.
+            context.translateBy(x: 0, y: pixelSize.height)
+            context.scaleBy(x: density, y: -density)
+            context.translateBy(x: margin, y: margin)
 
             let shadow = CGMutablePath()
             appendCursorPath(shadow, at: CGPoint(x: 1.5, y: 2))
@@ -489,7 +518,9 @@ final class CompositionRenderer {
             context.drawPath(using: .fillStroke)
         }
 
-        return cursorImage.composited(over: image)
+        // The tip sits `margin` points from the top-left; Core Image is y-up.
+        let tip = CGPoint(x: margin * density, y: pixelSize.height - margin * density)
+        return CursorSprite(image: image, tip: tip, density: density)
     }
 
     private func appendCursorPath(_ path: CGMutablePath, at origin: CGPoint) {
@@ -503,35 +534,58 @@ final class CompositionRenderer {
         path.closeSubpath()
     }
 
-    private func compositeRipples(
-        onto image: CIImage,
-        at time: TimeInterval,
-        sourceWidth: CGFloat,
-        sourceHeight: CGFloat
-    ) -> CIImage {
+    // MARK: - Click ripples
+
+    private func compositeRipples(onto image: CIImage, at time: TimeInterval) -> CIImage {
         let ripples = rippleEvaluator.ripples(at: time, clicks: settings.clickEvents)
         guard !ripples.isEmpty else { return image }
 
-        let canvas = CGSize(width: sourceWidth, height: sourceHeight)
-        // Click locations are bottom-up, matching an unflipped bitmap context.
-        let rippleImage = renderBitmap(size: canvas) { context in
-            for ripple in ripples {
-                let radius = motionFX.rippleRadius * (0.18 + 0.82 * ripple.progress)
-                let alpha = (1 - ripple.progress) * (ripple.ring == 0 ? 0.7 : 0.42)
-                let lineWidth: CGFloat = ripple.ring == 0 ? 3.2 : 2.2
-                context.setStrokeColor(NSColor.white.withAlphaComponent(alpha).cgColor)
-                context.setLineWidth(lineWidth)
-                context.strokeEllipse(in: CGRect(
-                    x: ripple.location.x - radius,
-                    y: ripple.location.y - radius,
-                    width: radius * 2,
-                    height: radius * 2
-                ))
-            }
+        // Click locations are bottom-up, the same space as the source image.
+        return ripples.reduce(image) { composed, ripple in
+            let radius = motionFX.rippleRadius * (0.18 + 0.82 * ripple.progress)
+            let alpha = (1 - ripple.progress) * (ripple.ring == 0 ? 0.7 : 0.42)
+            let lineWidth: CGFloat = ripple.ring == 0 ? 3.2 : 2.2
+            return ring(center: ripple.location, radius: radius, lineWidth: lineWidth, alpha: alpha)
+                .composited(over: composed)
         }
-
-        return rippleImage.composited(over: image)
     }
+
+    /// White ring (annulus) centered on `radius`, `lineWidth` wide.
+    private func ring(center: CGPoint, radius: CGFloat, lineWidth: CGFloat, alpha: CGFloat) -> CIImage {
+        let outer = disc(
+            center: center,
+            radius: radius + lineWidth / 2,
+            color: CIColor(red: 1, green: 1, blue: 1, alpha: alpha)
+        )
+        let innerRadius = radius - lineWidth / 2
+        guard innerRadius > 0 else { return outer }
+        let inner = disc(center: center, radius: innerRadius, color: CIColor(red: 1, green: 1, blue: 1, alpha: 1))
+        // Keep the outer disc only where the inner disc isn't.
+        return outer.applyingFilter("CISourceOutCompositing", parameters: [
+            kCIInputBackgroundImageKey: inner
+        ])
+    }
+
+    /// Filled disc with a soft one-and-a-half-pixel edge, transparent elsewhere.
+    private func disc(center: CGPoint, radius: CGFloat, color: CIColor) -> CIImage {
+        guard let filter = CIFilter(name: "CIRadialGradient") else {
+            return CIImage.empty()
+        }
+        filter.setValue(CIVector(x: center.x, y: center.y), forKey: "inputCenter")
+        filter.setValue(max(0, radius - 0.75), forKey: "inputRadius0")
+        filter.setValue(radius + 0.75, forKey: "inputRadius1")
+        filter.setValue(color, forKey: "inputColor0")
+        filter.setValue(CIColor(red: color.red, green: color.green, blue: color.blue, alpha: 0), forKey: "inputColor1")
+        let bounds = CGRect(
+            x: center.x - radius - 2,
+            y: center.y - radius - 2,
+            width: radius * 2 + 4,
+            height: radius * 2 + 4
+        )
+        return (filter.outputImage ?? CIImage.empty()).cropped(to: bounds)
+    }
+
+    // MARK: - Spotlight
 
     private func outputPoint(
         forSource point: CGPoint,
@@ -573,6 +627,48 @@ final class CompositionRenderer {
         return overlay.composited(over: image)
     }
 
+    // MARK: - Helpers
+
+    private static func cursorPath(
+        for settings: CompositionRenderSettings,
+        smoother: CursorPathSmoother
+    ) -> [CursorEvent] {
+        settings.exportStyle.cursorSmoothingEnabled
+            ? smoother.smooth(settings.cursorEvents)
+            : settings.cursorEvents
+    }
+
+    private static func createIOSurfaceBuffer(width: Int, height: Int, buffer: inout CVPixelBuffer?) -> CVReturn {
+        CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary] as CFDictionary,
+            &buffer
+        )
+    }
+
+    /// Renders `image` once into a GPU-resident (IOSurface) buffer and returns an image
+    /// backed by it, so reusing it costs no CPU work or texture upload per frame.
+    private func materialize(_ image: CIImage, size: CGSize) -> CIImage {
+        let width = max(Int(size.width.rounded(.up)), 1)
+        let height = max(Int(size.height.rounded(.up)), 1)
+        var buffer: CVPixelBuffer?
+        guard Self.createIOSurfaceBuffer(width: width, height: height, buffer: &buffer) == kCVReturnSuccess,
+              let buffer
+        else {
+            return image
+        }
+
+        let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        ciContext.render(image.cropped(to: bounds), to: buffer, bounds: bounds, colorSpace: Self.workingColorSpace)
+        if let colorSpace = Self.workingColorSpace {
+            return CIImage(cvPixelBuffer: buffer, options: [.colorSpace: colorSpace])
+        }
+        return CIImage(cvPixelBuffer: buffer)
+    }
+
     private func renderBitmap(size: CGSize, draw: (CGContext) -> Void) -> CIImage {
         let width = Int(size.width.rounded(.up))
         let height = Int(size.height.rounded(.up))
@@ -598,9 +694,6 @@ final class CompositionRenderer {
         return CIImage(cgImage: cgImage)
     }
 }
-
-typealias ZoomVideoCompositor = CompositionRenderer
-typealias CompositorSettings = CompositionRenderSettings
 
 private extension NSBezierPath {
     var cgPath: CGPath {

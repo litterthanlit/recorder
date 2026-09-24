@@ -21,6 +21,8 @@ struct ExportConfiguration {
     /// Separately recorded camera track, if any, and how to show it.
     let cameraURL: URL?
     let camera: CameraOverlayStyle
+    /// Capture scale factor (source pixels per screen point), for sizing the cursor.
+    let sourcePixelsPerPoint: CGFloat
 }
 
 final class VideoExporter {
@@ -140,7 +142,8 @@ final class VideoExporter {
                 sourceWidth: sourceWidth,
                 sourceHeight: sourceHeight,
                 drawCursor: configuration.drawCursor,
-                camera: configuration.camera
+                camera: configuration.camera,
+                sourcePixelsPerPoint: configuration.sourcePixelsPerPoint
             )
         )
 

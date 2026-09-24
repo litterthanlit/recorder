@@ -21,6 +21,10 @@ final class CameraMicCapture: NSObject {
 
     private let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "com.recorder.camera-mic.session")
+    /// Camera frames can take a while (Vision person segmentation for backgrounds), so they
+    /// get their own queue; sharing one with the mic delayed and dropped audio buffers.
+    private let videoQueue = DispatchQueue(label: "com.recorder.camera-mic.video", qos: .userInitiated)
+    private let audioQueue = DispatchQueue(label: "com.recorder.camera-mic.audio", qos: .userInteractive)
     private let videoOutput = AVCaptureVideoDataOutput()
     private let audioOutput = AVCaptureAudioDataOutput()
     private let bufferLock = NSLock()
@@ -78,7 +82,7 @@ final class CameraMicCapture: NSObject {
             videoOutput.videoSettings = [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
             ]
-            videoOutput.setSampleBufferDelegate(self, queue: sessionQueue)
+            videoOutput.setSampleBufferDelegate(self, queue: videoQueue)
             guard session.canAddOutput(videoOutput) else {
                 throw CameraMicCaptureError.cameraUnavailable
             }
@@ -114,7 +118,7 @@ final class CameraMicCapture: NSObject {
             }
             session.addInput(input)
 
-            audioOutput.setSampleBufferDelegate(self, queue: sessionQueue)
+            audioOutput.setSampleBufferDelegate(self, queue: audioQueue)
             guard session.canAddOutput(audioOutput) else {
                 throw CameraMicCaptureError.microphoneUnavailable
             }

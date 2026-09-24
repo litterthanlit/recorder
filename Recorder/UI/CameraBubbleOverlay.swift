@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import CoreImage
 import CoreVideo
 import QuartzCore
 
@@ -8,7 +9,6 @@ final class CameraBubbleOverlay {
     private var panel: NSPanel?
     private var previewHost: NSView?
     private var processedLayer: CALayer?
-    private let imageConverter = CameraBackgroundProcessor()
 
     var windowID: UInt32? {
         guard let panel else { return nil }
@@ -35,10 +35,9 @@ final class CameraBubbleOverlay {
         processedLayer = layer
     }
 
-    func updateProcessedFrame(_ pixelBuffer: CVPixelBuffer) {
-        guard let processedLayer else { return }
-        guard let cgImage = imageConverter.makeCGImage(from: pixelBuffer) else { return }
-        processedLayer.contents = cgImage
+    /// Shows a frame prepared by `CameraPreviewRenderer` (off the main thread).
+    func updateProcessedFrame(_ image: CGImage) {
+        processedLayer?.contents = image
     }
 
     func hide() {
@@ -124,5 +123,45 @@ final class CameraBubbleOverlay {
                 y: screenFrame.maxY - diameter - padding
             )
         }
+    }
+}
+
+/// Turns processed camera frames into small preview images for the on-screen bubble.
+///
+/// Runs on the camera queue, not the main thread (which also services the click-tracking
+/// event tap), and scales the frame down to bubble size before reading it back. While a
+/// frame is still waiting to be shown, new ones are skipped rather than queued.
+final class CameraPreviewRenderer: @unchecked Sendable {
+    /// The on-screen bubble is 168 pt, so 2x that is plenty.
+    static let maxPixelSize: CGFloat = 336
+
+    private let context = CIContext(options: [.cacheIntermediates: false])
+    private let lock = NSLock()
+    private var isFramePending = false
+
+    /// Returns `false` if the previous frame hasn't been shown yet.
+    func beginFrame() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isFramePending else { return false }
+        isFramePending = true
+        return true
+    }
+
+    func endFrame() {
+        lock.lock()
+        isFramePending = false
+        lock.unlock()
+    }
+
+    func makeImage(from pixelBuffer: CVPixelBuffer) -> CGImage? {
+        let image = CIImage(cvPixelBuffer: pixelBuffer)
+        let extent = image.extent
+        let shortSide = min(extent.width, extent.height)
+        guard shortSide > 0 else { return nil }
+
+        let scale = min(1, Self.maxPixelSize / shortSide)
+        let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        return context.createCGImage(scaled, from: scaled.extent.integral)
     }
 }

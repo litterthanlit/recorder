@@ -31,7 +31,9 @@ final class ProjectEditor: ObservableObject {
     }
 
     private let videoExporter = VideoExporter()
+    private let autosaver = ProjectAutosaver()
     private var timeObserver: Any?
+    private var terminationObserver: NSObjectProtocol?
 
     var duration: TimeInterval {
         project.metadata.duration
@@ -74,7 +76,8 @@ final class ProjectEditor: ObservableObject {
             sourceWidth: CGFloat(project.metadata.width),
             sourceHeight: CGFloat(project.metadata.height),
             drawCursor: !project.cursorEvents.isEmpty,
-            camera: editSettings.camera
+            camera: editSettings.camera,
+            sourcePixelsPerPoint: project.metadata.scaleFactor
         )
     }
 
@@ -99,9 +102,23 @@ final class ProjectEditor: ObservableObject {
         }
         player.replaceCurrentItem(with: AVPlayerItem(url: project.videoURL))
         installTimeObserver()
+
+        // Edits are saved shortly after they happen; make sure the last one lands.
+        let autosaver = self.autosaver
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            autosaver.flush()
+        }
     }
 
     deinit {
+        if let terminationObserver {
+            NotificationCenter.default.removeObserver(terminationObserver)
+        }
+        autosaver.flush()
         if let timeObserver {
             player.removeTimeObserver(timeObserver)
         }
@@ -288,6 +305,7 @@ final class ProjectEditor: ObservableObject {
         do {
             persistKeyframes()
             persistSettings()
+            autosaver.flush()
 
             let sourceSize = CGSize(width: project.metadata.width, height: project.metadata.height)
             let outputSize = editSettings.exportPreset.outputSize(for: sourceSize)
@@ -308,7 +326,8 @@ final class ProjectEditor: ObservableObject {
                     drawCursor: !project.cursorEvents.isEmpty,
                     frameRate: project.metadata.fps,
                     cameraURL: project.hasCameraTrack ? project.cameraURL : nil,
-                    camera: editSettings.camera
+                    camera: editSettings.camera,
+                    sourcePixelsPerPoint: project.metadata.scaleFactor
                 )
             ) { [weak self] progress in
                 Task { @MainActor in
@@ -334,12 +353,12 @@ final class ProjectEditor: ObservableObject {
 
     private func persistKeyframes() {
         project.keyframes = keyframes
-        try? ProjectStore.save(project)
+        autosaver.schedule(project)
     }
 
     private func persistSettings() {
         project.editSettings = editSettings
-        try? ProjectStore.save(project)
+        autosaver.schedule(project)
     }
 
     private func installTimeObserver() {

@@ -159,19 +159,36 @@ enum ProjectStore {
         try FileManager.default.createDirectory(at: projectsDirectory, withIntermediateDirectories: true)
     }
 
+    /// Writes every file of a new project. Writes are atomic, so a crash mid-save
+    /// leaves the previous version of a file rather than a truncated one.
     static func save(_ project: RecorderProject) throws {
         try ensureProjectsDirectory()
         try FileManager.default.createDirectory(at: project.bundleURL, withIntermediateDirectories: true)
 
+        let encoder = makeEncoder()
+        try encoder.encode(project.metadata).write(to: project.metaURL, options: .atomic)
+        try encoder.encode(project.clickEvents).write(to: project.eventsURL, options: .atomic)
+        try encoder.encode(project.cursorEvents).write(to: project.cursorURL, options: .atomic)
+        try saveEdits(project, encoder: encoder)
+    }
+
+    /// Writes only what the editor changes (zoom keyframes and edit settings). Metadata,
+    /// clicks, and the cursor path are fixed after recording, and the cursor path is by
+    /// far the largest file.
+    static func saveEdits(_ project: RecorderProject) throws {
+        try saveEdits(project, encoder: makeEncoder())
+    }
+
+    private static func saveEdits(_ project: RecorderProject, encoder: JSONEncoder) throws {
+        try encoder.encode(project.keyframes).write(to: project.keyframesURL, options: .atomic)
+        try encoder.encode(project.editSettings).write(to: project.settingsURL, options: .atomic)
+    }
+
+    private static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-
-        try encoder.encode(project.metadata).write(to: project.metaURL)
-        try encoder.encode(project.clickEvents).write(to: project.eventsURL)
-        try encoder.encode(project.cursorEvents).write(to: project.cursorURL)
-        try encoder.encode(project.keyframes).write(to: project.keyframesURL)
-        try encoder.encode(project.editSettings).write(to: project.settingsURL)
+        return encoder
     }
 
     static func loadMetadata(from bundleURL: URL) throws -> ProjectMetadata {
@@ -220,5 +237,45 @@ enum ProjectStore {
             keyframes: keyframes,
             editSettings: editSettings
         )
+    }
+}
+
+/// Saves editor changes off the main thread, coalescing bursts (dragging a trim handle,
+/// typing a watermark) into one write shortly after they stop.
+final class ProjectAutosaver: @unchecked Sendable {
+    // All mutable state is confined to `queue`.
+    private let queue = DispatchQueue(label: "com.recorder.project-autosave", qos: .utility)
+    private let delay: TimeInterval
+    private var pendingProject: RecorderProject?
+    private var generation = 0
+
+    init(delay: TimeInterval = 0.3) {
+        self.delay = delay
+    }
+
+    /// Saves `project` after `delay`, unless a newer version is scheduled first.
+    func schedule(_ project: RecorderProject) {
+        queue.async { [self] in
+            generation += 1
+            let scheduledGeneration = generation
+            pendingProject = project
+            queue.asyncAfter(deadline: .now() + delay) { [self] in
+                guard scheduledGeneration == generation else { return }
+                writePending()
+            }
+        }
+    }
+
+    /// Writes any pending change now and waits for it (before export or quitting).
+    func flush() {
+        queue.sync {
+            writePending()
+        }
+    }
+
+    private func writePending() {
+        guard let project = pendingProject else { return }
+        pendingProject = nil
+        try? ProjectStore.saveEdits(project)
     }
 }

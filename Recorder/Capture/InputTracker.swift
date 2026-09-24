@@ -51,11 +51,13 @@ final class InputTracker {
             return Unmanaged.passUnretained(event)
         }
 
+        // Listen-only: the system doesn't wait for this callback before delivering
+        // events, so a busy main thread here can't make the mouse lag system-wide.
         guard
             let tap = CGEvent.tapCreate(
                 tap: .cgSessionEventTap,
                 place: .headInsertEventTap,
-                options: .defaultTap,
+                options: .listenOnly,
                 eventsOfInterest: CGEventMask(mask),
                 callback: callback,
                 userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -86,6 +88,16 @@ final class InputTracker {
     }
 
     private func handle(event: CGEvent, type: CGEventType) {
+        // macOS switches a tap off if it responds too slowly or on some user input, and
+        // tells us with these event types. Turn it back on, or click tracking (and with it
+        // auto zoom) silently stops for the rest of the take.
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let eventTap {
+                CGEvent.tapEnable(tap: eventTap, enable: true)
+            }
+            return
+        }
+
         let timestamp = CACurrentMediaTime() - startTime
         let global = event.location
         let local = convertToCaptureCoordinates(global: global)

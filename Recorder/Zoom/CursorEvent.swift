@@ -40,31 +40,39 @@ struct CursorPathSmoother {
         return smoothed
     }
 
+    /// Cursor position at `time`, interpolated between samples. `events` must be sorted
+    /// by timestamp (they are recorded in order). Runs every rendered frame, so it uses a
+    /// binary search rather than scanning the whole path.
     func location(at time: TimeInterval, in events: [CursorEvent]) -> CGPoint? {
-        guard !events.isEmpty else { return nil }
+        guard let first = events.first, let last = events.last else { return nil }
 
-        if time <= events[0].timestamp {
-            return events[0].location
+        if time <= first.timestamp {
+            return first.location
         }
-
-        if let last = events.last, time >= last.timestamp {
+        if time >= last.timestamp {
             return last.location
         }
 
-        for index in 0..<(events.count - 1) {
-            let current = events[index]
-            let next = events[index + 1]
-            if time >= current.timestamp && time <= next.timestamp {
-                let span = next.timestamp - current.timestamp
-                guard span > 0 else { return current.location }
-                let progress = CGFloat((time - current.timestamp) / span)
-                return CGPoint(
-                    x: current.location.x + (next.location.x - current.location.x) * progress,
-                    y: current.location.y + (next.location.y - current.location.y) * progress
-                )
+        // Find the first sample after `time`; the one before it is at or before `time`.
+        var low = 1
+        var high = events.count - 1
+        while low < high {
+            let mid = (low + high) / 2
+            if events[mid].timestamp > time {
+                high = mid
+            } else {
+                low = mid + 1
             }
         }
 
-        return events.last?.location
+        let current = events[low - 1]
+        let next = events[low]
+        let span = next.timestamp - current.timestamp
+        guard span > 0 else { return current.location }
+        let progress = CGFloat((time - current.timestamp) / span)
+        return CGPoint(
+            x: current.location.x + (next.location.x - current.location.x) * progress,
+            y: current.location.y + (next.location.y - current.location.y) * progress
+        )
     }
 }

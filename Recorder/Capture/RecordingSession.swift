@@ -32,6 +32,7 @@ final class RecordingSession: ObservableObject {
     private let screenRecorder = ScreenRecorder()
     private let cameraMicCapture = CameraMicCapture()
     private let cameraBubble = CameraBubbleOverlay()
+    private let cameraPreviewRenderer = CameraPreviewRenderer()
     private let inputTracker = InputTracker()
     private let countdownOverlay = CountdownOverlay()
     private let presentationMode = PresentationModeManager()
@@ -172,9 +173,18 @@ final class RecordingSession: ObservableObject {
             if preferences.cameraEnabled {
                 if preferences.cameraBackground.requiresProcessing {
                     cameraBubble.showProcessedPreview(position: preferences.cameraPosition)
+                    // Called on the camera queue: build the small preview image there and
+                    // only hand the finished image to the main thread.
+                    let previewRenderer = cameraPreviewRenderer
                     cameraMicCapture.onCameraFrame = { [weak self] buffer in
+                        guard previewRenderer.beginFrame() else { return }
+                        guard let image = previewRenderer.makeImage(from: buffer) else {
+                            previewRenderer.endFrame()
+                            return
+                        }
                         Task { @MainActor in
-                            self?.cameraBubble.updateProcessedFrame(buffer)
+                            self?.cameraBubble.updateProcessedFrame(image)
+                            previewRenderer.endFrame()
                         }
                     }
                 } else if let previewLayer = cameraMicCapture.previewLayer {

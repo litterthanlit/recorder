@@ -53,11 +53,6 @@ final class CameraBackgroundProcessor {
         return output
     }
 
-    func makeCGImage(from pixelBuffer: CVPixelBuffer) -> CGImage? {
-        let image = CIImage(cvPixelBuffer: pixelBuffer)
-        return ciContext.createCGImage(image, from: image.extent)
-    }
-
     private func scaleMask(_ mask: CIImage, to extent: CGRect) -> CIImage {
         let scaleX = extent.width / max(mask.extent.width, 1)
         let scaleY = extent.height / max(mask.extent.height, 1)

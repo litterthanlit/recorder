@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import CoreImage
+import CoreMedia
 import CoreVideo
 import QuartzCore
 import SwiftUI
@@ -10,28 +11,61 @@ struct CompositorPreviewView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> CompositorPreviewHost {
         let host = CompositorPreviewHost(player: editor.player, cameraPlayer: editor.cameraPlayer)
-        host.apply(from: editor)
+        host.apply(keyframes: editor.keyframes, settings: editor.renderSettings)
         return host
     }
 
     func updateNSView(_ nsView: CompositorPreviewHost, context: Context) {
-        nsView.apply(from: editor)
+        nsView.apply(keyframes: editor.keyframes, settings: editor.renderSettings)
     }
 }
 
+/// Shows the editor preview by compositing the current video frame with the same
+/// renderer the export uses, once per display refresh.
+///
+/// Frames are rendered on a background queue into pooled, GPU-resident (IOSurface)
+/// buffers and handed straight to an `AVSampleBufferDisplayLayer`, so they never
+/// round-trip through the CPU. At most one frame is in flight: refresh ticks that arrive
+/// while a frame is still rendering are dropped rather than queued, so a slow frame can't
+/// make the picture fall further and further behind the audio.
 final class CompositorPreviewHost: NSView {
     private let player: AVPlayer
     private let cameraPlayer: AVPlayer?
+    private let displayLayer = AVSampleBufferDisplayLayer()
     private var videoOutput: AVPlayerItemVideoOutput?
     private var cameraOutput: AVPlayerItemVideoOutput?
-    private var lastCameraBuffer: CVPixelBuffer?
-    private var displayLink: CVDisplayLink?
-    private var renderer: CompositionRenderer
-    private var lastPixelBuffer: CVPixelBuffer?
-    private var lastRenderedSignature: Int = 0
-    private let renderQueue = DispatchQueue(label: "com.recorder.preview.render")
-    private var isDisplayLinkRunning = false
     private var itemStatusObserver: NSKeyValueObservation?
+    private var displayLink: CVDisplayLink?
+    private var displayLinkTarget: DisplayLinkTarget?
+
+    // Main thread only.
+    private var appliedKeyframes: [ZoomKeyframe]?
+    private var appliedSettings: CompositionRenderSettings?
+
+    // Render queue only.
+    private let renderQueue = DispatchQueue(label: "com.recorder.preview.render", qos: .userInteractive)
+    private let renderer: CompositionRenderer
+    private var lastPixelBuffer: CVPixelBuffer?
+    private var lastCameraBuffer: CVPixelBuffer?
+    private var lastRenderedSignature = 0
+    private var lastRenderHostTime: CFTimeInterval = 0
+    private var hasDeferredUpdate = false
+    private var outputPool: CVPixelBufferPool?
+    private var outputPoolWidth = 0
+    private var outputPoolHeight = 0
+    private var formatDescription: CMVideoFormatDescription?
+
+    // Shared between the main thread, the display link thread, and the render queue.
+    private let stateLock = NSLock()
+    private var sharedPixelWidth = 0
+    private var sharedPixelHeight = 0
+    private var isRenderInFlight = false
+    private var needsRender = true
+
+    /// Preview refresh cap. ProMotion displays tick at 120 Hz; rendering every tick would
+    /// double the work for no visible gain in a preview.
+    private static let minimumFrameInterval: CFTimeInterval = 1.0 / 60.0
+    private static let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)
 
     init(player: AVPlayer, cameraPlayer: AVPlayer?) {
         self.player = player
@@ -49,9 +83,9 @@ final class CompositorPreviewHost: NSView {
             )
         )
         super.init(frame: .zero)
+        displayLayer.videoGravity = .resizeAspect
+        displayLayer.backgroundColor = NSColor.black.cgColor
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
-        layer?.contentsGravity = .resizeAspect
         attachVideoOutput()
         attachCameraOutput()
     }
@@ -71,11 +105,16 @@ final class CompositorPreviewHost: NSView {
         }
     }
 
+    override func makeBackingLayer() -> CALayer {
+        displayLayer
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
+            updatePixelSize()
             startDisplayLink()
-            renderCurrentFrame(force: true)
+            requestRender()
         } else {
             stopDisplayLink()
         }
@@ -83,114 +122,100 @@ final class CompositorPreviewHost: NSView {
 
     override func layout() {
         super.layout()
-        renderCurrentFrame(force: true)
+        updatePixelSize()
+        requestRender()
     }
 
-    func apply(from editor: ProjectEditor) {
-        let keyframes = editor.keyframes
-        let settings = editor.renderSettings
-        let playing = editor.isPlaying || editor.player.rate > 0
-        if playing {
-            startDisplayLink()
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updatePixelSize()
+        requestRender()
+    }
+
+    /// Called on every SwiftUI update of the editor, including every playhead tick, so
+    /// it only touches the renderer when the keyframes or render settings changed.
+    func apply(keyframes: [ZoomKeyframe], settings: CompositionRenderSettings) {
+        guard keyframes != appliedKeyframes || settings != appliedSettings else { return }
+        appliedKeyframes = keyframes
+        appliedSettings = settings
+
+        renderQueue.async { [renderer] in
+            renderer.update(keyframes: keyframes, settings: settings)
         }
+        requestRender()
+    }
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let time = self.player.currentTime()
-            let pixelSize = self.pixelOutputSize()
-            self.renderQueue.async {
-                self.renderer.update(keyframes: keyframes, settings: settings)
-                self.renderOnQueue(force: !playing, time: time, pixelSize: pixelSize)
-            }
+    // MARK: - Scheduling
+
+    private func updatePixelSize() {
+        let scale = window?.backingScaleFactor ?? 2
+        let width = max(Int((bounds.width * scale).rounded()), 1)
+        let height = max(Int((bounds.height * scale).rounded()), 1)
+        stateLock.lock()
+        sharedPixelWidth = width
+        sharedPixelHeight = height
+        stateLock.unlock()
+    }
+
+    /// Renders the next frame even if nothing time-related changed (settings, layout).
+    private func requestRender() {
+        stateLock.lock()
+        needsRender = true
+        stateLock.unlock()
+        scheduleRender()
+    }
+
+    /// Called from the display link thread on every refresh, and after state changes.
+    /// Drops the request if a frame is already being rendered.
+    fileprivate func scheduleRender() {
+        stateLock.lock()
+        if isRenderInFlight {
+            stateLock.unlock()
+            return
         }
-    }
+        isRenderInFlight = true
+        stateLock.unlock()
 
-    private func attachVideoOutput() {
-        guard let item = player.currentItem else { return }
-        if let videoOutput {
-            item.remove(videoOutput)
-        }
-        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
-        ])
-        output.suppressesPlayerRendering = true
-        item.add(output)
-        videoOutput = output
-        itemStatusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
-            guard item.status == .readyToPlay else { return }
-            self?.renderCurrentFrame(force: true)
-        }
-    }
-
-    private func attachCameraOutput() {
-        guard let item = cameraPlayer?.currentItem else { return }
-        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
-        ])
-        output.suppressesPlayerRendering = true
-        item.add(output)
-        cameraOutput = output
-    }
-
-    private func startDisplayLink() {
-        guard !isDisplayLinkRunning else { return }
-        var link: CVDisplayLink?
-        CVDisplayLinkCreateWithActiveCGDisplays(&link)
-        guard let link else { return }
-        displayLink = link
-        let pointer = Unmanaged.passUnretained(self).toOpaque()
-        CVDisplayLinkSetOutputCallback(link, { _, _, _, _, _, context in
-            guard let context else { return kCVReturnSuccess }
-            let host = Unmanaged<CompositorPreviewHost>.fromOpaque(context).takeUnretainedValue()
-            host.displayTick()
-            return kCVReturnSuccess
-        }, pointer)
-        CVDisplayLinkStart(link)
-        isDisplayLinkRunning = true
-    }
-
-    private func stopDisplayLink() {
-        if let displayLink {
-            CVDisplayLinkStop(displayLink)
-        }
-        displayLink = nil
-        isDisplayLinkRunning = false
-    }
-
-    private func displayTick() {
-        renderCurrentFrame(force: false)
-    }
-
-    private func renderCurrentFrame(force: Bool) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let time = self.player.currentTime()
-            let pixelSize = self.pixelOutputSize()
-            self.renderQueue.async {
-                self.renderOnQueue(force: force, time: time, pixelSize: pixelSize)
-            }
+        renderQueue.async { [weak self] in
+            self?.renderOnQueue()
         }
     }
 
-    private func renderOnQueue(
-        force: Bool,
-        time: CMTime,
-        pixelSize: (width: Int, height: Int)
-    ) {
+    // MARK: - Rendering (render queue)
+
+    private func renderOnQueue() {
+        stateLock.lock()
+        let forced = needsRender
+        needsRender = false
+        let pixelWidth = sharedPixelWidth
+        let pixelHeight = sharedPixelHeight
+        stateLock.unlock()
+
+        defer {
+            stateLock.lock()
+            isRenderInFlight = false
+            stateLock.unlock()
+        }
+
+        guard pixelWidth > 8, pixelHeight > 8, let videoOutput else { return }
+
+        let now = CACurrentMediaTime()
+        let time = videoOutput.itemTime(forHostTime: now)
+        guard time.isValid else { return }
         let seconds = CMTimeGetSeconds(time)
-        guard pixelSize.width > 8, pixelSize.height > 8 else { return }
+        guard seconds.isFinite else { return }
 
-        if let output = videoOutput {
-            if output.hasNewPixelBuffer(forItemTime: time),
-               let buffer = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
-                lastPixelBuffer = buffer
-            } else if lastPixelBuffer == nil,
-                      let buffer = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
-                lastPixelBuffer = buffer
-            }
+        var screenFrameChanged = false
+        if videoOutput.hasNewPixelBuffer(forItemTime: time),
+           let buffer = videoOutput.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
+            lastPixelBuffer = buffer
+            screenFrameChanged = true
+        } else if lastPixelBuffer == nil,
+                  let buffer = videoOutput.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
+            lastPixelBuffer = buffer
+            screenFrameChanged = true
         }
-
-        guard let buffer = lastPixelBuffer else { return }
+        guard let screenBuffer = lastPixelBuffer else { return }
 
         // Camera and screen share a timeline, so ask for the camera frame at the same time.
         var cameraFrameChanged = false
@@ -206,39 +231,200 @@ final class CompositorPreviewHost: NSView {
             }
         }
 
-        let signature = pixelSize.width &* 31 &+ pixelSize.height &* 17 &+ Int((seconds * 1000).rounded())
-        if !force, !cameraFrameChanged, signature == lastRenderedSignature {
+        // Zoom, cursor, and ripples animate with time even when the source frame is
+        // unchanged (still screen), so time is part of what needs a redraw.
+        let signature = pixelWidth &* 31 &+ pixelHeight &* 17 &+ Int((seconds * 1000).rounded())
+        let hasChanges = forced || screenFrameChanged || cameraFrameChanged || hasDeferredUpdate
+            || signature != lastRenderedSignature
+        guard hasChanges else { return }
+
+        if !forced, now - lastRenderHostTime < Self.minimumFrameInterval * 0.9 {
+            hasDeferredUpdate = true
             return
         }
+
+        guard let pool = outputPool(width: pixelWidth, height: pixelHeight),
+              let rendered = try? renderer.renderFrame(
+                  pixelBuffer: screenBuffer,
+                  cameraBuffer: lastCameraBuffer,
+                  at: seconds,
+                  outputWidth: pixelWidth,
+                  outputHeight: pixelHeight,
+                  pool: pool
+              )
+        else { return }
+
         lastRenderedSignature = signature
+        lastRenderHostTime = now
+        hasDeferredUpdate = false
 
-        guard let rendered = try? renderer.renderFrame(
-            pixelBuffer: buffer,
-            cameraBuffer: lastCameraBuffer,
-            at: seconds.isFinite ? seconds : 0,
-            outputWidth: pixelSize.width,
-            outputHeight: pixelSize.height
-        ) else {
+        if let colorSpace = Self.colorSpace {
+            CVBufferSetAttachment(rendered, kCVImageBufferCGColorSpaceKey, colorSpace, .shouldPropagate)
+        }
+        display(rendered)
+    }
+
+    private func outputPool(width: Int, height: Int) -> CVPixelBufferPool? {
+        if let outputPool, outputPoolWidth == width, outputPoolHeight == height {
+            return outputPool
+        }
+
+        let poolAttributes: [String: Any] = [
+            kCVPixelBufferPoolMinimumBufferCountKey as String: 3
+        ]
+        let bufferAttributes: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()
+        ]
+        var pool: CVPixelBufferPool?
+        guard CVPixelBufferPoolCreate(
+            kCFAllocatorDefault,
+            poolAttributes as CFDictionary,
+            bufferAttributes as CFDictionary,
+            &pool
+        ) == kCVReturnSuccess, let pool else {
+            return nil
+        }
+
+        outputPool = pool
+        outputPoolWidth = width
+        outputPoolHeight = height
+        formatDescription = nil
+        return pool
+    }
+
+    private func display(_ pixelBuffer: CVPixelBuffer) {
+        let needsNewDescription = formatDescription.map {
+            !CMVideoFormatDescriptionMatchesImageBuffer($0, imageBuffer: pixelBuffer)
+        } ?? true
+        if needsNewDescription {
+            var newDescription: CMVideoFormatDescription?
+            CMVideoFormatDescriptionCreateForImageBuffer(
+                allocator: kCFAllocatorDefault,
+                imageBuffer: pixelBuffer,
+                formatDescriptionOut: &newDescription
+            )
+            formatDescription = newDescription
+        }
+        guard let videoFormat = formatDescription else { return }
+
+        var timing = CMSampleTimingInfo(
+            duration: .invalid,
+            presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
+            decodeTimeStamp: .invalid
+        )
+        var sampleBuffer: CMSampleBuffer?
+        guard CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescription: videoFormat,
+            sampleTiming: &timing,
+            sampleBufferOut: &sampleBuffer
+        ) == OSStatus(noErr), let sampleBuffer else {
             return
         }
 
-        let image = CIImage(cvPixelBuffer: rendered)
-        guard let cgImage = renderer.createCGImage(
-            image,
-            size: CGSize(width: pixelSize.width, height: pixelSize.height)
-        ) else {
-            return
+        // Show each frame as soon as it's enqueued; the layer has no timebase to
+        // schedule against.
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
+           CFArrayGetCount(attachments) > 0 {
+            let attachment = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
+            let displayImmediately: CFBoolean = kCFBooleanTrue
+            CFDictionarySetValue(
+                attachment,
+                Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                Unmanaged.passUnretained(displayImmediately).toOpaque()
+            )
         }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.layer?.contents = cgImage
+        if #available(macOS 14.0, *) {
+            let videoRenderer = displayLayer.sampleBufferRenderer
+            if videoRenderer.status == .failed {
+                videoRenderer.flush()
+            }
+            videoRenderer.enqueue(sampleBuffer)
+        } else {
+            if displayLayer.status == .failed {
+                displayLayer.flush()
+            }
+            displayLayer.enqueue(sampleBuffer)
         }
     }
 
-    private func pixelOutputSize() -> (width: Int, height: Int) {
-        let scale = window?.backingScaleFactor ?? 2
-        let width = max(Int((bounds.width * scale).rounded()), 1)
-        let height = max(Int((bounds.height * scale).rounded()), 1)
-        return (width, height)
+    // MARK: - Player outputs
+
+    private func attachVideoOutput() {
+        guard let item = player.currentItem else { return }
+        if let videoOutput {
+            item.remove(videoOutput)
+        }
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+        ])
+        output.suppressesPlayerRendering = true
+        item.add(output)
+        videoOutput = output
+        itemStatusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+            guard item.status == .readyToPlay else { return }
+            self?.requestRender()
+        }
+    }
+
+    private func attachCameraOutput() {
+        guard let item = cameraPlayer?.currentItem else { return }
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+        ])
+        output.suppressesPlayerRendering = true
+        item.add(output)
+        cameraOutput = output
+    }
+
+    // MARK: - Display link
+
+    private func startDisplayLink() {
+        guard displayLink == nil else { return }
+        var link: CVDisplayLink?
+        CVDisplayLinkCreateWithActiveCGDisplays(&link)
+        guard let link else { return }
+
+        let target = DisplayLinkTarget(host: self)
+        CVDisplayLinkSetOutputCallback(link, { _, _, _, _, _, context in
+            guard let context else { return kCVReturnSuccess }
+            let target = Unmanaged<DisplayLinkTarget>.fromOpaque(context).takeUnretainedValue()
+            target.host?.scheduleRender()
+            return kCVReturnSuccess
+        }, Unmanaged.passRetained(target).toOpaque())
+        CVDisplayLinkStart(link)
+        displayLink = link
+        displayLinkTarget = target
+    }
+
+    private func stopDisplayLink() {
+        guard let displayLink else { return }
+        CVDisplayLinkStop(displayLink)
+        self.displayLink = nil
+
+        if let displayLinkTarget {
+            self.displayLinkTarget = nil
+            // Balance the display link's retain a little later, in case a callback that
+            // already read the pointer is still running.
+            let retained = Unmanaged.passUnretained(displayLinkTarget)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                retained.release()
+            }
+        }
+    }
+}
+
+/// What the display link holds on to. It references the view weakly, so the view can be
+/// deallocated normally and late ticks do nothing.
+private final class DisplayLinkTarget {
+    weak var host: CompositorPreviewHost?
+
+    init(host: CompositorPreviewHost) {
+        self.host = host
     }
 }

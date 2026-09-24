@@ -242,6 +242,49 @@ struct CursorPathSmootherTests {
         #expect(point!.x < 100)
     }
 
+    @Test func binarySearchMatchesLinearScan() {
+        // Deterministic pseudo-random path with uneven sample spacing.
+        var seed: UInt64 = 42
+        func next() -> Double {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Double(seed >> 11) / Double(1 << 53)
+        }
+        var time = 0.0
+        let events: [CursorEvent] = (0..<500).map { _ in
+            time += 0.001 + next() * 0.05
+            return CursorEvent(timestamp: time, location: CGPoint(x: next() * 3000, y: next() * 2000))
+        }
+
+        func reference(_ t: TimeInterval) -> CGPoint {
+            if t <= events[0].timestamp { return events[0].location }
+            if t >= events[events.count - 1].timestamp { return events[events.count - 1].location }
+            for index in 0..<(events.count - 1) where t >= events[index].timestamp && t < events[index + 1].timestamp {
+                let current = events[index]
+                let following = events[index + 1]
+                let progress = CGFloat((t - current.timestamp) / (following.timestamp - current.timestamp))
+                return CGPoint(
+                    x: current.location.x + (following.location.x - current.location.x) * progress,
+                    y: current.location.y + (following.location.y - current.location.y) * progress
+                )
+            }
+            return events[events.count - 1].location
+        }
+
+        let smoother = CursorPathSmoother()
+        var sample = -0.5
+        while sample < time + 0.5 {
+            let expected = reference(sample)
+            let actual = smoother.location(at: sample, in: events)
+            #expect(actual != nil)
+            #expect(abs(actual!.x - expected.x) < 1e-6)
+            #expect(abs(actual!.y - expected.y) < 1e-6)
+            sample += 0.0137
+        }
+        // Exactly on a sample.
+        #expect(smoother.location(at: events[250].timestamp, in: events) == events[250].location)
+        #expect(smoother.location(at: 1, in: []) == nil)
+    }
+
     @Test func smoothReducesJitter() {
         let smoother = CursorPathSmoother()
         let events = [
