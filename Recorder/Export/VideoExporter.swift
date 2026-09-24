@@ -15,6 +15,9 @@ struct ExportConfiguration {
     let cursorEvents: [CursorEvent]
     let clickEvents: [ClickEvent]
     let drawCursor: Bool
+    /// Output frame rate. The export runs on this fixed clock regardless of how often
+    /// the (variable frame rate) source recording changed.
+    let frameRate: Int
 }
 
 final class VideoExporter {
@@ -81,7 +84,9 @@ final class VideoExporter {
                 AVVideoHeightKey: outputHeight,
                 AVVideoCompressionPropertiesKey: [
                     AVVideoAverageBitRateKey: configuration.bitrate,
-                    AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
+                    AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                    AVVideoExpectedSourceFrameRateKey: max(1, configuration.frameRate),
+                    AVVideoMaxKeyFrameIntervalKey: max(1, configuration.frameRate) * 2
                 ]
             ]
         )
@@ -158,7 +163,28 @@ final class VideoExporter {
             }
         }
 
-        while reader.status == .reading {
+        let timeline = ConstantFrameRateTimeline(
+            frameRate: configuration.frameRate,
+            duration: exportDuration,
+            sourceStart: trimStart
+        )
+        let outputTimescale = CMTimeScale(timeline.frameRate)
+
+        func readNextSourceFrame() -> (buffer: CVPixelBuffer, time: TimeInterval)? {
+            while let sample = readerOutput.copyNextSampleBuffer() {
+                guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+                return (buffer, CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)))
+            }
+            return nil
+        }
+
+        // Hold the most recent source frame at or before each output time; `pending` is
+        // the next source frame, read ahead to know when to switch.
+        var heldFrame: (buffer: CVPixelBuffer, time: TimeInterval)?
+        var pendingFrame = readNextSourceFrame()
+        var frameIndex = 0
+
+        while frameIndex < timeline.frameCount {
             try Task.checkCancellation()
             try pumpAudio()
 
@@ -167,38 +193,42 @@ final class VideoExporter {
                 continue
             }
 
-            guard let sampleBuffer = readerOutput.copyNextSampleBuffer(),
-                  let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
-            else {
-                break
+            let sourceTime = timeline.sourceTime(forFrame: frameIndex)
+            // Before the first source frame, show it anyway rather than a blank frame.
+            while let pending = pendingFrame,
+                  heldFrame == nil
+                    || ConstantFrameRateTimeline.shouldAdvance(to: pending.time, forSourceTime: sourceTime) {
+                heldFrame = pending
+                pendingFrame = readNextSourceFrame()
+            }
+            guard let currentFrame = heldFrame else {
+                throw reader.error ?? VideoExporterError.missingVideoTrack
             }
 
-            let sourceTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            let seconds = CMTimeGetSeconds(sourceTime)
-            let presentationTime = CMTimeMaximum(
-                .zero,
-                CMTimeSubtract(sourceTime, trimStartTime)
-            )
-
             let processed = try compositor.renderFrame(
-                pixelBuffer: pixelBuffer,
-                at: seconds,
+                pixelBuffer: currentFrame.buffer,
+                at: sourceTime,
                 outputWidth: outputWidth,
-                outputHeight: outputHeight
+                outputHeight: outputHeight,
+                pool: adaptor.pixelBufferPool
             )
 
+            let presentationTime = CMTime(value: CMTimeValue(frameIndex), timescale: outputTimescale)
             if !adaptor.append(processed, withPresentationTime: presentationTime) {
                 throw writer.error ?? VideoExporterError.writerSetupFailed
             }
             lastVideoTime = presentationTime
-
-            let progress = exportDuration > 0
-                ? min(1, (seconds - trimStart) / exportDuration)
-                : 1
-            progressHandler(progress)
+            frameIndex += 1
+            progressHandler(Double(frameIndex) / Double(max(timeline.frameCount, 1)))
         }
 
         writerInput.markAsFinished()
+
+        // Anything left in the trimmed range is past the last output frame. Drain it so
+        // the reader can keep feeding the audio output.
+        while pendingFrame != nil {
+            pendingFrame = readNextSourceFrame()
+        }
 
         while !audioFinished {
             try Task.checkCancellation()

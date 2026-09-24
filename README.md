@@ -22,7 +22,7 @@ Native macOS screen recorder with **automatic zoom on clicks** — built for Scr
 - Hide menu bar & dock during recording
 - **Microphone** — optional narration with device picker
 - **Camera bubble** — Screen Studio–style circular PiP (mirrored, corner position)
-- Offline export to MP4 with zoom applied
+- Offline export to MP4 with zoom applied, rendered at a constant frame rate so zooms, cursor, and ripples stay smooth even when the screen is still (the capture itself only gets frames when something changes)
 - Project bundles saved to `~/Movies/Recorder/<uuid>.recorder/`
 
 See [DEMO.md](DEMO.md) for the Hypher launch video rehearsal script.

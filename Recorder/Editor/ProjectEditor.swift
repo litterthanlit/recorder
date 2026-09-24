@@ -270,7 +270,8 @@ final class ProjectEditor: ObservableObject {
                     zoomPreset: editSettings.zoomPreset,
                     cursorEvents: project.cursorEvents,
                     clickEvents: project.clickEvents,
-                    drawCursor: !project.cursorEvents.isEmpty
+                    drawCursor: !project.cursorEvents.isEmpty,
+                    frameRate: project.metadata.fps
                 )
             ) { [weak self] progress in
                 Task { @MainActor in

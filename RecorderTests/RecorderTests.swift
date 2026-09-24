@@ -291,6 +291,50 @@ struct ClickRippleEvaluatorTests {
     }
 }
 
+@Suite("ConstantFrameRateTimeline")
+struct ConstantFrameRateTimelineTests {
+    @Test func producesEvenlySpacedFramesForTheWholeDuration() {
+        let timeline = ConstantFrameRateTimeline(frameRate: 60, duration: 2, sourceStart: 5)
+        #expect(timeline.frameCount == 120)
+        #expect(timeline.sourceTime(forFrame: 0) == 5)
+        #expect(abs(timeline.outputTime(forFrame: 119) - 119.0 / 60.0) < 1e-9)
+    }
+
+    @Test func coversPartialLastFrame() {
+        let timeline = ConstantFrameRateTimeline(frameRate: 30, duration: 1.01, sourceStart: 0)
+        #expect(timeline.frameCount == 31)
+        #expect(ConstantFrameRateTimeline(frameRate: 30, duration: 0, sourceStart: 0).frameCount == 0)
+    }
+
+    @Test func holdsLastFrameThroughStillStretches() {
+        // Screen changed at 0, 0.1, then nothing until 1.0 (a still page), then 1.02.
+        let sourceTimes: [TimeInterval] = [0, 0.1, 1.0, 1.02]
+        let timeline = ConstantFrameRateTimeline(frameRate: 10, duration: 1.5, sourceStart: 0)
+        let held = timeline.heldSourceFrameIndices(sourceTimes: sourceTimes)
+
+        #expect(held.count == 15)
+        #expect(held[0] == 0)
+        // Every output frame from 0.1 s up to 0.9 s still exists and shows frame 1.
+        #expect(held[1...9].allSatisfy { $0 == 1 })
+        #expect(held[10] == 2)
+        // After the last change the final frame is held to the end instead of stopping.
+        #expect(held[11...].allSatisfy { $0 == 3 })
+    }
+
+    @Test func showsFirstFrameWhenTrimStartsBeforeIt() {
+        let timeline = ConstantFrameRateTimeline(frameRate: 10, duration: 0.5, sourceStart: 2)
+        let held = timeline.heldSourceFrameIndices(sourceTimes: [2.25, 2.4])
+        #expect(held == [0, 0, 0, 0, 1])
+    }
+
+    @Test func frameAtExactOutputTimeIsUsedDespiteRounding() {
+        let timeline = ConstantFrameRateTimeline(frameRate: 60, duration: 1, sourceStart: 0)
+        // 1/60 computed a different way lands a hair after the output time.
+        let held = timeline.heldSourceFrameIndices(sourceTimes: [0, 1.0 / 60.0 + 1e-7])
+        #expect(held[1] == 1)
+    }
+}
+
 @Suite("CompositionTimeMap")
 struct CompositionTimeMapTests {
     @Test func oneClipMapsCompositionTimeToSourceTime() {

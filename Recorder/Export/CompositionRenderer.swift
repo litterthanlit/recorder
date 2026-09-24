@@ -163,11 +163,15 @@ final class CompositionRenderer {
         return finalImage.cropped(to: CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight))
     }
 
+    /// Renders one composited frame.
+    /// - Parameter pool: when given (e.g. an asset writer adaptor's pool), output buffers
+    ///   are recycled from it instead of allocated per frame.
     func renderFrame(
         pixelBuffer: CVPixelBuffer,
         at time: TimeInterval,
         outputWidth: Int,
-        outputHeight: Int
+        outputHeight: Int,
+        pool: CVPixelBufferPool? = nil
     ) throws -> CVPixelBuffer {
         let inputImage = CIImage(cvPixelBuffer: pixelBuffer)
         let finalImage = renderImage(
@@ -178,14 +182,20 @@ final class CompositionRenderer {
         )
 
         var outputBuffer: CVPixelBuffer?
-        let status = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            outputWidth,
-            outputHeight,
-            kCVPixelFormatType_32BGRA,
-            nil,
-            &outputBuffer
-        )
+        let status: CVReturn
+        if let pool {
+            status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &outputBuffer)
+        } else {
+            // IOSurface-backed so Core Image can render on the GPU without a CPU copy.
+            status = CVPixelBufferCreate(
+                kCFAllocatorDefault,
+                outputWidth,
+                outputHeight,
+                kCVPixelFormatType_32BGRA,
+                [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary] as CFDictionary,
+                &outputBuffer
+            )
+        }
 
         guard status == kCVReturnSuccess, let outputBuffer else {
             throw VideoExporterError.bufferCreationFailed
