@@ -269,25 +269,17 @@ final class VideoExporter {
         trimStartTime: CMTime,
         writer: AVAssetWriter
     ) throws {
-        let audioPTS = CMSampleBufferGetPresentationTimeStamp(audioSample)
-        let relativeAudioPTS = CMTimeMaximum(
-            .zero,
-            CMTimeSubtract(audioPTS, trimStartTime)
-        )
-        var timing = CMSampleTimingInfo(
-            duration: CMSampleBufferGetDuration(audioSample),
-            presentationTimeStamp: relativeAudioPTS,
-            decodeTimeStamp: .invalid
-        )
-        var shifted: CMSampleBuffer?
-        CMSampleBufferCreateCopyWithNewTiming(
-            allocator: kCFAllocatorDefault,
-            sampleBuffer: audioSample,
-            sampleTimingEntryCount: 1,
-            sampleTimingArray: &timing,
-            sampleBufferOut: &shifted
-        )
-        if let shifted, !audioWriterInput.append(shifted) {
+        // Skip any buffer that starts before the trim start (at most one buffer, a few
+        // tens of milliseconds, is lost). Moving it later instead would shift the
+        // audio out of sync with the video.
+        if CMSampleBufferGetPresentationTimeStamp(audioSample) < trimStartTime {
+            return
+        }
+
+        guard let shifted = audioSample.retimed(by: CMTimeMultiply(trimStartTime, multiplier: -1)) else {
+            return
+        }
+        if !audioWriterInput.append(shifted) {
             throw writer.error ?? VideoExporterError.writerSetupFailed
         }
     }

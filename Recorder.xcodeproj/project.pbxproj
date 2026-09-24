@@ -21,6 +21,7 @@
 		B2000000000000000000000C /* CompositionRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* CompositionRenderer.swift */; };
 		B2000000000000000000001F /* Composition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* Composition.swift */; };
 		B20000000000000000000020 /* MotionFX.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* MotionFX.swift */; };
+		B20000000000000000000023 /* MediaTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* MediaTiming.swift */; };
 		B20000000000000000000021 /* CompositorPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* CompositorPreviewView.swift */; };
 		B2000000000000000000000D /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* MenuBarView.swift */; };
 		B2000000000000000000000E /* PreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* PreviewView.swift */; };
@@ -58,6 +59,7 @@
 		A2000000000000000000000C /* CompositionRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositionRenderer.swift; sourceTree = "<group>"; };
 		A20000000000000000000022 /* Composition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Composition.swift; sourceTree = "<group>"; };
 		A20000000000000000000023 /* MotionFX.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionFX.swift; sourceTree = "<group>"; };
+		A20000000000000000000026 /* MediaTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTiming.swift; sourceTree = "<group>"; };
 		A20000000000000000000024 /* CompositorPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositorPreviewView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000D /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000E /* PreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewView.swift; sourceTree = "<group>"; };
@@ -163,6 +165,7 @@
 			children = (
 				A20000000000000000000022 /* Composition.swift */,
 				A20000000000000000000023 /* MotionFX.swift */,
+				A20000000000000000000026 /* MediaTiming.swift */,
 			);
 			path = Composition;
 			sourceTree = "<group>";
@@ -295,6 +298,7 @@
 				B2000000000000000000000C /* CompositionRenderer.swift in Sources */,
 				B2000000000000000000001F /* Composition.swift in Sources */,
 				B20000000000000000000020 /* MotionFX.swift in Sources */,
+				B20000000000000000000023 /* MediaTiming.swift in Sources */,
 				B20000000000000000000021 /* CompositorPreviewView.swift in Sources */,
 				B2000000000000000000000D /* MenuBarView.swift in Sources */,
 				B2000000000000000000000E /* PreviewView.swift in Sources */,

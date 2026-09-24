@@ -31,7 +31,6 @@ final class ScreenRecorder: NSObject {
     private var audioWriterInput: AVAssetWriterInput?
     private var sessionStartTime: TimeInterval = 0
     private var firstSampleTime: CMTime?
-    private var firstAudioSampleTime: CMTime?
     private var lastWrittenTime: CMTime = .zero
     private var outputURL: URL?
     private var isRecording = false
@@ -128,7 +127,6 @@ final class ScreenRecorder: NSObject {
         )
 
         firstSampleTime = nil
-        firstAudioSampleTime = nil
         lastWrittenTime = .zero
         lastWrittenPixelBuffer = nil
         didNotifyFirstFrame = false
@@ -150,9 +148,10 @@ final class ScreenRecorder: NSObject {
         isRecording = true
     }
 
-    func appendAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+    /// - Parameter hostTime: the buffer's capture time on the host clock.
+    func appendAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer, hostTime: CMTime) {
         writerQueue.async { [weak self] in
-            self?.writeAudioSampleBuffer(sampleBuffer)
+            self?.writeAudioSampleBuffer(sampleBuffer, hostTime: hostTime)
         }
     }
 
@@ -373,7 +372,7 @@ final class ScreenRecorder: NSObject {
         }
     }
 
-    private func writeAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+    private func writeAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer, hostTime: CMTime) {
         guard isRecording,
               let audioWriterInput,
               audioWriterInput.isReadyForMoreMediaData,
@@ -382,33 +381,15 @@ final class ScreenRecorder: NSObject {
               let firstSampleTime
         else { return }
 
-        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        if firstAudioSampleTime == nil {
-            firstAudioSampleTime = presentationTime
-        }
+        // Place audio on the video's timeline (t = 0 is the first video frame) rather than
+        // starting at the mic's own first sample, which shifted narration by however long
+        // the mic took to start. Buffers captured before t = 0 are dropped.
+        let recordingTime = MediaTiming.recordingTime(hostTime: hostTime, firstVideoFrameHostTime: firstSampleTime)
+        guard recordingTime.isValid, recordingTime >= .zero else { return }
 
-        // Align mic audio to the same zero as the first video frame using wall-clock offset
-        // between streams is imperfect; prefer PTS relative to first audio sample once video started.
-        let relativeTime = CMTimeSubtract(presentationTime, firstAudioSampleTime ?? presentationTime)
-        guard relativeTime.isValid, relativeTime.seconds >= 0 else { return }
-
-        var timingInfo = CMSampleTimingInfo(
-            duration: CMSampleBufferGetDuration(sampleBuffer),
-            presentationTimeStamp: relativeTime,
-            decodeTimeStamp: .invalid
-        )
-
-        var copiedBuffer: CMSampleBuffer?
-        CMSampleBufferCreateCopyWithNewTiming(
-            allocator: kCFAllocatorDefault,
-            sampleBuffer: sampleBuffer,
-            sampleTimingEntryCount: 1,
-            sampleTimingArray: &timingInfo,
-            sampleBufferOut: &copiedBuffer
-        )
-
-        guard let copiedBuffer else { return }
-        if !audioWriterInput.append(copiedBuffer) {
+        let offset = CMTimeSubtract(recordingTime, CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+        guard let retimed = sampleBuffer.retimed(by: offset) else { return }
+        if !audioWriterInput.append(retimed) {
             reportFailure(assetWriter.error ?? ScreenRecorderError.writerFailed)
         }
     }

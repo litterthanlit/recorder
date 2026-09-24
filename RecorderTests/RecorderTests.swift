@@ -1,4 +1,6 @@
+import AVFoundation
 import CoreGraphics
+import CoreMedia
 import Foundation
 import Testing
 @testable import RecorderCore
@@ -359,5 +361,94 @@ struct CompositionTimeMapTests {
             sourceOut: 4
         )
         #expect(map.resolve(compositionTime: 4.2) == nil)
+    }
+}
+
+@Suite("MediaTiming")
+struct MediaTimingTests {
+    /// 1024 mono float samples at 48 kHz, described by one timing entry (as capture does).
+    private func makeAudioBuffer(presentationTime: CMTime) -> CMSampleBuffer? {
+        var description = AudioStreamBasicDescription(
+            mSampleRate: 48_000,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kLinearPCMFormatFlagIsFloat | kLinearPCMFormatFlagIsPacked,
+            mBytesPerPacket: 4,
+            mFramesPerPacket: 1,
+            mBytesPerFrame: 4,
+            mChannelsPerFrame: 1,
+            mBitsPerChannel: 32,
+            mReserved: 0
+        )
+        var format: CMAudioFormatDescription?
+        CMAudioFormatDescriptionCreate(
+            allocator: kCFAllocatorDefault,
+            asbd: &description,
+            layoutSize: 0,
+            layout: nil,
+            magicCookieSize: 0,
+            magicCookie: nil,
+            extensions: nil,
+            formatDescriptionOut: &format
+        )
+
+        let byteCount = 1024 * 4
+        var block: CMBlockBuffer?
+        CMBlockBufferCreateWithMemoryBlock(
+            allocator: kCFAllocatorDefault,
+            memoryBlock: nil,
+            blockLength: byteCount,
+            blockAllocator: kCFAllocatorDefault,
+            customBlockSource: nil,
+            offsetToData: 0,
+            dataLength: byteCount,
+            flags: kCMBlockBufferAssureMemoryNowFlag,
+            blockBufferOut: &block
+        )
+
+        var timing = CMSampleTimingInfo(
+            duration: CMTime(value: 1, timescale: 48_000),
+            presentationTimeStamp: presentationTime,
+            decodeTimeStamp: .invalid
+        )
+        var sampleSize = 4
+        var buffer: CMSampleBuffer?
+        CMSampleBufferCreate(
+            allocator: kCFAllocatorDefault,
+            dataBuffer: block,
+            dataReady: true,
+            makeDataReadyCallback: nil,
+            refcon: nil,
+            formatDescription: format,
+            sampleCount: 1024,
+            sampleTimingEntryCount: 1,
+            sampleTimingArray: &timing,
+            sampleSizeEntryCount: 1,
+            sampleSizeArray: &sampleSize,
+            sampleBufferOut: &buffer
+        )
+        return buffer
+    }
+
+    @Test func retimingShiftsTimeButKeepsPerSampleDuration() throws {
+        let original = try #require(makeAudioBuffer(presentationTime: CMTime(value: 480_000, timescale: 48_000)))
+        let originalDuration = CMSampleBufferGetDuration(original)
+
+        let shifted = try #require(original.retimed(by: CMTime(seconds: -9.5, preferredTimescale: 48_000)))
+
+        #expect(abs(CMSampleBufferGetPresentationTimeStamp(shifted).seconds - 0.5) < 1e-6)
+        #expect(CMSampleBufferGetNumSamples(shifted) == 1024)
+        // 1024 samples at 48 kHz, not 1024 × the buffer length.
+        #expect(abs(CMSampleBufferGetDuration(shifted).seconds - originalDuration.seconds) < 1e-9)
+        #expect(abs(CMSampleBufferGetDuration(shifted).seconds - 1024.0 / 48_000.0) < 1e-9)
+    }
+
+    @Test func micAudioIsPlacedRelativeToFirstVideoFrame() {
+        // Mic buffer captured 300 ms after the first video frame (e.g. a slow Bluetooth
+        // mic) belongs at 0.3 s, not at 0.
+        let time = MediaTiming.recordingTime(
+            hostTime: CMTime(seconds: 1000.3, preferredTimescale: 1_000_000_000),
+            firstVideoFrameHostTime: CMTime(seconds: 1000, preferredTimescale: 1_000_000_000)
+        )
+        #expect(abs(time.seconds - 0.3) < 1e-6)
     }
 }

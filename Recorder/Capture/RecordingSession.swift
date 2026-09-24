@@ -422,8 +422,12 @@ extension RecordingSession: ScreenRecorderDelegate {
 }
 
 extension RecordingSession: CameraMicCaptureDelegate {
-    nonisolated func cameraMicCapture(_ capture: CameraMicCapture, didOutputAudioSampleBuffer sampleBuffer: CMSampleBuffer) {
-        screenRecorder.appendAudioSampleBuffer(sampleBuffer)
+    nonisolated func cameraMicCapture(
+        _ capture: CameraMicCapture,
+        didOutputAudioSampleBuffer sampleBuffer: CMSampleBuffer,
+        hostTime: CMTime
+    ) {
+        screenRecorder.appendAudioSampleBuffer(sampleBuffer, hostTime: hostTime)
     }
 
     nonisolated func cameraMicCapture(_ capture: CameraMicCapture, didFailWith error: Error) {

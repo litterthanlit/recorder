@@ -4,7 +4,12 @@ import CoreVideo
 import Foundation
 
 protocol CameraMicCaptureDelegate: AnyObject {
-    func cameraMicCapture(_ capture: CameraMicCapture, didOutputAudioSampleBuffer sampleBuffer: CMSampleBuffer)
+    /// `hostTime` is the buffer's capture time converted to the host clock.
+    func cameraMicCapture(
+        _ capture: CameraMicCapture,
+        didOutputAudioSampleBuffer sampleBuffer: CMSampleBuffer,
+        hostTime: CMTime
+    )
     func cameraMicCapture(_ capture: CameraMicCapture, didFailWith error: Error)
 }
 
@@ -183,7 +188,11 @@ extension CameraMicCapture: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapt
         }
 
         if output === audioOutput {
-            delegate?.cameraMicCapture(self, didOutputAudioSampleBuffer: sampleBuffer)
+            delegate?.cameraMicCapture(
+                self,
+                didOutputAudioSampleBuffer: sampleBuffer,
+                hostTime: hostTime(of: sampleBuffer)
+            )
         }
     }
 
