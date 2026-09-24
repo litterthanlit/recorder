@@ -223,6 +223,14 @@ struct EditorView: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(maxWidth: 420)
+
+                    Picker("Camera size", selection: editor.settingBinding(\.camera.size, actionName: "Camera Size")) {
+                        ForEach(CameraBubbleSize.allCases) { size in
+                            Text(size.label).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 300)
                 }
             }
         }

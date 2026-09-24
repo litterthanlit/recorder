@@ -221,21 +221,25 @@ struct ExportStyle: Codable, Equatable {
 struct CameraOverlayStyle: Codable, Equatable {
     var isVisible: Bool = true
     var position: CameraBubblePosition = .bottomRight
+    var size: CameraBubbleSize = .medium
 
-    init(isVisible: Bool = true, position: CameraBubblePosition = .bottomRight) {
+    init(isVisible: Bool = true, position: CameraBubblePosition = .bottomRight, size: CameraBubbleSize = .medium) {
         self.isVisible = isVisible
         self.position = position
+        self.size = size
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
         position = try container.decodeIfPresent(CameraBubblePosition.self, forKey: .position) ?? .bottomRight
+        size = try container.decodeIfPresent(CameraBubbleSize.self, forKey: .size) ?? .medium
     }
 
     private enum CodingKeys: String, CodingKey {
         case isVisible
         case position
+        case size
     }
 }
 

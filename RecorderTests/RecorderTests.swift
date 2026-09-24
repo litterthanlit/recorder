@@ -734,3 +734,38 @@ struct OverlayLayoutTests {
         #expect(origin == CGPoint(x: 1920 - 120 - 24, y: 24))
     }
 }
+
+@Suite("CameraBubbleLayout")
+struct CameraBubbleLayoutTests {
+    private let frame = CGSize(width: 1920, height: 1080)
+
+    @Test func sizesScaleTheDiameter() {
+        let small = CameraBubbleLayout.frame(in: frame, position: .bottomRight, size: .small)
+        let medium = CameraBubbleLayout.frame(in: frame, position: .bottomRight, size: .medium)
+        let large = CameraBubbleLayout.frame(in: frame, position: .bottomRight, size: .large)
+        #expect(small.width < medium.width)
+        #expect(medium.width < large.width)
+        #expect(abs(medium.width - 1080 * 0.18) < 1e-9)
+        #expect(abs(large.width - large.height) < 1e-9)
+    }
+
+    @Test func bubbleStaysInItsCorner() {
+        let padding = 1080 * CameraBubbleLayout.paddingFraction
+        for size in CameraBubbleSize.allCases {
+            let bottomRight = CameraBubbleLayout.frame(in: frame, position: .bottomRight, size: size)
+            #expect(abs(bottomRight.maxX - (1920 - padding)) < 1e-9)
+            #expect(abs(bottomRight.minY - padding) < 1e-9)
+
+            let topLeft = CameraBubbleLayout.frame(in: frame, position: .topLeft, size: size)
+            #expect(abs(topLeft.minX - padding) < 1e-9)
+            #expect(abs(topLeft.maxY - (1080 - padding)) < 1e-9)
+        }
+    }
+
+    @Test func watermarkAvoidsALargeBottomRightBubble() {
+        let bubble = CameraBubbleLayout.frame(in: frame, position: .bottomRight, size: .large)
+        let text = CGSize(width: 140, height: 24)
+        let origin = OverlayLayout.watermarkOrigin(size: text, canvas: frame, margin: 24, avoiding: bubble)
+        #expect(!CGRect(origin: origin, size: text).intersects(bubble))
+    }
+}

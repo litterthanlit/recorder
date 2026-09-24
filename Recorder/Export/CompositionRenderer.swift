@@ -152,7 +152,7 @@ final class CompositionRenderer {
 
         if settings.exportStyle.watermarkEnabled {
             let bubble = settings.camera.isVisible && camera != nil
-                ? CameraBubbleLayout.frame(in: fitted.frame.size, position: settings.camera.position)
+                ? CameraBubbleLayout.frame(in: fitted.frame.size, position: settings.camera.position, size: settings.camera.size)
                     .offsetBy(dx: fitted.frame.minX, dy: fitted.frame.minY)
                 : nil
             finalImage = compositeWatermark(
@@ -412,7 +412,7 @@ final class CompositionRenderer {
               camera.extent.width > 0, camera.extent.height > 0
         else { return image }
 
-        let bubble = CameraBubbleLayout.frame(in: contentFrame.size, position: settings.camera.position)
+        let bubble = CameraBubbleLayout.frame(in: contentFrame.size, position: settings.camera.position, size: settings.camera.size)
             .offsetBy(dx: contentFrame.minX, dy: contentFrame.minY)
         let radius = bubble.width / 2
         let center = CGPoint(x: bubble.midX, y: bubble.midY)

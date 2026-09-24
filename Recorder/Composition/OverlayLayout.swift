@@ -22,3 +22,75 @@ enum OverlayLayout {
         return candidates.first { !CGRect(origin: $0, size: size).intersects(keepOut) } ?? candidates[0]
     }
 }
+
+enum CameraBubblePosition: String, Codable, CaseIterable, Identifiable {
+    case bottomRight
+    case bottomLeft
+    case topRight
+    case topLeft
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .bottomRight: return "Bottom Right"
+        case .bottomLeft: return "Bottom Left"
+        case .topRight: return "Top Right"
+        case .topLeft: return "Top Left"
+        }
+    }
+}
+
+enum CameraBubbleSize: String, Codable, CaseIterable, Identifiable {
+    case small
+    case medium
+    case large
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
+        }
+    }
+
+    /// Bubble diameter as a fraction of the shorter frame edge.
+    var diameterFraction: CGFloat {
+        switch self {
+        case .small: return 0.13
+        case .medium: return 0.18
+        case .large: return 0.25
+        }
+    }
+}
+
+enum CameraBubbleLayout {
+    static let paddingFraction: CGFloat = 0.035
+
+    /// The bubble's square in a frame of `bounds` (bottom-left origin).
+    static func frame(in bounds: CGSize, position: CameraBubblePosition, size: CameraBubbleSize = .medium) -> CGRect {
+        let shorter = min(bounds.width, bounds.height)
+        let diameter = shorter * size.diameterFraction
+        let padding = shorter * paddingFraction
+
+        let x: CGFloat
+        let y: CGFloat
+        switch position {
+        case .bottomRight:
+            x = bounds.width - diameter - padding
+            y = padding
+        case .bottomLeft:
+            x = padding
+            y = padding
+        case .topRight:
+            x = bounds.width - diameter - padding
+            y = bounds.height - diameter - padding
+        case .topLeft:
+            x = padding
+            y = bounds.height - diameter - padding
+        }
+        return CGRect(x: x, y: y, width: diameter, height: diameter)
+    }
+}
