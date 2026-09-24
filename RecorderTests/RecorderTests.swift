@@ -226,6 +226,45 @@ struct ZoomKeyframeEditorTests {
         ZoomKeyframeEditor.resolveOverlaps(&keyframes)
         #expect(keyframes[1].startTime >= keyframes[0].endTime)
     }
+
+    private let resizable = ZoomKeyframe(
+        startTime: 2, peakTime: 2.5, endTime: 4, center: CGPoint(x: 0.5, y: 0.5), scale: 2
+    )
+
+    @Test func resizingStartKeepsEndAndPeak() {
+        let earlier = ZoomKeyframeEditor.resizeKeyframeStart(resizable, to: 1.2, duration: 10)
+        #expect(abs(earlier.startTime - 1.2) < 1e-9)
+        #expect(abs(earlier.peakTime - 2.5) < 1e-9)
+        #expect(abs(earlier.endTime - 4) < 1e-9)
+    }
+
+    @Test func resizingStartPastTheEndKeepsMinimumSpan() {
+        let squeezed = ZoomKeyframeEditor.resizeKeyframeStart(resizable, to: 9, duration: 10)
+        #expect(abs(squeezed.endTime - 4) < 1e-9)
+        #expect(abs(squeezed.endTime - squeezed.startTime - ZoomKeyframeEditor.minimumSpan) < 1e-9)
+        #expect(squeezed.peakTime >= squeezed.startTime && squeezed.peakTime <= squeezed.endTime)
+    }
+
+    @Test func resizingStartStopsAtZero() {
+        let clamped = ZoomKeyframeEditor.resizeKeyframeStart(resizable, to: -3, duration: 10)
+        #expect(abs(clamped.startTime) < 1e-9)
+    }
+
+    @Test func resizingEndStaysInsideTheRecording() {
+        let longer = ZoomKeyframeEditor.resizeKeyframeEnd(resizable, to: 6, duration: 10)
+        #expect(abs(longer.endTime - 6) < 1e-9)
+        #expect(abs(longer.startTime - 2) < 1e-9)
+
+        let clamped = ZoomKeyframeEditor.resizeKeyframeEnd(resizable, to: 50, duration: 10)
+        #expect(abs(clamped.endTime - 10) < 1e-9)
+    }
+
+    @Test func resizingEndBeforePeakPullsPeakIn() {
+        let shorter = ZoomKeyframeEditor.resizeKeyframeEnd(resizable, to: 2.3, duration: 10)
+        #expect(abs(shorter.endTime - 2.3) < 1e-9)
+        #expect(shorter.peakTime <= shorter.endTime)
+        #expect(shorter.peakTime >= shorter.startTime)
+    }
 }
 
 @Suite("CursorPathSmoother")

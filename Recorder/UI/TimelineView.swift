@@ -1,9 +1,11 @@
+import AppKit
 import SwiftUI
 
 struct TimelineView: View {
     @ObservedObject var editor: ProjectEditor
 
     @State private var dragOrigin: ZoomKeyframe?
+    @State private var resizeOrigin: ZoomKeyframe?
     @State private var trimDrag: TrimDrag?
 
     private enum TrimDrag {
@@ -11,7 +13,16 @@ struct TimelineView: View {
         case end
     }
 
+    private enum ZoomEdge {
+        case start
+        case end
+    }
+
     private let trackHeight: CGFloat = 52
+    /// Hit area of a trim handle; the visible bar is narrower.
+    private let trimHandleHitWidth: CGFloat = 16
+    /// Step for VoiceOver adjustments (and matches the editor's keyboard nudge).
+    private let accessibilityStep: TimeInterval = 0.1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -78,11 +89,37 @@ struct TimelineView: View {
     private func trimHandle(at time: TimeInterval, width: CGFloat, duration: TimeInterval, kind: TrimDrag) -> some View {
         let x = CGFloat(time / duration) * width
 
-        return RoundedRectangle(cornerRadius: 2)
-            .fill(kind == .start ? Color.green.opacity(0.9) : Color.orange.opacity(0.9))
-            .frame(width: 4, height: trackHeight - 4)
-            .offset(x: x - 2, y: 2)
-            .gesture(
+        return ZStack {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(kind == .start ? Color.green.opacity(0.9) : Color.orange.opacity(0.9))
+                .frame(width: 6, height: trackHeight - 4)
+            // Grip marks so the handle reads as draggable.
+            VStack(spacing: 3) {
+                ForEach(0..<3, id: \.self) { _ in
+                    Capsule()
+                        .fill(Color.white.opacity(0.85))
+                        .frame(width: 2, height: 2)
+                }
+            }
+        }
+        .frame(width: trimHandleHitWidth, height: trackHeight)
+        .contentShape(Rectangle())
+        .offset(x: x - trimHandleHitWidth / 2)
+        .onHover { inside in
+            if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(kind == .start ? "Trim start" : "Trim end")
+        .accessibilityValue(spokenTime(time))
+        .accessibilityAdjustableAction { direction in
+            let step = direction == .increment ? accessibilityStep : -accessibilityStep
+            if kind == .start {
+                editor.setTrimStart(editor.trimStart + step)
+            } else {
+                editor.setTrimEnd(editor.trimEnd + step)
+            }
+        }
+        .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         if trimDrag == nil {
@@ -112,6 +149,8 @@ struct TimelineView: View {
         )
         let isSelected = editor.selectedKeyframeID == keyframe.id
         let color: Color = keyframe.source == .manual ? .orange : .blue
+        // Leave the middle of short blocks free for moving.
+        let edgeWidth = min(8, blockWidth / 4)
 
         return ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 6)
@@ -159,7 +198,86 @@ struct TimelineView: View {
                     x: x + CGFloat((keyframe.peakTime - keyframe.startTime) / duration) * timelineWidth - 4,
                     y: trackHeight / 2 - 4
                 )
+                .allowsHitTesting(false)
+
+            resizeHandle(keyframe, edge: .start, color: color, isSelected: isSelected, width: edgeWidth, timelineWidth: timelineWidth, duration: duration)
+                .offset(x: x, y: 6)
+            resizeHandle(keyframe, edge: .end, color: color, isSelected: isSelected, width: edgeWidth, timelineWidth: timelineWidth, duration: duration)
+                .offset(x: x + blockWidth - edgeWidth, y: 6)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "\(keyframe.source == .manual ? "Manual" : "Auto") zoom, \(String(format: "%.1f", Double(keyframe.scale)))x"
+        )
+        .accessibilityValue("\(spokenTime(keyframe.startTime)) to \(spokenTime(keyframe.endTime))")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction {
+            editor.selectKeyframe(keyframe.id)
+            editor.seek(to: keyframe.peakTime)
+        }
+        .accessibilityAdjustableAction { direction in
+            editor.selectKeyframe(keyframe.id)
+            editor.moveSelectedKeyframe(by: direction == .increment ? accessibilityStep : -accessibilityStep)
+        }
+        .accessibilityAction(named: "Delete") {
+            editor.selectKeyframe(keyframe.id)
+            editor.deleteSelectedKeyframe()
+        }
+    }
+
+    /// Drag area on one edge of a zoom block that changes when the zoom starts or ends.
+    private func resizeHandle(
+        _ keyframe: ZoomKeyframe,
+        edge: ZoomEdge,
+        color: Color,
+        isSelected: Bool,
+        width: CGFloat,
+        timelineWidth: CGFloat,
+        duration: TimeInterval
+    ) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .overlay {
+                if isSelected {
+                    Capsule()
+                        .fill(color)
+                        .frame(width: 3, height: trackHeight - 28)
+                }
+            }
+            .frame(width: width, height: trackHeight - 12)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        if resizeOrigin?.id != keyframe.id {
+                            resizeOrigin = keyframe
+                            editor.selectKeyframe(keyframe.id)
+                            editor.beginInteractiveEdit("Resize Zoom")
+                        }
+                        guard let origin = resizeOrigin else { return }
+                        let deltaTime = Double(value.translation.width / timelineWidth) * duration
+                        let updated: ZoomKeyframe
+                        switch edge {
+                        case .start:
+                            updated = ZoomKeyframeEditor.resizeKeyframeStart(
+                                origin, to: origin.startTime + deltaTime, duration: duration
+                            )
+                        case .end:
+                            updated = ZoomKeyframeEditor.resizeKeyframeEnd(
+                                origin, to: origin.endTime + deltaTime, duration: duration
+                            )
+                        }
+                        editor.updateKeyframe(updated, commit: false)
+                    }
+                    .onEnded { _ in
+                        resizeOrigin = nil
+                        // Resolves overlaps and records the whole drag as one undo step.
+                        editor.endInteractiveEdit()
+                    }
+            )
     }
 
     private func playhead(in width: CGFloat, duration: TimeInterval) -> some View {
@@ -186,6 +304,10 @@ struct TimelineView: View {
     private func seekFromLocation(_ x: CGFloat, width: CGFloat, duration: TimeInterval) {
         let fraction = max(0, min(1, x / width))
         editor.seek(to: duration * Double(fraction))
+    }
+
+    private func spokenTime(_ time: TimeInterval) -> String {
+        String(format: "%.1f seconds", time)
     }
 
     private func formatTime(_ time: TimeInterval) -> String {
