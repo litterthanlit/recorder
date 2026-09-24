@@ -1,0 +1,29 @@
+// Code signing for the Recorder app target.
+//
+// macOS remembers Screen Recording, Accessibility, Camera, and Microphone permission per
+// code signature. Ad-hoc signing ("Sign to Run Locally") gives every build a different
+// signature, so macOS asks for those permissions again after each rebuild. Signing with
+// your Apple Development certificate keeps the signature stable, and permissions stick.
+//
+// Set your team once with:
+//
+//     scripts/configure-signing.sh
+//
+// which writes Config/Local.xcconfig (git-ignored). Without it the build falls back to
+// ad-hoc signing, so the project still builds for anyone, including CI.
+
+PRODUCT_BUNDLE_IDENTIFIER = app.hypher.recorder
+CODE_SIGN_ENTITLEMENTS = Recorder/Recorder.entitlements
+ENABLE_HARDENED_RUNTIME = YES
+CODE_SIGN_STYLE = Automatic
+
+// "adhoc" or "team". Local.xcconfig sets "team" together with DEVELOPMENT_TEAM, and
+// may also override PRODUCT_BUNDLE_IDENTIFIER.
+RECORDER_SIGNING = adhoc
+DEVELOPMENT_TEAM =
+
+#include? "Local.xcconfig"
+
+RECORDER_CODE_SIGN_IDENTITY_adhoc = -
+RECORDER_CODE_SIGN_IDENTITY_team = Apple Development
+CODE_SIGN_IDENTITY = $(RECORDER_CODE_SIGN_IDENTITY_$(RECORDER_SIGNING))

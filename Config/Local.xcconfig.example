@@ -1,0 +1,11 @@
+// Your personal signing settings. Copy this file to Config/Local.xcconfig (git-ignored),
+// or run scripts/configure-signing.sh to generate it from your keychain.
+//
+// Your Team ID is in Xcode > Settings > Accounts (select the team), or on
+// https://developer.apple.com/account under Membership details.
+
+DEVELOPMENT_TEAM = ABCDE12345
+RECORDER_SIGNING = team
+
+// Optional: sign under your own bundle identifier instead.
+// PRODUCT_BUNDLE_IDENTIFIER = com.example.recorder

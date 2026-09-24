@@ -38,6 +38,7 @@ See [DEMO.md](DEMO.md) for the Hypher launch video rehearsal script.
   - **Accessibility** — track mouse clicks for auto zoom
   - **Camera** — optional talking-head bubble
   - **Microphone** — optional narration
+  - **Automation (System Events)** — only for "Hide menu bar & dock"; asked once, before the countdown
 
 ## Build & Run
 
@@ -52,6 +53,29 @@ Or from the command line:
 ```bash
 xcodebuild -project Recorder.xcodeproj -scheme Recorder -configuration Debug build
 ```
+
+### Signing (so permissions stick between builds)
+
+macOS remembers Screen Recording, Accessibility, Camera, and Microphone access per code
+signature. Out of the box the app is signed ad hoc ("Sign to Run Locally"), which produces a
+different signature on every build, so macOS asks for those permissions again after each
+rebuild. Sign with your Apple Development certificate once and they persist:
+
+```bash
+scripts/configure-signing.sh             # uses the team of the Apple Development certificate in your keychain
+scripts/configure-signing.sh ABCDE12345  # or pass your Team ID
+```
+
+This writes `Config/Local.xcconfig` (git-ignored, see `Config/Local.xcconfig.example`);
+signing settings live in `Config/Signing.xcconfig`. Then, one time only: remove the old
+"Recorder" rows under **System Settings → Privacy & Security → Screen Recording** and
+**Accessibility**, build and run, and grant them again.
+
+- The bundle identifier is `app.hypher.recorder`. To use your own, add
+  `PRODUCT_BUNDLE_IDENTIFIER = com.example.recorder` to `Config/Local.xcconfig`.
+- Check which identity a build used:
+  `codesign -dv --verbose=2 path/to/Recorder.app 2>&1 | grep -E "Authority|TeamIdentifier"`
+- Sharing builds with other Macs additionally needs a Developer ID certificate and notarization.
 
 ## Usage
 

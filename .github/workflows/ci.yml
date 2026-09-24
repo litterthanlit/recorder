@@ -21,6 +21,38 @@ jobs:
       - name: Unit tests (RecorderCore)
         run: swift test
 
+      - name: Check signing configuration
+        run: |
+          show_settings() {
+            xcodebuild -project Recorder.xcodeproj -target Recorder -configuration Debug -showBuildSettings 2>/dev/null
+          }
+          expect_setting() {
+            # expect_setting <settings> <NAME> <value regex>
+            if ! grep -qE "^[[:space:]]*$2 = $3\$" <<<"$1"; then
+              echo "::error::Expected $2 = $3"
+              grep -E "^[[:space:]]*$2 = " <<<"$1" || echo "($2 is not set)"
+              exit 1
+            fi
+          }
+
+          # No Config/Local.xcconfig (a fresh clone, or CI): ad-hoc fallback.
+          settings="$(show_settings)"
+          grep -E '^[[:space:]]*(PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|ENABLE_HARDENED_RUNTIME|CODE_SIGN_ENTITLEMENTS) = ' <<<"$settings" || true
+          expect_setting "$settings" PRODUCT_BUNDLE_IDENTIFIER 'app\.hypher\.recorder'
+          expect_setting "$settings" CODE_SIGN_IDENTITY '-'
+          expect_setting "$settings" ENABLE_HARDENED_RUNTIME YES
+          expect_setting "$settings" CODE_SIGN_ENTITLEMENTS 'Recorder/Recorder\.entitlements'
+
+          # With a team configured: signs with the Apple Development certificate.
+          scripts/configure-signing.sh ABCDE12345 > /dev/null
+          team_settings="$(show_settings)"
+          rm Config/Local.xcconfig
+          expect_setting "$team_settings" CODE_SIGN_IDENTITY 'Apple Development'
+          expect_setting "$team_settings" DEVELOPMENT_TEAM ABCDE12345
+
+          # Hardened runtime blocks Apple Events (the Dock toggle) without this.
+          test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.automation.apple-events' Recorder/Recorder.entitlements)" = true
+
       - name: Build app
         run: |
           xcodebuild \

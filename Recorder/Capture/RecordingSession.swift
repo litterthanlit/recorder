@@ -123,6 +123,13 @@ final class RecordingSession: ObservableObject {
             }
         }
 
+        // Hide the Dock before the countdown rather than after it: its slide-away animation
+        // finishes before capture starts, and the one-time "control System Events"
+        // permission prompt appears now instead of holding up the start of the take.
+        if preferences.hideChromeDuringRecording {
+            presentationMode.enter()
+        }
+
         do {
             if preferences.countdownSeconds > 0 {
                 state = .countdown(remaining: preferences.countdownSeconds)
@@ -133,12 +140,16 @@ final class RecordingSession: ObservableObject {
                 let completed = await countdownOverlay.run(seconds: preferences.countdownSeconds)
                 countdownOverlay.onTick = nil
                 guard completed else {
+                    presentationMode.exit()
                     if case .countdown = state {
                         state = .idle
                     }
                     return
                 }
-                guard case .countdown = state else { return }
+                guard case .countdown = state else {
+                    presentationMode.exit()
+                    return
+                }
             }
 
             try ProjectStore.ensureProjectsDirectory()
@@ -151,10 +162,6 @@ final class RecordingSession: ObservableObject {
             let videoURL = bundleURL.appendingPathComponent("video.mov")
             hasStartedInputTracking = false
             recordingStartTime = 0
-
-            if preferences.hideChromeDuringRecording {
-                presentationMode.enter()
-            }
 
             if preferences.cameraEnabled {
                 cameraMicCapture.trackWriter.prepare(
