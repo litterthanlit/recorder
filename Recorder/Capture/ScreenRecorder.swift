@@ -16,6 +16,8 @@ protocol ScreenRecorderDelegate: AnyObject {
 struct ScreenRecorderOptions {
     var captureTarget: CaptureTargetKind = .display
     var windowID: UInt32?
+    /// Display to record in `.display` mode; `nil` means the main display.
+    var displayID: UInt32?
     var showCursor: Bool = true
     var excludeWindowIDs: [UInt32] = []
     var enableMicrophone: Bool = false
@@ -78,12 +80,25 @@ final class ScreenRecorder: NSObject {
 
         switch options.captureTarget {
         case .display:
-            guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
+            let displayID = CaptureGeometry.resolvedDisplayID(
+                preferred: options.displayID,
+                available: content.displays.map(\.displayID),
+                main: CGMainDisplayID()
+            )
+            guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
                 throw ScreenRecorderError.noDisplayAvailable
             }
-            filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
+            // Leave this app's own windows (camera bubble, countdown, menu bar panel,
+            // editor) out of the recording. The camera is recorded separately and
+            // composited at export, so the live bubble must not be baked in too.
+            let ownApps = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+            if ownApps.isEmpty {
+                filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
+            } else {
+                filter = SCContentFilter(display: display, excludingApplications: ownApps, exceptingWindows: [])
+            }
             // NSScreen.main is the screen with the key window, not necessarily this display.
-            let screen = NSScreen.screens.first { $0.displayIdentifier == display.displayID }
+            let screen = NSScreen.screen(forDisplayID: display.displayID)
             displayScale = screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
             windowTitle = nil
             appName = nil

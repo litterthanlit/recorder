@@ -15,8 +15,8 @@ final class CameraBubbleOverlay {
         return UInt32(panel.windowNumber)
     }
 
-    func show(previewLayer: AVCaptureVideoPreviewLayer, position: CameraBubblePosition) {
-        let host = makePanel(position: position)
+    func show(previewLayer: AVCaptureVideoPreviewLayer, position: CameraBubblePosition, on screen: NSScreen? = nil) {
+        let host = makePanel(position: position, on: screen)
         previewLayer.frame = host.bounds
         previewLayer.cornerRadius = host.bounds.width / 2
         previewLayer.masksToBounds = true
@@ -25,12 +25,12 @@ final class CameraBubbleOverlay {
     }
 
     /// Shows a bubble that displays processed camera frames (virtual backgrounds).
-    func showProcessedPreview(position: CameraBubblePosition) {
-        let host = makePanel(position: position)
+    func showProcessedPreview(position: CameraBubblePosition, on screen: NSScreen? = nil) {
+        let host = makePanel(position: position, on: screen)
         let layer = CALayer()
         layer.frame = host.bounds
         layer.contentsGravity = .resizeAspectFill
-        layer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
+        layer.contentsScale = host.window?.backingScaleFactor ?? 2
         host.layer?.addSublayer(layer)
         processedLayer = layer
     }
@@ -51,10 +51,10 @@ final class CameraBubbleOverlay {
     }
 
     @discardableResult
-    private func makePanel(position: CameraBubblePosition) -> NSView {
+    private func makePanel(position: CameraBubblePosition, on preferredScreen: NSScreen?) -> NSView {
         hide()
 
-        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let screen = preferredScreen ?? NSScreen.main ?? NSScreen.screens[0]
         let screenFrame = screen.visibleFrame
         let diameter: CGFloat = 168
         let padding: CGFloat = 28

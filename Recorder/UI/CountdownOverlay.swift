@@ -9,13 +9,14 @@ final class CountdownOverlay {
     /// Called on each second tick with the remaining value.
     var onTick: ((Int) -> Void)?
 
-    /// Runs a visible countdown. Returns `true` if it finished, `false` if cancelled.
+    /// Runs a visible countdown on `screen` (the main screen if `nil`). Returns `true` if
+    /// it finished, `false` if cancelled.
     @discardableResult
-    func run(seconds: Int) async -> Bool {
+    func run(seconds: Int, on screen: NSScreen? = nil) async -> Bool {
         cancel()
         guard seconds > 0 else { return true }
 
-        let panel = makePanel()
+        let panel = makePanel(on: screen ?? NSScreen.main ?? NSScreen.screens[0])
         self.panel = panel
         panel.orderFrontRegardless()
 
@@ -53,8 +54,7 @@ final class CountdownOverlay {
         panel = nil
     }
 
-    private func makePanel() -> NSPanel {
-        let screen = NSScreen.main ?? NSScreen.screens[0]
+    private func makePanel(on screen: NSScreen) -> NSPanel {
         let panel = NSPanel(
             contentRect: screen.frame,
             styleMask: [.borderless, .nonactivatingPanel],

@@ -26,6 +26,7 @@ final class RecordingSession: ObservableObject {
     /// A one-line message about the last take (e.g. it was cut short by an error).
     @Published private(set) var notice: String?
     @Published private(set) var availableWindows: [CaptureWindowInfo] = []
+    @Published private(set) var availableDisplays: [CaptureDisplayInfo] = []
     @Published private(set) var availableCameras: [MediaDeviceInfo] = []
     @Published private(set) var availableMicrophones: [MediaDeviceInfo] = []
 
@@ -41,11 +42,44 @@ final class RecordingSession: ObservableObject {
     private var currentProjectID = UUID()
     private var currentBundleURL: URL?
     private var hasStartedInputTracking = false
+    private var screenParametersObserver: NSObjectProtocol?
 
     init() {
         screenRecorder.delegate = self
         cameraMicCapture.delegate = self
         refreshMediaDevices()
+        refreshDisplays()
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refreshDisplays() }
+        }
+    }
+
+    /// Lists connected displays for the picker. The saved choice is kept even if that
+    /// display is unplugged, so it's used again when it comes back; `recordingScreen`
+    /// falls back to the main display meanwhile.
+    func refreshDisplays() {
+        let mainID = CGMainDisplayID()
+        availableDisplays = NSScreen.screens.map { screen in
+            let id = screen.displayIdentifier
+            let name = screen.localizedName
+            return CaptureDisplayInfo(displayID: id, name: id == mainID ? "\(name) (Main)" : name)
+        }
+    }
+
+    /// The screen being recorded in display mode, where the countdown and camera bubble
+    /// belong. In window mode the main screen.
+    private var recordingScreen: NSScreen? {
+        guard preferences.captureTarget == .display else { return NSScreen.main }
+        let displayID = CaptureGeometry.resolvedDisplayID(
+            preferred: preferences.selectedDisplayID,
+            available: NSScreen.screens.map(\.displayIdentifier),
+            main: CGMainDisplayID()
+        )
+        return displayID.flatMap { NSScreen.screen(forDisplayID: $0) } ?? NSScreen.main
     }
 
     func refreshMediaDevices() {
@@ -137,7 +171,7 @@ final class RecordingSession: ObservableObject {
                     guard let self, case .countdown = self.state else { return }
                     self.state = .countdown(remaining: remaining)
                 }
-                let completed = await countdownOverlay.run(seconds: preferences.countdownSeconds)
+                let completed = await countdownOverlay.run(seconds: preferences.countdownSeconds, on: recordingScreen)
                 countdownOverlay.onTick = nil
                 guard completed else {
                     presentationMode.exit()
@@ -179,7 +213,7 @@ final class RecordingSession: ObservableObject {
 
             if preferences.cameraEnabled {
                 if preferences.cameraBackground.requiresProcessing {
-                    cameraBubble.showProcessedPreview(position: preferences.cameraPosition)
+                    cameraBubble.showProcessedPreview(position: preferences.cameraPosition, on: recordingScreen)
                     // Called on the camera queue: build the small preview image there and
                     // only hand the finished image to the main thread.
                     let previewRenderer = cameraPreviewRenderer
@@ -195,7 +229,7 @@ final class RecordingSession: ObservableObject {
                         }
                     }
                 } else if let previewLayer = cameraMicCapture.previewLayer {
-                    cameraBubble.show(previewLayer: previewLayer, position: preferences.cameraPosition)
+                    cameraBubble.show(previewLayer: previewLayer, position: preferences.cameraPosition, on: recordingScreen)
                 }
             }
 
@@ -207,6 +241,7 @@ final class RecordingSession: ObservableObject {
             let recorderOptions = ScreenRecorderOptions(
                 captureTarget: preferences.captureTarget,
                 windowID: preferences.selectedWindowID,
+                displayID: preferences.selectedDisplayID,
                 showCursor: !preferences.cursorSmoothingEnabled,
                 excludeWindowIDs: excludeWindowIDs,
                 enableMicrophone: preferences.microphoneEnabled

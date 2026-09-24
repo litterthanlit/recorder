@@ -37,6 +37,7 @@ struct MenuBarView: View {
         .onAppear {
             permissions.refresh()
             session.refreshMediaDevices()
+            session.refreshDisplays()
             library.refresh()
             Task { await session.refreshWindows() }
         }
@@ -65,6 +66,26 @@ struct MenuBarView: View {
             .pickerStyle(.segmented)
             .onChange(of: session.preferences.captureTarget) { _ in
                 Task { await session.refreshWindows() }
+            }
+
+            if session.preferences.captureTarget == .display, session.availableDisplays.count > 1 {
+                Picker("Display", selection: Binding(
+                    // An unplugged choice shows (and records) the main display.
+                    get: {
+                        CaptureGeometry.resolvedDisplayID(
+                            preferred: session.preferences.selectedDisplayID,
+                            available: session.availableDisplays.map(\.displayID),
+                            main: CGMainDisplayID()
+                        ) ?? CGMainDisplayID()
+                    },
+                    set: { session.preferences.selectedDisplayID = $0 }
+                )) {
+                    ForEach(session.availableDisplays) { display in
+                        Text(display.name).tag(display.displayID)
+                    }
+                }
+                .labelsHidden()
+                .accessibilityLabel("Display to record")
             }
 
             if session.preferences.captureTarget == .window {

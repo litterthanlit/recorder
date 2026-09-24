@@ -619,6 +619,17 @@ struct CaptureGeometryTests {
         #expect(abs(center.y - 300) < 1e-9)
     }
 
+    @Test func resolvedDisplayPrefersTheChosenDisplay() {
+        #expect(CaptureGeometry.resolvedDisplayID(preferred: 7, available: [1, 7], main: 1) == 7)
+    }
+
+    @Test func resolvedDisplayFallsBackToMainThenAny() {
+        #expect(CaptureGeometry.resolvedDisplayID(preferred: nil, available: [3, 1], main: 1) == 1)
+        #expect(CaptureGeometry.resolvedDisplayID(preferred: 9, available: [3, 1], main: 1) == 1)
+        #expect(CaptureGeometry.resolvedDisplayID(preferred: 9, available: [3], main: 1) == 3)
+        #expect(CaptureGeometry.resolvedDisplayID(preferred: 9, available: [], main: 1) == nil)
+    }
+
     @Test func capturePointOnSecondaryDisplayLeftOfMain() {
         // A display arranged to the left of the main one has a negative global origin.
         let point = CaptureGeometry.capturePoint(

@@ -270,6 +270,13 @@ enum CaptureTargetKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+struct CaptureDisplayInfo: Equatable, Identifiable {
+    let displayID: UInt32
+    let name: String
+
+    var id: UInt32 { displayID }
+}
+
 struct CaptureWindowInfo: Codable, Equatable, Identifiable {
     let windowID: UInt32
     let title: String
@@ -289,6 +296,9 @@ struct RecordingPreferences: Codable, Equatable {
     var countdownSeconds: Int = 3
     var captureTarget: CaptureTargetKind = .display
     var selectedWindowID: UInt32?
+    /// Display to record in `.display` mode; `nil` means the main display. Kept across
+    /// launches (display IDs are stable), and resolved at record time in case it's gone.
+    var selectedDisplayID: UInt32?
     var hideChromeDuringRecording: Bool = true
     var cursorSmoothingEnabled: Bool = true
     var microphoneEnabled: Bool = false
@@ -308,6 +318,7 @@ extension RecordingPreferences {
         case countdownSeconds
         case captureTarget
         case selectedWindowID
+        case selectedDisplayID
         case hideChromeDuringRecording
         case cursorSmoothingEnabled
         case microphoneEnabled
@@ -324,6 +335,7 @@ extension RecordingPreferences {
         countdownSeconds = try container.decodeIfPresent(Int.self, forKey: .countdownSeconds) ?? defaults.countdownSeconds
         captureTarget = try container.decodeIfPresent(CaptureTargetKind.self, forKey: .captureTarget) ?? defaults.captureTarget
         selectedWindowID = try container.decodeIfPresent(UInt32.self, forKey: .selectedWindowID)
+        selectedDisplayID = try container.decodeIfPresent(UInt32.self, forKey: .selectedDisplayID)
         hideChromeDuringRecording = try container.decodeIfPresent(Bool.self, forKey: .hideChromeDuringRecording)
             ?? defaults.hideChromeDuringRecording
         cursorSmoothingEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorSmoothingEnabled)

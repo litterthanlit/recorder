@@ -27,6 +27,15 @@ enum CaptureGeometry {
         return CGPoint(x: x, y: pixelHeight - yFromTop)
     }
 
+    /// The display to record: the preferred one if it's still connected, else the main
+    /// display, else any. `nil` only when there are no displays.
+    static func resolvedDisplayID(preferred: UInt32?, available: [UInt32], main: UInt32) -> UInt32? {
+        if let preferred, available.contains(preferred) {
+            return preferred
+        }
+        return available.contains(main) ? main : available.first
+    }
+
     private static func evenPixels(_ value: CGFloat) -> Int {
         guard value.isFinite, value > 0 else { return 2 }
         let rounded = Int(value.rounded())
