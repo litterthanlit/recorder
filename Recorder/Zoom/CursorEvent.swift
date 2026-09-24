@@ -18,26 +18,93 @@ struct CursorEvent: Codable, Equatable {
 }
 
 struct CursorPathSmoother {
-    private let smoothingFactor: CGFloat = 0.35
+    /// How quickly the smoothed cursor follows the real one: it closes ~63% of the gap
+    /// in this time, whatever the sample rate.
+    var timeConstant: TimeInterval = 0.07
+    /// Step of the smoothed path while it's moving.
+    var sampleInterval: TimeInterval = 1.0 / 120.0
+    /// Around a click the smoothed cursor blends onto the real path, reaching the click
+    /// point exactly at the click, so ripples and zooms line up with the arrow tip.
+    var clickAnchorWindow: TimeInterval = 0.15
+    /// Closer than this (source pixels) to where the real cursor is resting counts as
+    /// settled, so idle stretches don't produce samples.
+    var settleDistance: CGFloat = 0.25
 
-    func smooth(_ events: [CursorEvent]) -> [CursorEvent] {
-        guard !events.isEmpty else { return [] }
+    /// A smoothed copy of `events`, sampled on a fixed time step.
+    ///
+    /// Cursor samples only arrive while the mouse moves, so smoothing sample by sample
+    /// left the arrow frozen short of where it stopped. This follows the real path in
+    /// time instead, keeps going after the last movement until it has caught up, and
+    /// passes through every click.
+    func smooth(_ events: [CursorEvent], clicks: [ClickEvent] = []) -> [CursorEvent] {
+        let clickEvents = clicks
+            .map { CursorEvent(timestamp: $0.timestamp, location: $0.location) }
+            .sorted { $0.timestamp < $1.timestamp }
+        // Clicks are exact positions too: the path goes through them.
+        let raw = (events + clickEvents).sorted { $0.timestamp < $1.timestamp }
+        guard let first = raw.first, let last = raw.last else { return [] }
 
-        var smoothed: [CursorEvent] = []
-        smoothed.reserveCapacity(events.count)
+        let step = max(sampleInterval, 0.001)
+        let tau = max(timeConstant, 0.001)
+        let clickTimes = clickEvents.map(\.timestamp)
 
-        var current = events[0].location
-        smoothed.append(events[0])
+        var smoothed = [first]
+        var state = first.location
+        var time = first.timestamp
+        var nextRawIndex = 1
+        var nextClickIndex = 0
 
-        for event in events.dropFirst() {
-            current = CGPoint(
-                x: current.x + (event.location.x - current.x) * smoothingFactor,
-                y: current.y + (event.location.y - current.y) * smoothingFactor
-            )
-            smoothed.append(CursorEvent(timestamp: event.timestamp, location: current))
+        while true {
+            while nextRawIndex < raw.count, raw[nextRawIndex].timestamp <= time {
+                nextRawIndex += 1
+            }
+            while nextClickIndex < clickTimes.count, clickTimes[nextClickIndex] <= time {
+                nextClickIndex += 1
+            }
+
+            let target = location(at: time, in: raw) ?? state
+            let settled = hypot(state.x - target.x, state.y - target.y) < settleDistance
+            if settled && time >= last.timestamp {
+                break
+            }
+
+            // Caught up: skip ahead to just before the next sample. The path between
+            // samples is linear, so the skipped stretch is reproduced by interpolation.
+            var nextTime = time + step
+            if settled, nextRawIndex < raw.count {
+                nextTime = max(nextTime, raw[nextRawIndex].timestamp - step)
+            }
+            // Land exactly on clicks.
+            if nextClickIndex < clickTimes.count {
+                nextTime = min(nextTime, clickTimes[nextClickIndex])
+            }
+
+            let deltaTime = nextTime - time
+            time = nextTime
+            let goal = location(at: time, in: raw) ?? state
+            let alpha = CGFloat(1 - exp(-deltaTime / tau))
+            state = CGPoint(x: state.x + (goal.x - state.x) * alpha, y: state.y + (goal.y - state.y) * alpha)
+
+            let anchor = clickAnchorWeight(at: time, clickTimes: clickTimes, nextIndex: nextClickIndex)
+            if anchor > 0 {
+                state = CGPoint(x: state.x + (goal.x - state.x) * anchor, y: state.y + (goal.y - state.y) * anchor)
+            }
+            smoothed.append(CursorEvent(timestamp: time, location: state))
         }
 
         return smoothed
+    }
+
+    /// 1 at a click, falling to 0 `clickAnchorWindow` away from it. Clicks before
+    /// `nextIndex` are at or before `time`'s previous step; the one at `nextIndex` is at or
+    /// after `time`, so those two are the nearest.
+    private func clickAnchorWeight(at time: TimeInterval, clickTimes: [TimeInterval], nextIndex: Int) -> CGFloat {
+        guard clickAnchorWindow > 0 else { return 0 }
+        var nearest = TimeInterval.infinity
+        for index in [nextIndex - 1, nextIndex] where clickTimes.indices.contains(index) {
+            nearest = min(nearest, abs(clickTimes[index] - time))
+        }
+        return CGFloat(max(0, 1 - nearest / clickAnchorWindow))
     }
 
     /// Cursor position at `time`, interpolated between samples. `events` must be sorted

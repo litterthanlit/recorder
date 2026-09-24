@@ -332,7 +332,73 @@ struct CursorPathSmootherTests {
             CursorEvent(timestamp: 0.02, location: CGPoint(x: 0, y: 0))
         ]
         let smoothed = smoother.smooth(events)
-        #expect(smoothed[1].location.x < 50)
+        let peak = smoother.location(at: 0.01, in: smoothed)
+        #expect(peak != nil)
+        #expect(peak!.x < 50)
+    }
+
+    /// A move to (x, 0) over `duration`, sampled every `interval`, then the mouse stops.
+    private func move(to x: CGFloat, duration: TimeInterval, interval: TimeInterval) -> [CursorEvent] {
+        stride(from: 0.0, through: duration, by: interval).map { time in
+            CursorEvent(timestamp: time, location: CGPoint(x: x * CGFloat(time / duration), y: 0))
+        }
+    }
+
+    @Test func settlesWhereTheMouseStopped() {
+        // No samples arrive once the mouse stops; the smoothed cursor must still arrive.
+        let smoother = CursorPathSmoother()
+        let smoothed = smoother.smooth(move(to: 800, duration: 0.3, interval: 1.0 / 60.0))
+        let end = smoother.location(at: 1.5, in: smoothed)
+        #expect(end != nil)
+        #expect(abs(end!.x - 800) < 0.5)
+        #expect(smoothed.last!.timestamp > 0.3)
+    }
+
+    @Test func lagsBehindWhileMoving() {
+        let smoother = CursorPathSmoother()
+        let smoothed = smoother.smooth(move(to: 800, duration: 0.3, interval: 1.0 / 60.0))
+        let during = smoother.location(at: 0.15, in: smoothed)!
+        #expect(during.x < 400)
+        #expect(during.x > 100)
+    }
+
+    @Test func doesNotDependOnTheSampleRate() {
+        let smoother = CursorPathSmoother()
+        let slow = smoother.smooth(move(to: 800, duration: 0.3, interval: 1.0 / 30.0))
+        let fast = smoother.smooth(move(to: 800, duration: 0.3, interval: 1.0 / 120.0))
+        for time in [0.1, 0.2, 0.3, 0.4] {
+            let a = smoother.location(at: time, in: slow)!
+            let b = smoother.location(at: time, in: fast)!
+            #expect(abs(a.x - b.x) < 8)
+        }
+    }
+
+    @Test func passesThroughClicks() {
+        let smoother = CursorPathSmoother()
+        let events = move(to: 800, duration: 0.3, interval: 1.0 / 60.0)
+        // Click mid-move, where the smoothed cursor would otherwise still be behind.
+        let click = ClickEvent(timestamp: 0.2, location: CGPoint(x: 533, y: 0), button: .left)
+        let smoothed = smoother.smooth(events, clicks: [click])
+        let atClick = smoother.location(at: 0.2, in: smoothed)!
+        #expect(abs(atClick.x - 533) < 0.01)
+        #expect(abs(atClick.y) < 0.01)
+    }
+
+    @Test func idleStretchesProduceFewSamples() {
+        let smoother = CursorPathSmoother()
+        let events = [
+            CursorEvent(timestamp: 0, location: CGPoint(x: 10, y: 10)),
+            CursorEvent(timestamp: 600, location: CGPoint(x: 10, y: 10)),
+            CursorEvent(timestamp: 600.1, location: CGPoint(x: 200, y: 10))
+        ]
+        let smoothed = smoother.smooth(events)
+        #expect(smoothed.count < 500)
+        #expect(abs(smoother.location(at: 300, in: smoothed)!.x - 10) < 0.01)
+        #expect(abs(smoother.location(at: 602, in: smoothed)!.x - 200) < 0.5)
+    }
+
+    @Test func emptyPathStaysEmpty() {
+        #expect(CursorPathSmoother().smooth([]).isEmpty)
     }
 }
 

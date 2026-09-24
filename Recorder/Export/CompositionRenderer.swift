@@ -62,6 +62,7 @@ final class CompositionRenderer {
 
     func update(keyframes: [ZoomKeyframe], settings: CompositionRenderSettings) {
         let cursorInputsChanged = settings.cursorEvents != self.settings.cursorEvents
+            || settings.clickEvents != self.settings.clickEvents
             || settings.exportStyle.cursorSmoothingEnabled != self.settings.exportStyle.cursorSmoothingEnabled
 
         self.settings = settings
@@ -644,7 +645,7 @@ final class CompositionRenderer {
         smoother: CursorPathSmoother
     ) -> [CursorEvent] {
         settings.exportStyle.cursorSmoothingEnabled
-            ? smoother.smooth(settings.cursorEvents)
+            ? smoother.smooth(settings.cursorEvents, clicks: settings.clickEvents)
             : settings.cursorEvents
     }
 
