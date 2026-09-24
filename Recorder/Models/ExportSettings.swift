@@ -307,6 +307,7 @@ struct RecordingPreferences: Codable, Equatable {
     var cursorSmoothingEnabled: Bool = true
     var microphoneEnabled: Bool = false
     var selectedMicrophoneID: String?
+    var systemAudioEnabled: Bool = false
     var cameraEnabled: Bool = false
     var selectedCameraID: String?
     var cameraPosition: CameraBubblePosition = .bottomRight
@@ -327,6 +328,7 @@ extension RecordingPreferences {
         case cursorSmoothingEnabled
         case microphoneEnabled
         case selectedMicrophoneID
+        case systemAudioEnabled
         case cameraEnabled
         case selectedCameraID
         case cameraPosition
@@ -346,6 +348,8 @@ extension RecordingPreferences {
             ?? defaults.cursorSmoothingEnabled
         microphoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .microphoneEnabled) ?? defaults.microphoneEnabled
         selectedMicrophoneID = try container.decodeIfPresent(String.self, forKey: .selectedMicrophoneID)
+        systemAudioEnabled = try container.decodeIfPresent(Bool.self, forKey: .systemAudioEnabled)
+            ?? defaults.systemAudioEnabled
         cameraEnabled = try container.decodeIfPresent(Bool.self, forKey: .cameraEnabled) ?? defaults.cameraEnabled
         selectedCameraID = try container.decodeIfPresent(String.self, forKey: .selectedCameraID)
         cameraPosition = try container.decodeIfPresent(CameraBubblePosition.self, forKey: .cameraPosition)

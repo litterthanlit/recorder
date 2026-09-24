@@ -121,6 +121,8 @@ struct MenuBarView: View {
 
             Divider()
 
+            Toggle("System audio", isOn: $session.preferences.systemAudioEnabled)
+                .help("Record sound from other apps as well as the screen")
             Toggle("Microphone", isOn: $session.preferences.microphoneEnabled)
             if session.preferences.microphoneEnabled {
                 if !permissions.hasMicrophonePermission {

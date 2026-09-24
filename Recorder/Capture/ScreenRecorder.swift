@@ -24,6 +24,8 @@ struct ScreenRecorderOptions {
     var cropsMenuBar: Bool = false
     var excludeWindowIDs: [UInt32] = []
     var enableMicrophone: Bool = false
+    /// Record what the Mac plays (other apps' audio) as its own track.
+    var captureSystemAudio: Bool = false
 }
 
 final class ScreenRecorder: NSObject {
@@ -34,6 +36,7 @@ final class ScreenRecorder: NSObject {
     private var writerInput: AVAssetWriterInput?
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var audioWriterInput: AVAssetWriterInput?
+    private var systemAudioWriterInput: AVAssetWriterInput?
     private var sessionStartTime: TimeInterval = 0
     private var firstSampleTime: CMTime?
     private var lastWrittenTime: CMTime = .zero
@@ -145,12 +148,20 @@ final class ScreenRecorder: NSObject {
         configuration.showsCursor = options.showCursor
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.queueDepth = 6
+        if options.captureSystemAudio {
+            configuration.capturesAudio = true
+            configuration.sampleRate = 48_000
+            configuration.channelCount = 2
+            // Leave out this app's own sounds (and avoid feedback from the preview).
+            configuration.excludesCurrentProcessAudio = true
+        }
 
         try setupWriter(
             outputURL: url,
             width: captureWidth,
             height: captureHeight,
-            includeAudio: options.enableMicrophone
+            includeAudio: options.enableMicrophone,
+            includeSystemAudio: options.captureSystemAudio
         )
 
         firstSampleTime = nil
@@ -163,6 +174,9 @@ final class ScreenRecorder: NSObject {
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         do {
             try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: writerQueue)
+            if options.captureSystemAudio {
+                try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: writerQueue)
+            }
             try await stream.startCapture()
         } catch {
             assetWriter?.cancelWriting()
@@ -178,7 +192,8 @@ final class ScreenRecorder: NSObject {
     /// - Parameter hostTime: the buffer's capture time on the host clock.
     func appendAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer, hostTime: CMTime) {
         writerQueue.async { [weak self] in
-            self?.writeAudioSampleBuffer(sampleBuffer, hostTime: hostTime)
+            guard let self, let input = self.audioWriterInput else { return }
+            self.writeAudioSampleBuffer(sampleBuffer, hostTime: hostTime, to: input)
         }
     }
 
@@ -232,6 +247,7 @@ final class ScreenRecorder: NSObject {
 
                 self.writerInput?.markAsFinished()
                 self.audioWriterInput?.markAsFinished()
+                self.systemAudioWriterInput?.markAsFinished()
                 writer.endSession(atSourceTime: self.lastWrittenTime)
                 self.lastWrittenPixelBuffer = nil
 
@@ -294,7 +310,13 @@ final class ScreenRecorder: NSObject {
         (captureWidth, captureHeight) = CaptureGeometry.pixelSize(points: frame.size, scale: displayScale)
     }
 
-    private func setupWriter(outputURL: URL, width: Int, height: Int, includeAudio: Bool) throws {
+    private func setupWriter(
+        outputURL: URL,
+        width: Int,
+        height: Int,
+        includeAudio: Bool,
+        includeSystemAudio: Bool
+    ) throws {
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
@@ -341,6 +363,26 @@ final class ScreenRecorder: NSObject {
             audioWriterInput = audioInput
         } else {
             audioWriterInput = nil
+        }
+
+        if includeSystemAudio {
+            let systemInput = AVAssetWriterInput(
+                mediaType: .audio,
+                outputSettings: [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: 48_000,
+                    AVNumberOfChannelsKey: 2,
+                    AVEncoderBitRateKey: 192_000
+                ]
+            )
+            systemInput.expectsMediaDataInRealTime = true
+            guard writer.canAdd(systemInput) else {
+                throw ScreenRecorderError.writerFailed
+            }
+            writer.add(systemInput)
+            systemAudioWriterInput = systemInput
+        } else {
+            systemAudioWriterInput = nil
         }
 
         // Write in fragments so a crash mid-take leaves a recoverable movie.
@@ -400,9 +442,9 @@ final class ScreenRecorder: NSObject {
         }
     }
 
-    private func writeAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer, hostTime: CMTime) {
+    /// Called on the writer queue with a mic or system audio buffer.
+    private func writeAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer, hostTime: CMTime, to audioWriterInput: AVAssetWriterInput) {
         guard isRecording,
-              let audioWriterInput,
               audioWriterInput.isReadyForMoreMediaData,
               let assetWriter,
               assetWriter.status == .writing,
@@ -445,8 +487,20 @@ final class ScreenRecorder: NSObject {
 
 extension ScreenRecorder: SCStreamOutput {
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen else { return }
-        appendSampleBuffer(sampleBuffer)
+        switch type {
+        case .screen:
+            appendSampleBuffer(sampleBuffer)
+        case .audio:
+            // System audio is stamped on the host clock, like the screen frames.
+            guard sampleBuffer.isValid, let systemAudioWriterInput else { return }
+            writeAudioSampleBuffer(
+                sampleBuffer,
+                hostTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer),
+                to: systemAudioWriterInput
+            )
+        default:
+            break
+        }
     }
 }
 

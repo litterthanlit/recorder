@@ -245,7 +245,8 @@ final class RecordingSession: ObservableObject {
                 showCursor: !preferences.cursorSmoothingEnabled,
                 cropsMenuBar: preferences.hideChromeDuringRecording,
                 excludeWindowIDs: excludeWindowIDs,
-                enableMicrophone: preferences.microphoneEnabled
+                enableMicrophone: preferences.microphoneEnabled,
+                captureSystemAudio: preferences.systemAudioEnabled
             )
             try await screenRecorder.startRecording(to: videoURL, options: recorderOptions)
 
