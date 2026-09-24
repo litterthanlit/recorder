@@ -26,6 +26,7 @@
 		B20000000000000000000020 /* MotionFX.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* MotionFX.swift */; };
 		B20000000000000000000023 /* MediaTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* MediaTiming.swift */; };
 		B20000000000000000000027 /* CaptureGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002B /* CaptureGeometry.swift */; };
+		B20000000000000000000028 /* OverlayLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002C /* OverlayLayout.swift */; };
 		B20000000000000000000021 /* CompositorPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* CompositorPreviewView.swift */; };
 		B2000000000000000000000D /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* MenuBarView.swift */; };
 		B2000000000000000000000E /* PreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* PreviewView.swift */; };
@@ -69,6 +70,7 @@
 		A20000000000000000000023 /* MotionFX.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionFX.swift; sourceTree = "<group>"; };
 		A20000000000000000000026 /* MediaTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTiming.swift; sourceTree = "<group>"; };
 		A2000000000000000000002B /* CaptureGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureGeometry.swift; sourceTree = "<group>"; };
+		A2000000000000000000002C /* OverlayLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayLayout.swift; sourceTree = "<group>"; };
 		A20000000000000000000024 /* CompositorPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositorPreviewView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000D /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000E /* PreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewView.swift; sourceTree = "<group>"; };
@@ -178,6 +180,7 @@
 				A20000000000000000000023 /* MotionFX.swift */,
 				A20000000000000000000026 /* MediaTiming.swift */,
 				A2000000000000000000002B /* CaptureGeometry.swift */,
+				A2000000000000000000002C /* OverlayLayout.swift */,
 			);
 			path = Composition;
 			sourceTree = "<group>";
@@ -314,6 +317,7 @@
 				B20000000000000000000020 /* MotionFX.swift in Sources */,
 				B20000000000000000000023 /* MediaTiming.swift in Sources */,
 				B20000000000000000000027 /* CaptureGeometry.swift in Sources */,
+				B20000000000000000000028 /* OverlayLayout.swift in Sources */,
 				B20000000000000000000021 /* CompositorPreviewView.swift in Sources */,
 				B2000000000000000000000D /* MenuBarView.swift in Sources */,
 				B2000000000000000000000E /* PreviewView.swift in Sources */,

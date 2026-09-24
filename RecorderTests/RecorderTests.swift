@@ -711,3 +711,26 @@ struct VideoCodecChoiceTests {
         #expect(VideoCodecChoice.forFrame(width: 1200, height: 4200) == .hevc)
     }
 }
+
+@Suite("OverlayLayout")
+struct OverlayLayoutTests {
+    private let canvas = CGSize(width: 1920, height: 1080)
+    private let text = CGSize(width: 120, height: 24)
+
+    @Test func watermarkDefaultsToBottomRight() {
+        let origin = OverlayLayout.watermarkOrigin(size: text, canvas: canvas, margin: 24, avoiding: nil)
+        #expect(origin == CGPoint(x: 1920 - 120 - 24, y: 24))
+    }
+
+    @Test func watermarkMovesAwayFromABottomRightBubble() {
+        let bubble = CGRect(x: 1920 - 194 - 38, y: 38, width: 194, height: 194)
+        let origin = OverlayLayout.watermarkOrigin(size: text, canvas: canvas, margin: 24, avoiding: bubble)
+        #expect(origin == CGPoint(x: 24, y: 24))
+    }
+
+    @Test func watermarkStaysPutWhenTheBubbleIsElsewhere() {
+        let bubble = CGRect(x: 38, y: 1080 - 194 - 38, width: 194, height: 194)
+        let origin = OverlayLayout.watermarkOrigin(size: text, canvas: canvas, margin: 24, avoiding: bubble)
+        #expect(origin == CGPoint(x: 1920 - 120 - 24, y: 24))
+    }
+}

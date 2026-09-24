@@ -151,7 +151,15 @@ final class CompositionRenderer {
         }
 
         if settings.exportStyle.watermarkEnabled {
-            finalImage = compositeWatermark(onto: finalImage, outputWidth: outputWidth)
+            let bubble = settings.camera.isVisible && camera != nil
+                ? CameraBubbleLayout.frame(in: fitted.frame.size, position: settings.camera.position)
+                    .offsetBy(dx: fitted.frame.minX, dy: fitted.frame.minY)
+                : nil
+            finalImage = compositeWatermark(
+                onto: finalImage,
+                canvas: CGSize(width: outputWidth, height: outputHeight),
+                avoiding: bubble
+            )
         }
 
         return finalImage.cropped(to: CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight))
@@ -356,7 +364,7 @@ final class CompositionRenderer {
 
     // MARK: - Watermark
 
-    private func compositeWatermark(onto image: CIImage, outputWidth: Int) -> CIImage {
+    private func compositeWatermark(onto image: CIImage, canvas: CGSize, avoiding bubble: CGRect?) -> CIImage {
         let text = settings.exportStyle.watermarkText
         let textImage: CIImage
         if let cachedWatermark, cachedWatermark.text == text {
@@ -366,13 +374,15 @@ final class CompositionRenderer {
             cachedWatermark = (text, textImage)
         }
 
-        // Bottom-right corner, 24 px in from each edge.
-        let extent = textImage.extent
+        // Bottom-right corner, 24 px in from each edge, unless the camera bubble is there.
+        let origin = OverlayLayout.watermarkOrigin(
+            size: textImage.extent.size,
+            canvas: canvas,
+            margin: 24,
+            avoiding: bubble
+        )
         return textImage
-            .transformed(by: CGAffineTransform(
-                translationX: CGFloat(outputWidth) - extent.width - 24,
-                y: 24
-            ))
+            .transformed(by: CGAffineTransform(translationX: origin.x, y: origin.y))
             .composited(over: image)
     }
 
