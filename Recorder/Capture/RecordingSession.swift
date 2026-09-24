@@ -243,6 +243,7 @@ final class RecordingSession: ObservableObject {
                 windowID: preferences.selectedWindowID,
                 displayID: preferences.selectedDisplayID,
                 showCursor: !preferences.cursorSmoothingEnabled,
+                cropsMenuBar: preferences.hideChromeDuringRecording,
                 excludeWindowIDs: excludeWindowIDs,
                 enableMicrophone: preferences.microphoneEnabled
             )

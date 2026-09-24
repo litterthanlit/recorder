@@ -19,6 +19,9 @@ struct ScreenRecorderOptions {
     /// Display to record in `.display` mode; `nil` means the main display.
     var displayID: UInt32?
     var showCursor: Bool = true
+    /// Leave the menu bar out of display recordings. (Hiding it doesn't work: presentation
+    /// options only apply while this app is frontmost, and it isn't while recording.)
+    var cropsMenuBar: Bool = false
     var excludeWindowIDs: [UInt32] = []
     var enableMicrophone: Bool = false
 }
@@ -48,6 +51,8 @@ final class ScreenRecorder: NSObject {
     private(set) var fps: Int = 60
     private(set) var scaleFactor: CGFloat = 2
     private(set) var captureOrigin: CGPoint = .zero
+    /// Part of the display recorded, in display points (top-left origin); `nil` for all.
+    private var displaySourceRect: CGRect?
     private(set) var captureSizePoints: CGSize = .zero
     private(set) var windowTitle: String?
     private(set) var appName: String?
@@ -102,7 +107,11 @@ final class ScreenRecorder: NSObject {
             displayScale = screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
             windowTitle = nil
             appName = nil
-            configureCaptureGeometry(display: display, displayScale: displayScale)
+            // visibleFrame's top inset is the menu bar (0 when it auto-hides).
+            let menuBarHeight = options.cropsMenuBar
+                ? screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
+                : 0
+            configureCaptureGeometry(display: display, displayScale: displayScale, topInset: menuBarHeight)
 
         case .window:
             guard let windowID = options.windowID,
@@ -119,6 +128,7 @@ final class ScreenRecorder: NSObject {
             displayScale = screen?.backingScaleFactor ?? 2
             windowTitle = window.title
             appName = window.owningApplication?.applicationName
+            displaySourceRect = nil
             configureWindowGeometry(window: window, displayScale: displayScale)
         }
 
@@ -128,6 +138,9 @@ final class ScreenRecorder: NSObject {
         let configuration = SCStreamConfiguration()
         configuration.width = captureWidth
         configuration.height = captureHeight
+        if let displaySourceRect {
+            configuration.sourceRect = displaySourceRect
+        }
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         configuration.showsCursor = options.showCursor
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
@@ -253,12 +266,18 @@ final class ScreenRecorder: NSObject {
         }
     }
 
-    private func configureCaptureGeometry(display: SCDisplay, displayScale: CGFloat) {
+    private func configureCaptureGeometry(display: SCDisplay, displayScale: CGFloat, topInset: CGFloat) {
+        let sourceRect = CaptureGeometry.sourceRect(
+            displaySize: CGSize(width: display.width, height: display.height),
+            topInset: topInset
+        )
+        displaySourceRect = sourceRect.minY > 0 ? sourceRect : nil
+
         // Global display space (top-left origin), the same space as CGEvent.location.
         // NSScreen.frame is bottom-left based and only matches for the main display.
         let bounds = CGDisplayBounds(display.displayID)
-        captureOrigin = bounds.origin
-        captureSizePoints = CGSize(width: display.width, height: display.height)
+        captureOrigin = CGPoint(x: bounds.minX + sourceRect.minX, y: bounds.minY + sourceRect.minY)
+        captureSizePoints = sourceRect.size
         (captureWidth, captureHeight) = CaptureGeometry.pixelSize(points: captureSizePoints, scale: displayScale)
     }
 

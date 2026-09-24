@@ -619,6 +619,19 @@ struct CaptureGeometryTests {
         #expect(abs(center.y - 300) < 1e-9)
     }
 
+    @Test func sourceRectLeavesOutTheMenuBar() {
+        let rect = CaptureGeometry.sourceRect(displaySize: CGSize(width: 1512, height: 982), topInset: 37)
+        #expect(rect == CGRect(x: 0, y: 37, width: 1512, height: 945))
+    }
+
+    @Test func sourceRectClampsBadInsets() {
+        let size = CGSize(width: 1920, height: 1080)
+        #expect(CaptureGeometry.sourceRect(displaySize: size, topInset: 0) == CGRect(origin: .zero, size: size))
+        #expect(CaptureGeometry.sourceRect(displaySize: size, topInset: -5) == CGRect(origin: .zero, size: size))
+        #expect(CaptureGeometry.sourceRect(displaySize: size, topInset: 5000).height == 540)
+        #expect(CaptureGeometry.sourceRect(displaySize: size, topInset: .nan) == CGRect(origin: .zero, size: size))
+    }
+
     @Test func resolvedDisplayPrefersTheChosenDisplay() {
         #expect(CaptureGeometry.resolvedDisplayID(preferred: 7, available: [1, 7], main: 1) == 7)
     }

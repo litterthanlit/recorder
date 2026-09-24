@@ -1,20 +1,19 @@
 import AppKit
 import Foundation
 
+/// Auto-hides the Dock while recording and restores the user's setting afterwards.
+///
+/// The menu bar isn't hidden here: `NSApp.presentationOptions` only apply while this app
+/// is frontmost, which it isn't while another app is being recorded. The recorder crops
+/// the menu bar out instead (`ScreenRecorderOptions.cropsMenuBar`).
 @MainActor
 final class PresentationModeManager {
-    private var previousPresentationOptions: NSApplication.PresentationOptions?
+    private var isActive = false
     private var dockWasAutoHidden: Bool?
 
     func enter() {
-        guard previousPresentationOptions == nil else { return }
-
-        previousPresentationOptions = NSApp.presentationOptions
-        NSApp.presentationOptions = [
-            .autoHideMenuBar,
-            .autoHideDock,
-            .fullScreen
-        ]
+        guard !isActive else { return }
+        isActive = true
 
         // Read Dock prefs via System Events (app UserDefaults "autohide" is unrelated).
         if let current = readDockAutohide() {
@@ -28,10 +27,8 @@ final class PresentationModeManager {
     }
 
     func exit() {
-        if let previousPresentationOptions {
-            NSApp.presentationOptions = previousPresentationOptions
-            self.previousPresentationOptions = nil
-        }
+        guard isActive else { return }
+        isActive = false
 
         if let dockWasAutoHidden {
             _ = setDockAutohide(dockWasAutoHidden)

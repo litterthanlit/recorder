@@ -27,6 +27,15 @@ enum CaptureGeometry {
         return CGPoint(x: x, y: pixelHeight - yFromTop)
     }
 
+    /// The part of a display to record, in the display's own points with a top-left
+    /// origin (what `SCStreamConfiguration.sourceRect` takes), leaving out a strip of
+    /// `topInset` points at the top (the menu bar). The inset is capped at half the
+    /// display so a bad value can't leave nothing to record.
+    static func sourceRect(displaySize: CGSize, topInset: CGFloat) -> CGRect {
+        let inset = topInset.isFinite ? min(max(topInset, 0), displaySize.height / 2) : 0
+        return CGRect(x: 0, y: inset, width: displaySize.width, height: displaySize.height - inset)
+    }
+
     /// The display to record: the preferred one if it's still connected, else the main
     /// display, else any. `nil` only when there are no displays.
     static func resolvedDisplayID(preferred: UInt32?, available: [UInt32], main: UInt32) -> UInt32? {
