@@ -56,6 +56,20 @@ Or from the command line:
 xcodebuild -project Recorder.xcodeproj -scheme Recorder -configuration Debug build
 ```
 
+### Download a build (no Xcode)
+
+Every CI run attaches a ready-to-run app. Open the repository's **Actions** tab, pick the
+latest green **CI** run for your branch, and download **Recorder-…** under *Artifacts*.
+Unzip it (twice: GitHub wraps the zip in another) and drag **Recorder.app** into
+Applications.
+
+It's ad-hoc signed, not notarized, so the first launch is blocked: open it once, then
+go to System Settings > Privacy & Security and click **Open Anyway** (or run
+`xattr -dr com.apple.quarantine /Applications/Recorder.app`). Each new download has a new
+signature, so macOS asks for Screen Recording and Accessibility again; remove the old
+"Recorder" entries there first. For day-to-day use, building in Xcode with signing set up
+(below) avoids both.
+
 ### Signing (so permissions stick between builds)
 
 macOS remembers Screen Recording, Accessibility, Camera, and Microphone access per code
