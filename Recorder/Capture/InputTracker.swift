@@ -14,6 +14,10 @@ final class InputTracker {
     private var events: [ClickEvent] = []
     private var cursorEvents: [CursorEvent] = []
     private var trackCursor = true
+    /// In window mode, the recorded window: its position is followed during the take, and
+    /// clicks on other windows covering it are ignored.
+    private var trackedWindowID: UInt32?
+    private var windowFrameTimer: Timer?
     private var lastCursorSampleTime: TimeInterval = 0
     private let cursorSampleInterval: TimeInterval = 1.0 / 60.0
 
@@ -24,13 +28,15 @@ final class InputTracker {
         captureOrigin: CGPoint,
         captureSize: CGSize,
         scaleFactor: CGFloat,
-        trackCursor: Bool = true
+        trackCursor: Bool = true,
+        trackedWindowID: UInt32? = nil
     ) {
         self.startTime = startTime
         self.captureOrigin = captureOrigin
         self.captureSize = captureSize
         self.scaleFactor = scaleFactor
         self.trackCursor = trackCursor
+        self.trackedWindowID = trackedWindowID
         events = []
         cursorEvents = []
         lastCursorSampleTime = 0
@@ -70,9 +76,22 @@ final class InputTracker {
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+
+        if trackedWindowID != nil {
+            // The capture follows the window wherever it goes; follow it here too, or a
+            // window moved mid-take maps every later click to the wrong spot. Same run
+            // loop as the tap, so no locking.
+            let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+                self?.refreshWindowOrigin()
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            windowFrameTimer = timer
+        }
     }
 
     func stop() -> (clicks: [ClickEvent], cursor: [CursorEvent]) {
+        windowFrameTimer?.invalidate()
+        windowFrameTimer = nil
         if let eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
         }
@@ -100,6 +119,14 @@ final class InputTracker {
 
         let timestamp = CACurrentMediaTime() - startTime
         let global = event.location
+        let isClick = type == .leftMouseDown || type == .rightMouseDown
+        if isClick, let trackedWindowID {
+            refreshWindowOrigin()
+            // A click on a window covering the recorded one isn't in the recording.
+            guard WindowHitTest.isFrontmost(trackedWindowID, at: global, frontToBack: Self.onScreenWindows()) else {
+                return
+            }
+        }
         let local = convertToCaptureCoordinates(global: global)
 
         guard captureSize.width > 0, captureSize.height > 0 else { return }
@@ -130,6 +157,35 @@ final class InputTracker {
         default:
             break
         }
+    }
+
+    /// Moves the capture origin to where the tracked window is now. Keeps the last known
+    /// position if the window can't be found (closed, or on another Space).
+    private func refreshWindowOrigin() {
+        guard let trackedWindowID,
+              let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(trackedWindowID))
+                as? [[String: Any]])?.first,
+              let bounds = Self.bounds(of: info)
+        else { return }
+        captureOrigin = bounds.origin
+    }
+
+    /// On-screen windows, front to back.
+    private static func onScreenWindows() -> [WindowSnapshot] {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+        return list.compactMap { info in
+            guard let number = info[kCGWindowNumber as String] as? NSNumber,
+                  let bounds = bounds(of: info)
+            else { return nil }
+            let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
+            return WindowSnapshot(windowID: number.uint32Value, layer: layer, bounds: bounds)
+        }
+    }
+
+    private static func bounds(of info: [String: Any]) -> CGRect? {
+        guard let dictionary = info[kCGWindowBounds as String] as? NSDictionary else { return nil }
+        return CGRect(dictionaryRepresentation: dictionary as CFDictionary)
     }
 
     private func convertToCaptureCoordinates(global: CGPoint) -> CGPoint {

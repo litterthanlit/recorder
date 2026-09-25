@@ -59,6 +59,8 @@ final class ScreenRecorder: NSObject {
     private(set) var captureSizePoints: CGSize = .zero
     private(set) var windowTitle: String?
     private(set) var appName: String?
+    /// The recorded window in window mode, `nil` for a display.
+    private(set) var capturedWindowID: UInt32?
 
     static func listCapturableWindows() async throws -> [CaptureWindowInfo] {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
@@ -110,6 +112,7 @@ final class ScreenRecorder: NSObject {
             displayScale = screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
             windowTitle = nil
             appName = nil
+            capturedWindowID = nil
             // visibleFrame's top inset is the menu bar (0 when it auto-hides).
             let menuBarHeight = options.cropsMenuBar
                 ? screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
@@ -131,6 +134,7 @@ final class ScreenRecorder: NSObject {
             displayScale = screen?.backingScaleFactor ?? 2
             windowTitle = window.title
             appName = window.owningApplication?.applicationName
+            capturedWindowID = window.windowID
             displaySourceRect = nil
             configureWindowGeometry(window: window, displayScale: displayScale)
         }

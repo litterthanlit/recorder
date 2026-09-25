@@ -451,7 +451,8 @@ final class RecordingSession: ObservableObject {
                 height: CGFloat(screenRecorder.captureHeight)
             ),
             scaleFactor: screenRecorder.scaleFactor,
-            trackCursor: preferences.cursorSmoothingEnabled
+            trackCursor: preferences.cursorSmoothingEnabled,
+            trackedWindowID: screenRecorder.capturedWindowID
         )
 
         do {

@@ -52,6 +52,27 @@ enum CaptureGeometry {
     }
 }
 
+/// One on-screen window, as the window server lists it.
+struct WindowSnapshot: Equatable {
+    let windowID: UInt32
+    /// Window level; 0 is ordinary app windows (panels, the Dock and menus sit higher).
+    let layer: Int
+    /// In global display points, top-left origin.
+    let bounds: CGRect
+}
+
+enum WindowHitTest {
+    /// Whether a click at `point` lands on window `windowID`, given the on-screen windows
+    /// in front-to-back order. Only ordinary windows (layer 0) are considered, so floating
+    /// overlays like the camera bubble don't count as covering it. An empty list (the
+    /// query failed) gives the benefit of the doubt.
+    static func isFrontmost(_ windowID: UInt32, at point: CGPoint, frontToBack windows: [WindowSnapshot]) -> Bool {
+        guard !windows.isEmpty else { return true }
+        let hit = windows.first { $0.layer == 0 && $0.bounds.contains(point) }
+        return hit?.windowID == windowID
+    }
+}
+
 /// Which codec a frame size needs.
 enum VideoCodecChoice: Equatable {
     case h264

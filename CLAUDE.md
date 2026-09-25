@@ -67,8 +67,9 @@ The September 2026 audit backlog was worked through in code (commits on
      (the sprite ignores the Accessibility cursor-size setting).
    - Timeline: edge-resize, trim handles, ⌥-arrow nudging, VoiceOver.
    - `scripts/release.sh` end to end with a Developer ID certificate.
-2. Clicks in window mode use the window's frame at record start; a window moved during
-   the take maps clicks wrongly. Track the window frame (or drop clicks outside it).
+2. Window mode follows a moved window (InputTracker polls its frame) and drops clicks on
+   windows covering it. Not handled: resizing the window mid-take (the capture size is
+   fixed at start). Verify both on a Mac.
 3. Show I-beam and pointing-hand cursors (record the cursor type with each sample).
 4. Editing a zoom's center on the preview (manual zoom mode only creates new zooms).
 5. The live on-screen camera bubble is a fixed 168 pt; the size setting only affects export.

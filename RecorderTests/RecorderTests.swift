@@ -835,3 +835,44 @@ struct CameraBubbleLayoutTests {
         #expect(!CGRect(origin: origin, size: text).intersects(bubble))
     }
 }
+
+@Suite("WindowHitTest")
+struct WindowHitTestTests {
+    private let recorded = WindowSnapshot(windowID: 42, layer: 0, bounds: CGRect(x: 100, y: 100, width: 800, height: 600))
+
+    @Test func clickOnTheRecordedWindowCounts() {
+        #expect(WindowHitTest.isFrontmost(42, at: CGPoint(x: 400, y: 300), frontToBack: [recorded]))
+    }
+
+    @Test func clickOnACoveringWindowIsIgnored() {
+        let cover = WindowSnapshot(windowID: 7, layer: 0, bounds: CGRect(x: 300, y: 200, width: 400, height: 300))
+        #expect(!WindowHitTest.isFrontmost(42, at: CGPoint(x: 400, y: 300), frontToBack: [cover, recorded]))
+        // Outside the covering window, the recorded one is on top.
+        #expect(WindowHitTest.isFrontmost(42, at: CGPoint(x: 150, y: 150), frontToBack: [cover, recorded]))
+    }
+
+    @Test func floatingOverlaysDoNotCover() {
+        let bubble = WindowSnapshot(windowID: 9, layer: 3, bounds: CGRect(x: 350, y: 250, width: 168, height: 168))
+        #expect(WindowHitTest.isFrontmost(42, at: CGPoint(x: 400, y: 300), frontToBack: [bubble, recorded]))
+    }
+
+    @Test func clickOutsideEveryWindowDoesNotCount() {
+        #expect(!WindowHitTest.isFrontmost(42, at: CGPoint(x: 5, y: 5), frontToBack: [recorded]))
+    }
+
+    @Test func failedQueryGivesTheBenefitOfTheDoubt() {
+        #expect(WindowHitTest.isFrontmost(42, at: CGPoint(x: 5, y: 5), frontToBack: []))
+    }
+
+    @Test func movedWindowMapsClicksFromItsNewOrigin() {
+        // Window moved 300 pt right: the same spot in the window maps to the same pixel.
+        let before = CaptureGeometry.capturePoint(
+            global: CGPoint(x: 150, y: 120), origin: CGPoint(x: 100, y: 100), scale: 2, pixelHeight: 1200
+        )
+        let after = CaptureGeometry.capturePoint(
+            global: CGPoint(x: 450, y: 120), origin: CGPoint(x: 400, y: 100), scale: 2, pixelHeight: 1200
+        )
+        #expect(abs(before.x - after.x) < 1e-9)
+        #expect(abs(before.y - after.y) < 1e-9)
+    }
+}
