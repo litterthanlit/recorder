@@ -36,7 +36,8 @@ final class VideoExporter {
         guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
             throw VideoExporterError.missingVideoTrack
         }
-        let audioTrack = try await asset.loadTracks(withMediaType: .audio).first
+        // Mic narration and system audio are separate tracks.
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
 
         let naturalSize = try await videoTrack.load(.naturalSize)
         let preferredTransform = try await videoTrack.load(.preferredTransform)
@@ -68,8 +69,18 @@ final class VideoExporter {
         readerOutput.alwaysCopiesSampleData = false
         reader.add(readerOutput)
 
-        var audioReaderOutput: AVAssetReaderTrackOutput?
-        if let audioTrack {
+        // One track is copied as is. Several (mic + system audio) are mixed to PCM here
+        // and encoded to AAC by the writer, since an MP4 player plays only one.
+        let mixesAudio = audioTracks.count > 1
+        var audioReaderOutput: AVAssetReaderOutput?
+        if mixesAudio {
+            let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: Self.mixedPCMSettings)
+            output.alwaysCopiesSampleData = false
+            if reader.canAdd(output) {
+                reader.add(output)
+                audioReaderOutput = output
+            }
+        } else if let audioTrack = audioTracks.first {
             let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
             output.alwaysCopiesSampleData = false
             if reader.canAdd(output) {
@@ -81,19 +92,18 @@ final class VideoExporter {
         let outputWidth = Int(configuration.outputSize.width)
         let outputHeight = Int(configuration.outputSize.height)
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        let codec = VideoCodecChoice.forFrame(width: outputWidth, height: outputHeight)
         let writerInput = AVAssetWriterInput(
             mediaType: .video,
-            outputSettings: [
-                AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: outputWidth,
-                AVVideoHeightKey: outputHeight,
-                AVVideoCompressionPropertiesKey: [
+            outputSettings: codec.outputSettings(
+                width: outputWidth,
+                height: outputHeight,
+                compression: [
                     AVVideoAverageBitRateKey: configuration.bitrate,
-                    AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
                     AVVideoExpectedSourceFrameRateKey: max(1, configuration.frameRate),
                     AVVideoMaxKeyFrameIntervalKey: max(1, configuration.frameRate) * 2
                 ]
-            ]
+            )
         )
         writerInput.expectsMediaDataInRealTime = false
 
@@ -113,7 +123,10 @@ final class VideoExporter {
 
         var audioWriterInput: AVAssetWriterInput?
         if audioReaderOutput != nil {
-            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
+            let input = AVAssetWriterInput(
+                mediaType: .audio,
+                outputSettings: mixesAudio ? Self.mixedAACSettings : nil
+            )
             input.expectsMediaDataInRealTime = false
             if writer.canAdd(input) {
                 writer.add(input)
@@ -266,6 +279,23 @@ final class VideoExporter {
         progressHandler(1)
     }
 
+    private static let mixedPCMSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVSampleRateKey: 48_000,
+        AVNumberOfChannelsKey: 2,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMIsNonInterleaved: false
+    ]
+
+    private static let mixedAACSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatMPEG4AAC,
+        AVSampleRateKey: 48_000,
+        AVNumberOfChannelsKey: 2,
+        AVEncoderBitRateKey: 192_000
+    ]
+
     private func appendShiftedAudio(
         _ audioSample: CMSampleBuffer,
         to audioWriterInput: AVAssetWriterInput,
@@ -362,5 +392,27 @@ private final class CameraFrameSource {
             return (buffer, CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)))
         }
         return nil
+    }
+}
+
+extension VideoCodecChoice {
+    /// `AVAssetWriterInput` video settings; adds the profile for H.264 (the H.264 profile
+    /// constant is invalid for HEVC, which uses its default Main profile).
+    func outputSettings(width: Int, height: Int, compression: [String: Any]) -> [String: Any] {
+        var compression = compression
+        let codecType: AVVideoCodecType
+        switch self {
+        case .h264:
+            codecType = .h264
+            compression[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+        case .hevc:
+            codecType = .hevc
+        }
+        return [
+            AVVideoCodecKey: codecType,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoCompressionPropertiesKey: compression
+        ]
     }
 }

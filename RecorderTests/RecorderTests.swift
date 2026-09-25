@@ -226,6 +226,45 @@ struct ZoomKeyframeEditorTests {
         ZoomKeyframeEditor.resolveOverlaps(&keyframes)
         #expect(keyframes[1].startTime >= keyframes[0].endTime)
     }
+
+    private let resizable = ZoomKeyframe(
+        startTime: 2, peakTime: 2.5, endTime: 4, center: CGPoint(x: 0.5, y: 0.5), scale: 2
+    )
+
+    @Test func resizingStartKeepsEndAndPeak() {
+        let earlier = ZoomKeyframeEditor.resizeKeyframeStart(resizable, to: 1.2, duration: 10)
+        #expect(abs(earlier.startTime - 1.2) < 1e-9)
+        #expect(abs(earlier.peakTime - 2.5) < 1e-9)
+        #expect(abs(earlier.endTime - 4) < 1e-9)
+    }
+
+    @Test func resizingStartPastTheEndKeepsMinimumSpan() {
+        let squeezed = ZoomKeyframeEditor.resizeKeyframeStart(resizable, to: 9, duration: 10)
+        #expect(abs(squeezed.endTime - 4) < 1e-9)
+        #expect(abs(squeezed.endTime - squeezed.startTime - ZoomKeyframeEditor.minimumSpan) < 1e-9)
+        #expect(squeezed.peakTime >= squeezed.startTime && squeezed.peakTime <= squeezed.endTime)
+    }
+
+    @Test func resizingStartStopsAtZero() {
+        let clamped = ZoomKeyframeEditor.resizeKeyframeStart(resizable, to: -3, duration: 10)
+        #expect(abs(clamped.startTime) < 1e-9)
+    }
+
+    @Test func resizingEndStaysInsideTheRecording() {
+        let longer = ZoomKeyframeEditor.resizeKeyframeEnd(resizable, to: 6, duration: 10)
+        #expect(abs(longer.endTime - 6) < 1e-9)
+        #expect(abs(longer.startTime - 2) < 1e-9)
+
+        let clamped = ZoomKeyframeEditor.resizeKeyframeEnd(resizable, to: 50, duration: 10)
+        #expect(abs(clamped.endTime - 10) < 1e-9)
+    }
+
+    @Test func resizingEndBeforePeakPullsPeakIn() {
+        let shorter = ZoomKeyframeEditor.resizeKeyframeEnd(resizable, to: 2.3, duration: 10)
+        #expect(abs(shorter.endTime - 2.3) < 1e-9)
+        #expect(shorter.peakTime <= shorter.endTime)
+        #expect(shorter.peakTime >= shorter.startTime)
+    }
 }
 
 @Suite("CursorPathSmoother")
@@ -293,7 +332,73 @@ struct CursorPathSmootherTests {
             CursorEvent(timestamp: 0.02, location: CGPoint(x: 0, y: 0))
         ]
         let smoothed = smoother.smooth(events)
-        #expect(smoothed[1].location.x < 50)
+        let peak = smoother.location(at: 0.01, in: smoothed)
+        #expect(peak != nil)
+        #expect(peak!.x < 50)
+    }
+
+    /// A move to (x, 0) over `duration`, sampled every `interval`, then the mouse stops.
+    private func move(to x: CGFloat, duration: TimeInterval, interval: TimeInterval) -> [CursorEvent] {
+        stride(from: 0.0, through: duration, by: interval).map { time in
+            CursorEvent(timestamp: time, location: CGPoint(x: x * CGFloat(time / duration), y: 0))
+        }
+    }
+
+    @Test func settlesWhereTheMouseStopped() {
+        // No samples arrive once the mouse stops; the smoothed cursor must still arrive.
+        let smoother = CursorPathSmoother()
+        let smoothed = smoother.smooth(move(to: 800, duration: 0.3, interval: 1.0 / 60.0))
+        let end = smoother.location(at: 1.5, in: smoothed)
+        #expect(end != nil)
+        #expect(abs(end!.x - 800) < 0.5)
+        #expect(smoothed.last!.timestamp > 0.3)
+    }
+
+    @Test func lagsBehindWhileMoving() {
+        let smoother = CursorPathSmoother()
+        let smoothed = smoother.smooth(move(to: 800, duration: 0.3, interval: 1.0 / 60.0))
+        let during = smoother.location(at: 0.15, in: smoothed)!
+        #expect(during.x < 400)
+        #expect(during.x > 100)
+    }
+
+    @Test func doesNotDependOnTheSampleRate() {
+        let smoother = CursorPathSmoother()
+        let slow = smoother.smooth(move(to: 800, duration: 0.3, interval: 1.0 / 30.0))
+        let fast = smoother.smooth(move(to: 800, duration: 0.3, interval: 1.0 / 120.0))
+        for time in [0.1, 0.2, 0.3, 0.4] {
+            let a = smoother.location(at: time, in: slow)!
+            let b = smoother.location(at: time, in: fast)!
+            #expect(abs(a.x - b.x) < 8)
+        }
+    }
+
+    @Test func passesThroughClicks() {
+        let smoother = CursorPathSmoother()
+        let events = move(to: 800, duration: 0.3, interval: 1.0 / 60.0)
+        // Click mid-move, where the smoothed cursor would otherwise still be behind.
+        let click = ClickEvent(timestamp: 0.2, location: CGPoint(x: 533, y: 0), button: .left)
+        let smoothed = smoother.smooth(events, clicks: [click])
+        let atClick = smoother.location(at: 0.2, in: smoothed)!
+        #expect(abs(atClick.x - 533) < 0.01)
+        #expect(abs(atClick.y) < 0.01)
+    }
+
+    @Test func idleStretchesProduceFewSamples() {
+        let smoother = CursorPathSmoother()
+        let events = [
+            CursorEvent(timestamp: 0, location: CGPoint(x: 10, y: 10)),
+            CursorEvent(timestamp: 600, location: CGPoint(x: 10, y: 10)),
+            CursorEvent(timestamp: 600.1, location: CGPoint(x: 200, y: 10))
+        ]
+        let smoothed = smoother.smooth(events)
+        #expect(smoothed.count < 500)
+        #expect(abs(smoother.location(at: 300, in: smoothed)!.x - 10) < 0.01)
+        #expect(abs(smoother.location(at: 602, in: smoothed)!.x - 200) < 0.5)
+    }
+
+    @Test func emptyPathStaysEmpty() {
+        #expect(CursorPathSmoother().smooth([]).isEmpty)
     }
 }
 
@@ -573,5 +678,201 @@ struct EditHistoryTests {
             history.record(value, actionName: "Step \(value)", now: Double(value) * 10)
         }
         #expect(history.undoStack.map(\.state) == [2, 3, 4])
+    }
+}
+
+@Suite("CaptureGeometry")
+struct CaptureGeometryTests {
+    @Test func pixelSizeScalesPoints() {
+        let size = CaptureGeometry.pixelSize(points: CGSize(width: 1512, height: 982), scale: 2)
+        #expect(size.width == 3024)
+        #expect(size.height == 1964)
+    }
+
+    @Test func pixelSizeRoundsDownToEvenNumbers() {
+        let size = CaptureGeometry.pixelSize(points: CGSize(width: 801, height: 599), scale: 1)
+        #expect(size.width == 800)
+        #expect(size.height == 598)
+    }
+
+    @Test func pixelSizeHandlesFractionalScaleAndEmptySizes() {
+        let fractional = CaptureGeometry.pixelSize(points: CGSize(width: 1001, height: 700.5), scale: 1.5)
+        #expect(fractional.width % 2 == 0)
+        #expect(fractional.height % 2 == 0)
+        #expect(abs(fractional.width - 1502) <= 1)
+
+        let empty = CaptureGeometry.pixelSize(points: .zero, scale: 2)
+        #expect(empty.width == 2)
+        #expect(empty.height == 2)
+    }
+
+    @Test func capturePointFlipsToBottomLeftPixels() {
+        // Main display: origin at (0, 0), 2x.
+        let topLeft = CaptureGeometry.capturePoint(
+            global: CGPoint(x: 10, y: 20), origin: .zero, scale: 2, pixelHeight: 1964
+        )
+        #expect(abs(topLeft.x - 20) < 1e-9)
+        #expect(abs(topLeft.y - (1964 - 40)) < 1e-9)
+    }
+
+    @Test func capturePointIsRelativeToWindowOrigin() {
+        // A 400x300 pt window whose top-left is at (100, 50) in global space.
+        let center = CaptureGeometry.capturePoint(
+            global: CGPoint(x: 300, y: 200), origin: CGPoint(x: 100, y: 50), scale: 2, pixelHeight: 600
+        )
+        #expect(abs(center.x - 400) < 1e-9)
+        #expect(abs(center.y - 300) < 1e-9)
+    }
+
+    @Test func sourceRectLeavesOutTheMenuBar() {
+        let rect = CaptureGeometry.sourceRect(displaySize: CGSize(width: 1512, height: 982), topInset: 37)
+        #expect(rect == CGRect(x: 0, y: 37, width: 1512, height: 945))
+    }
+
+    @Test func sourceRectClampsBadInsets() {
+        let size = CGSize(width: 1920, height: 1080)
+        #expect(CaptureGeometry.sourceRect(displaySize: size, topInset: 0) == CGRect(origin: .zero, size: size))
+        #expect(CaptureGeometry.sourceRect(displaySize: size, topInset: -5) == CGRect(origin: .zero, size: size))
+        #expect(CaptureGeometry.sourceRect(displaySize: size, topInset: 5000).height == 540)
+        #expect(CaptureGeometry.sourceRect(displaySize: size, topInset: .nan) == CGRect(origin: .zero, size: size))
+    }
+
+    @Test func resolvedDisplayPrefersTheChosenDisplay() {
+        #expect(CaptureGeometry.resolvedDisplayID(preferred: 7, available: [1, 7], main: 1) == 7)
+    }
+
+    @Test func resolvedDisplayFallsBackToMainThenAny() {
+        #expect(CaptureGeometry.resolvedDisplayID(preferred: nil, available: [3, 1], main: 1) == 1)
+        #expect(CaptureGeometry.resolvedDisplayID(preferred: 9, available: [3, 1], main: 1) == 1)
+        #expect(CaptureGeometry.resolvedDisplayID(preferred: 9, available: [3], main: 1) == 3)
+        #expect(CaptureGeometry.resolvedDisplayID(preferred: 9, available: [], main: 1) == nil)
+    }
+
+    @Test func capturePointOnSecondaryDisplayLeftOfMain() {
+        // A display arranged to the left of the main one has a negative global origin.
+        let point = CaptureGeometry.capturePoint(
+            global: CGPoint(x: -1900, y: 0), origin: CGPoint(x: -1920, y: 0), scale: 1, pixelHeight: 1080
+        )
+        #expect(abs(point.x - 20) < 1e-9)
+        #expect(abs(point.y - 1080) < 1e-9)
+    }
+}
+
+@Suite("VideoCodecChoice")
+struct VideoCodecChoiceTests {
+    @Test func commonSizesUseH264() {
+        #expect(VideoCodecChoice.forFrame(width: 1920, height: 1080) == .h264)
+        #expect(VideoCodecChoice.forFrame(width: 3024, height: 1964) == .h264)  // 14" MacBook Pro
+        #expect(VideoCodecChoice.forFrame(width: 3456, height: 2234) == .h264)  // 16" MacBook Pro
+        #expect(VideoCodecChoice.forFrame(width: 3840, height: 2160) == .h264)  // 4K
+        #expect(VideoCodecChoice.forFrame(width: 4096, height: 2304) == .h264)  // level 5.2 limit
+    }
+
+    @Test func fiveAndSixKUseHEVC() {
+        #expect(VideoCodecChoice.forFrame(width: 5120, height: 2880) == .hevc)  // Studio Display
+        #expect(VideoCodecChoice.forFrame(width: 6016, height: 3384) == .hevc)  // Pro Display XDR
+    }
+
+    @Test func tallFramesOverTheSideLimitUseHEVC() {
+        #expect(VideoCodecChoice.forFrame(width: 1200, height: 4200) == .hevc)
+    }
+}
+
+@Suite("OverlayLayout")
+struct OverlayLayoutTests {
+    private let canvas = CGSize(width: 1920, height: 1080)
+    private let text = CGSize(width: 120, height: 24)
+
+    @Test func watermarkDefaultsToBottomRight() {
+        let origin = OverlayLayout.watermarkOrigin(size: text, canvas: canvas, margin: 24, avoiding: nil)
+        #expect(origin == CGPoint(x: 1920 - 120 - 24, y: 24))
+    }
+
+    @Test func watermarkMovesAwayFromABottomRightBubble() {
+        let bubble = CGRect(x: 1920 - 194 - 38, y: 38, width: 194, height: 194)
+        let origin = OverlayLayout.watermarkOrigin(size: text, canvas: canvas, margin: 24, avoiding: bubble)
+        #expect(origin == CGPoint(x: 24, y: 24))
+    }
+
+    @Test func watermarkStaysPutWhenTheBubbleIsElsewhere() {
+        let bubble = CGRect(x: 38, y: 1080 - 194 - 38, width: 194, height: 194)
+        let origin = OverlayLayout.watermarkOrigin(size: text, canvas: canvas, margin: 24, avoiding: bubble)
+        #expect(origin == CGPoint(x: 1920 - 120 - 24, y: 24))
+    }
+}
+
+@Suite("CameraBubbleLayout")
+struct CameraBubbleLayoutTests {
+    private let frame = CGSize(width: 1920, height: 1080)
+
+    @Test func sizesScaleTheDiameter() {
+        let small = CameraBubbleLayout.frame(in: frame, position: .bottomRight, size: .small)
+        let medium = CameraBubbleLayout.frame(in: frame, position: .bottomRight, size: .medium)
+        let large = CameraBubbleLayout.frame(in: frame, position: .bottomRight, size: .large)
+        #expect(small.width < medium.width)
+        #expect(medium.width < large.width)
+        #expect(abs(medium.width - 1080 * 0.18) < 1e-9)
+        #expect(abs(large.width - large.height) < 1e-9)
+    }
+
+    @Test func bubbleStaysInItsCorner() {
+        let padding = 1080 * CameraBubbleLayout.paddingFraction
+        for size in CameraBubbleSize.allCases {
+            let bottomRight = CameraBubbleLayout.frame(in: frame, position: .bottomRight, size: size)
+            #expect(abs(bottomRight.maxX - (1920 - padding)) < 1e-9)
+            #expect(abs(bottomRight.minY - padding) < 1e-9)
+
+            let topLeft = CameraBubbleLayout.frame(in: frame, position: .topLeft, size: size)
+            #expect(abs(topLeft.minX - padding) < 1e-9)
+            #expect(abs(topLeft.maxY - (1080 - padding)) < 1e-9)
+        }
+    }
+
+    @Test func watermarkAvoidsALargeBottomRightBubble() {
+        let bubble = CameraBubbleLayout.frame(in: frame, position: .bottomRight, size: .large)
+        let text = CGSize(width: 140, height: 24)
+        let origin = OverlayLayout.watermarkOrigin(size: text, canvas: frame, margin: 24, avoiding: bubble)
+        #expect(!CGRect(origin: origin, size: text).intersects(bubble))
+    }
+}
+
+@Suite("WindowHitTest")
+struct WindowHitTestTests {
+    private let recorded = WindowSnapshot(windowID: 42, layer: 0, bounds: CGRect(x: 100, y: 100, width: 800, height: 600))
+
+    @Test func clickOnTheRecordedWindowCounts() {
+        #expect(WindowHitTest.isFrontmost(42, at: CGPoint(x: 400, y: 300), frontToBack: [recorded]))
+    }
+
+    @Test func clickOnACoveringWindowIsIgnored() {
+        let cover = WindowSnapshot(windowID: 7, layer: 0, bounds: CGRect(x: 300, y: 200, width: 400, height: 300))
+        #expect(!WindowHitTest.isFrontmost(42, at: CGPoint(x: 400, y: 300), frontToBack: [cover, recorded]))
+        // Outside the covering window, the recorded one is on top.
+        #expect(WindowHitTest.isFrontmost(42, at: CGPoint(x: 150, y: 150), frontToBack: [cover, recorded]))
+    }
+
+    @Test func floatingOverlaysDoNotCover() {
+        let bubble = WindowSnapshot(windowID: 9, layer: 3, bounds: CGRect(x: 350, y: 250, width: 168, height: 168))
+        #expect(WindowHitTest.isFrontmost(42, at: CGPoint(x: 400, y: 300), frontToBack: [bubble, recorded]))
+    }
+
+    @Test func clickOutsideEveryWindowDoesNotCount() {
+        #expect(!WindowHitTest.isFrontmost(42, at: CGPoint(x: 5, y: 5), frontToBack: [recorded]))
+    }
+
+    @Test func failedQueryGivesTheBenefitOfTheDoubt() {
+        #expect(WindowHitTest.isFrontmost(42, at: CGPoint(x: 5, y: 5), frontToBack: []))
+    }
+
+    @Test func movedWindowMapsClicksFromItsNewOrigin() {
+        // Window moved 300 pt right: the same spot in the window maps to the same pixel.
+        let before = CaptureGeometry.capturePoint(
+            global: CGPoint(x: 150, y: 120), origin: CGPoint(x: 100, y: 100), scale: 2, pixelHeight: 1200
+        )
+        let after = CaptureGeometry.capturePoint(
+            global: CGPoint(x: 450, y: 120), origin: CGPoint(x: 400, y: 100), scale: 2, pixelHeight: 1200
+        )
+        #expect(abs(before.x - after.x) < 1e-9)
+        #expect(abs(before.y - after.y) < 1e-9)
     }
 }

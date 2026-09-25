@@ -63,6 +63,36 @@ struct EditorView: View {
         }
     }
 
+    /// ⌥← / ⌥→ move the selected zoom by 0.1 s, with ⇧ by 1 s. Option keeps plain
+    /// arrows for sliders and pickers.
+    private var nudgeButtons: some View {
+        HStack(spacing: 4) {
+            nudgeButton(-1, key: .leftArrow, modifiers: [.option, .shift])
+            nudgeButton(-0.1, key: .leftArrow, modifiers: .option)
+            nudgeButton(0.1, key: .rightArrow, modifiers: .option)
+            nudgeButton(1, key: .rightArrow, modifiers: [.option, .shift])
+        }
+        .buttonStyle(.bordered)
+        .disabled(editor.selectedKeyframeID == nil)
+    }
+
+    private func nudgeButton(_ delta: TimeInterval, key: KeyEquivalent, modifiers: EventModifiers) -> some View {
+        let isLarge = abs(delta) >= 1
+        let direction = delta < 0 ? "earlier" : "later"
+        let symbol = delta < 0
+            ? (isLarge ? "backward.end" : "chevron.backward")
+            : (isLarge ? "forward.end" : "chevron.forward")
+        let shortcut = (isLarge ? "⇧" : "") + "⌥" + (delta < 0 ? "←" : "→")
+        return Button {
+            editor.moveSelectedKeyframe(by: delta)
+        } label: {
+            Image(systemName: symbol)
+        }
+        .keyboardShortcut(key, modifiers: modifiers)
+        .help("Move the selected zoom \(isLarge ? "1 s" : "0.1 s") \(direction) (\(shortcut))")
+        .accessibilityLabel("Move zoom \(isLarge ? "1 second" : "a tenth of a second") \(direction)")
+    }
+
     private var toolbar: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
@@ -89,6 +119,8 @@ struct EditorView: View {
                 .keyboardShortcut(.delete, modifiers: .command)
                 .help("Delete the selected zoom (⌘⌫)")
                 .disabled(editor.selectedKeyframeID == nil)
+
+                nudgeButtons
 
                 Spacer()
 
@@ -191,6 +223,14 @@ struct EditorView: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(maxWidth: 420)
+
+                    Picker("Camera size", selection: editor.settingBinding(\.camera.size, actionName: "Camera Size")) {
+                        ForEach(CameraBubbleSize.allCases) { size in
+                            Text(size.label).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 300)
                 }
             }
         }

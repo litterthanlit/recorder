@@ -62,6 +62,7 @@ final class CompositionRenderer {
 
     func update(keyframes: [ZoomKeyframe], settings: CompositionRenderSettings) {
         let cursorInputsChanged = settings.cursorEvents != self.settings.cursorEvents
+            || settings.clickEvents != self.settings.clickEvents
             || settings.exportStyle.cursorSmoothingEnabled != self.settings.exportStyle.cursorSmoothingEnabled
 
         self.settings = settings
@@ -151,7 +152,15 @@ final class CompositionRenderer {
         }
 
         if settings.exportStyle.watermarkEnabled {
-            finalImage = compositeWatermark(onto: finalImage, outputWidth: outputWidth)
+            let bubble = settings.camera.isVisible && camera != nil
+                ? CameraBubbleLayout.frame(in: fitted.frame.size, position: settings.camera.position, size: settings.camera.size)
+                    .offsetBy(dx: fitted.frame.minX, dy: fitted.frame.minY)
+                : nil
+            finalImage = compositeWatermark(
+                onto: finalImage,
+                canvas: CGSize(width: outputWidth, height: outputHeight),
+                avoiding: bubble
+            )
         }
 
         return finalImage.cropped(to: CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight))
@@ -356,7 +365,7 @@ final class CompositionRenderer {
 
     // MARK: - Watermark
 
-    private func compositeWatermark(onto image: CIImage, outputWidth: Int) -> CIImage {
+    private func compositeWatermark(onto image: CIImage, canvas: CGSize, avoiding bubble: CGRect?) -> CIImage {
         let text = settings.exportStyle.watermarkText
         let textImage: CIImage
         if let cachedWatermark, cachedWatermark.text == text {
@@ -366,13 +375,15 @@ final class CompositionRenderer {
             cachedWatermark = (text, textImage)
         }
 
-        // Bottom-right corner, 24 px in from each edge.
-        let extent = textImage.extent
+        // Bottom-right corner, 24 px in from each edge, unless the camera bubble is there.
+        let origin = OverlayLayout.watermarkOrigin(
+            size: textImage.extent.size,
+            canvas: canvas,
+            margin: 24,
+            avoiding: bubble
+        )
         return textImage
-            .transformed(by: CGAffineTransform(
-                translationX: CGFloat(outputWidth) - extent.width - 24,
-                y: 24
-            ))
+            .transformed(by: CGAffineTransform(translationX: origin.x, y: origin.y))
             .composited(over: image)
     }
 
@@ -402,7 +413,7 @@ final class CompositionRenderer {
               camera.extent.width > 0, camera.extent.height > 0
         else { return image }
 
-        let bubble = CameraBubbleLayout.frame(in: contentFrame.size, position: settings.camera.position)
+        let bubble = CameraBubbleLayout.frame(in: contentFrame.size, position: settings.camera.position, size: settings.camera.size)
             .offsetBy(dx: contentFrame.minX, dy: contentFrame.minY)
         let radius = bubble.width / 2
         let center = CGPoint(x: bubble.midX, y: bubble.midY)
@@ -634,7 +645,7 @@ final class CompositionRenderer {
         smoother: CursorPathSmoother
     ) -> [CursorEvent] {
         settings.exportStyle.cursorSmoothingEnabled
-            ? smoother.smooth(settings.cursorEvents)
+            ? smoother.smooth(settings.cursorEvents, clicks: settings.clickEvents)
             : settings.cursorEvents
     }
 

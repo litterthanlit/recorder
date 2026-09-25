@@ -4,13 +4,13 @@ Native macOS screen recorder with **automatic zoom on clicks** — built for Scr
 
 ## Features
 
-- Menu bar app — record full display or a single window
+- Menu bar app — record a full display (pick which one when several are connected) or a single window. The app's own windows (panel, countdown, camera bubble) are left out of the recording
 - **3-2-1 countdown** before recording starts
 - **Global hotkeys** — ⌘⇧R start (also from the editor, for a retake), ⌘⇧. stop. Registered as system hotkeys, so they don't reach the app being recorded
 - Click tracking via Accessibility API (CGEventTap)
 - Auto-generated zoom keyframes with smooth ease-in/out camera motion
 - **Zoom presets** — Subtle, Demo, Punch (+ per-keyframe scale)
-- **Timeline editor** — drag zoom blocks, trim in/out handles
+- **Timeline editor** — drag zoom blocks or their edges, trim in/out handles; ⌥←/⌥→ nudge the selected zoom (⇧ for 1 s); VoiceOver labels and adjustments
 - **Undo / redo** — ⌘Z / ⇧⌘Z for every edit (a whole drag or slider move is one step); ⌘⌫ deletes the selected zoom
 - **Recent projects** — the menu bar panel lists your latest recordings with thumbnails; open one to keep editing or re-export, or move it to the Trash
 - **Manual zoom** — draw a region on the preview to add a zoom at the playhead
@@ -19,11 +19,13 @@ Native macOS screen recorder with **automatic zoom on clicks** — built for Scr
 - **Click ripples** and optional cursor spotlight / click-scale
 - **1080p / 720p export** at high quality (~10 Mbps at 1080p60) for editing; size-cap the final assembly
 - **Runlyx-style background frame** — dark gradient, rounded corners, shadow
-- **Cursor smoothing** — tracked path composited on export and preview
-- Optional **hypher.app watermark**
-- Hide menu bar & dock during recording
+- **Cursor smoothing** — tracked path, smoothed over time so it settles where the mouse stops and passes exactly through each click, composited on export and preview
+- Optional **hypher.app watermark** (moves to a free corner when the camera bubble is in the way)
+- Hide menu bar & dock during recording (the menu bar is cropped out of display recordings; the Dock is auto-hidden)
 - **Microphone** — optional narration with device picker
-- **Camera bubble** — Screen Studio–style circular PiP (mirrored). Recorded as its own track and composited at render time, so it isn't zoomed with the screen, keeps moving while the screen is still, and can be hidden or moved to another corner in the editor
+- **System audio** — optional; recorded as its own track and mixed with the mic on export
+- 5K/6K displays are recorded (and exported at Source size) with HEVC, which H.264 can't encode at that size
+- **Camera bubble** — Screen Studio–style circular PiP (mirrored). Recorded as its own track and composited at render time, so it isn't zoomed with the screen, keeps moving while the screen is still, and can be hidden, resized, or moved to another corner in the editor
 - Offline export to MP4 with zoom applied, rendered at a constant frame rate so zooms, cursor, and ripples stay smooth even when the screen is still (the capture itself only gets frames when something changes)
 - Project bundles saved to `~/Movies/Recorder/<uuid>.recorder/`
 
@@ -75,7 +77,20 @@ signing settings live in `Config/Signing.xcconfig`. Then, one time only: remove 
   `PRODUCT_BUNDLE_IDENTIFIER = com.example.recorder` to `Config/Local.xcconfig`.
 - Check which identity a build used:
   `codesign -dv --verbose=2 path/to/Recorder.app 2>&1 | grep -E "Authority|TeamIdentifier"`
-- Sharing builds with other Macs additionally needs a Developer ID certificate and notarization.
+- Sharing builds with other Macs needs a Developer ID certificate and notarization: see [Distribution](#distribution).
+
+
+### Distribution
+
+`scripts/release.sh` builds Release signed with your **Developer ID Application**
+certificate (hardened runtime, secure timestamp), notarizes it, staples the ticket, and
+leaves `build/release/Recorder.zip`. One-time setup: create the certificate (Xcode >
+Settings > Accounts > Manage Certificates) and store notarization credentials:
+
+```sh
+xcrun notarytool store-credentials recorder-notary --apple-id you@example.com --team-id ABCDE12345
+scripts/release.sh            # team from Config/Local.xcconfig, or pass it: scripts/release.sh ABCDE12345
+```
 
 ## Usage
 
@@ -124,4 +139,4 @@ Capture (ScreenCaptureKit + CGEventTap)
 
 ## Deferred
 
-System audio (app/desktop sound), vertical export, in-app multi-scene stitching (composition model is in place).
+Vertical export, in-app multi-scene stitching (composition model is in place).

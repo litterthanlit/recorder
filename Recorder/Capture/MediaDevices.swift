@@ -6,24 +6,6 @@ struct MediaDeviceInfo: Identifiable, Equatable, Hashable {
     let name: String
 }
 
-enum CameraBubblePosition: String, Codable, CaseIterable, Identifiable {
-    case bottomRight
-    case bottomLeft
-    case topRight
-    case topLeft
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .bottomRight: return "Bottom Right"
-        case .bottomLeft: return "Bottom Left"
-        case .topRight: return "Top Right"
-        case .topLeft: return "Top Left"
-        }
-    }
-}
-
 enum CameraBackgroundMode: String, Codable, CaseIterable, Identifiable {
     case none
     case white
@@ -77,36 +59,5 @@ enum MediaDevices {
 
     static func defaultMicrophoneID() -> String? {
         AVCaptureDevice.default(for: .audio)?.uniqueID ?? microphones().first?.id
-    }
-}
-
-enum CameraBubbleLayout {
-    /// Bubble diameter as a fraction of the shorter frame edge.
-    static let diameterFraction: CGFloat = 0.18
-    static let paddingFraction: CGFloat = 0.035
-    static let borderWidthFraction: CGFloat = 0.008
-
-    static func frame(in bounds: CGSize, position: CameraBubblePosition) -> CGRect {
-        let shorter = min(bounds.width, bounds.height)
-        let diameter = shorter * diameterFraction
-        let padding = shorter * paddingFraction
-
-        let x: CGFloat
-        let y: CGFloat
-        switch position {
-        case .bottomRight:
-            x = bounds.width - diameter - padding
-            y = padding
-        case .bottomLeft:
-            x = padding
-            y = padding
-        case .topRight:
-            x = bounds.width - diameter - padding
-            y = bounds.height - diameter - padding
-        case .topLeft:
-            x = padding
-            y = bounds.height - diameter - padding
-        }
-        return CGRect(x: x, y: y, width: diameter, height: diameter)
     }
 }

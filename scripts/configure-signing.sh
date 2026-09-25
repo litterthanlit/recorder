@@ -54,6 +54,6 @@ Privacy & Security > Screen Recording and Accessibility, build and run, and gran
 them again. From then on they persist across rebuilds.
 
 Stale entries can also be cleared from the command line:
-  tccutil reset ScreenCapture com.recorder.app
-  tccutil reset Accessibility com.recorder.app
+  tccutil reset ScreenCapture app.hypher.recorder
+  tccutil reset Accessibility app.hypher.recorder
 MESSAGE

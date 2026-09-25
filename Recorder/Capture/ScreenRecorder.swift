@@ -16,9 +16,16 @@ protocol ScreenRecorderDelegate: AnyObject {
 struct ScreenRecorderOptions {
     var captureTarget: CaptureTargetKind = .display
     var windowID: UInt32?
+    /// Display to record in `.display` mode; `nil` means the main display.
+    var displayID: UInt32?
     var showCursor: Bool = true
+    /// Leave the menu bar out of display recordings. (Hiding it doesn't work: presentation
+    /// options only apply while this app is frontmost, and it isn't while recording.)
+    var cropsMenuBar: Bool = false
     var excludeWindowIDs: [UInt32] = []
     var enableMicrophone: Bool = false
+    /// Record what the Mac plays (other apps' audio) as its own track.
+    var captureSystemAudio: Bool = false
 }
 
 final class ScreenRecorder: NSObject {
@@ -29,6 +36,7 @@ final class ScreenRecorder: NSObject {
     private var writerInput: AVAssetWriterInput?
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var audioWriterInput: AVAssetWriterInput?
+    private var systemAudioWriterInput: AVAssetWriterInput?
     private var sessionStartTime: TimeInterval = 0
     private var firstSampleTime: CMTime?
     private var lastWrittenTime: CMTime = .zero
@@ -46,9 +54,13 @@ final class ScreenRecorder: NSObject {
     private(set) var fps: Int = 60
     private(set) var scaleFactor: CGFloat = 2
     private(set) var captureOrigin: CGPoint = .zero
+    /// Part of the display recorded, in display points (top-left origin); `nil` for all.
+    private var displaySourceRect: CGRect?
     private(set) var captureSizePoints: CGSize = .zero
     private(set) var windowTitle: String?
     private(set) var appName: String?
+    /// The recorded window in window mode, `nil` for a display.
+    private(set) var capturedWindowID: UInt32?
 
     static func listCapturableWindows() async throws -> [CaptureWindowInfo] {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
@@ -78,14 +90,34 @@ final class ScreenRecorder: NSObject {
 
         switch options.captureTarget {
         case .display:
-            guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else {
+            let displayID = CaptureGeometry.resolvedDisplayID(
+                preferred: options.displayID,
+                available: content.displays.map(\.displayID),
+                main: CGMainDisplayID()
+            )
+            guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
                 throw ScreenRecorderError.noDisplayAvailable
             }
-            filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
-            displayScale = NSScreen.main?.backingScaleFactor ?? 2
+            // Leave this app's own windows (camera bubble, countdown, menu bar panel,
+            // editor) out of the recording. The camera is recorded separately and
+            // composited at export, so the live bubble must not be baked in too.
+            let ownApps = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+            if ownApps.isEmpty {
+                filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
+            } else {
+                filter = SCContentFilter(display: display, excludingApplications: ownApps, exceptingWindows: [])
+            }
+            // NSScreen.main is the screen with the key window, not necessarily this display.
+            let screen = NSScreen.screen(forDisplayID: display.displayID)
+            displayScale = screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
             windowTitle = nil
             appName = nil
-            configureCaptureGeometry(display: display, displayScale: displayScale)
+            capturedWindowID = nil
+            // visibleFrame's top inset is the menu bar (0 when it auto-hides).
+            let menuBarHeight = options.cropsMenuBar
+                ? screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
+                : 0
+            configureCaptureGeometry(display: display, displayScale: displayScale, topInset: menuBarHeight)
 
         case .window:
             guard let windowID = options.windowID,
@@ -94,17 +126,16 @@ final class ScreenRecorder: NSObject {
                 throw ScreenRecorderError.windowNotAvailable
             }
             let windowCenter = CGPoint(x: window.frame.midX, y: window.frame.midY)
-            let screen = NSScreen.screens.first { $0.frame.contains(windowCenter) } ?? NSScreen.main
-            let display = content.displays.first(where: { $0.displayID == screen?.displayIdentifier })
-                ?? content.displays.first(where: { $0.displayID == CGMainDisplayID() })
-                ?? content.displays.first
-            guard let display else {
-                throw ScreenRecorderError.noDisplayAvailable
-            }
-            filter = SCContentFilter(display: display, including: [window])
+            let screen = Self.screen(containingGlobalPoint: windowCenter) ?? NSScreen.main
+            // A display filter that includes one window still captures the whole display,
+            // squeezed into the window-sized output. This filter captures just the window,
+            // wherever it is, even when covered by other windows.
+            filter = SCContentFilter(desktopIndependentWindow: window)
             displayScale = screen?.backingScaleFactor ?? 2
             windowTitle = window.title
             appName = window.owningApplication?.applicationName
+            capturedWindowID = window.windowID
+            displaySourceRect = nil
             configureWindowGeometry(window: window, displayScale: displayScale)
         }
 
@@ -114,16 +145,27 @@ final class ScreenRecorder: NSObject {
         let configuration = SCStreamConfiguration()
         configuration.width = captureWidth
         configuration.height = captureHeight
+        if let displaySourceRect {
+            configuration.sourceRect = displaySourceRect
+        }
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         configuration.showsCursor = options.showCursor
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         configuration.queueDepth = 6
+        if options.captureSystemAudio {
+            configuration.capturesAudio = true
+            configuration.sampleRate = 48_000
+            configuration.channelCount = 2
+            // Leave out this app's own sounds (and avoid feedback from the preview).
+            configuration.excludesCurrentProcessAudio = true
+        }
 
         try setupWriter(
             outputURL: url,
             width: captureWidth,
             height: captureHeight,
-            includeAudio: options.enableMicrophone
+            includeAudio: options.enableMicrophone,
+            includeSystemAudio: options.captureSystemAudio
         )
 
         firstSampleTime = nil
@@ -136,6 +178,9 @@ final class ScreenRecorder: NSObject {
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         do {
             try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: writerQueue)
+            if options.captureSystemAudio {
+                try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: writerQueue)
+            }
             try await stream.startCapture()
         } catch {
             assetWriter?.cancelWriting()
@@ -151,7 +196,8 @@ final class ScreenRecorder: NSObject {
     /// - Parameter hostTime: the buffer's capture time on the host clock.
     func appendAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer, hostTime: CMTime) {
         writerQueue.async { [weak self] in
-            self?.writeAudioSampleBuffer(sampleBuffer, hostTime: hostTime)
+            guard let self, let input = self.audioWriterInput else { return }
+            self.writeAudioSampleBuffer(sampleBuffer, hostTime: hostTime, to: input)
         }
     }
 
@@ -205,6 +251,7 @@ final class ScreenRecorder: NSObject {
 
                 self.writerInput?.markAsFinished()
                 self.audioWriterInput?.markAsFinished()
+                self.systemAudioWriterInput?.markAsFinished()
                 writer.endSession(atSourceTime: self.lastWrittenTime)
                 self.lastWrittenPixelBuffer = nil
 
@@ -239,44 +286,51 @@ final class ScreenRecorder: NSObject {
         }
     }
 
-    private func configureCaptureGeometry(display: SCDisplay, displayScale: CGFloat) {
-        let logicalWidth = Int(display.width)
-        let logicalHeight = Int(display.height)
-        captureWidth = Int(Double(logicalWidth) * displayScale)
-        captureHeight = Int(Double(logicalHeight) * displayScale)
+    private func configureCaptureGeometry(display: SCDisplay, displayScale: CGFloat, topInset: CGFloat) {
+        let sourceRect = CaptureGeometry.sourceRect(
+            displaySize: CGSize(width: display.width, height: display.height),
+            topInset: topInset
+        )
+        displaySourceRect = sourceRect.minY > 0 ? sourceRect : nil
 
-        if let screen = NSScreen.screens.first(where: { $0.displayIdentifier == display.displayID }) ?? NSScreen.main {
-            captureOrigin = screen.frame.origin
-            captureSizePoints = screen.frame.size
-        } else {
-            captureOrigin = .zero
-            captureSizePoints = CGSize(width: logicalWidth, height: logicalHeight)
-        }
+        // Global display space (top-left origin), the same space as CGEvent.location.
+        // NSScreen.frame is bottom-left based and only matches for the main display.
+        let bounds = CGDisplayBounds(display.displayID)
+        captureOrigin = CGPoint(x: bounds.minX + sourceRect.minX, y: bounds.minY + sourceRect.minY)
+        captureSizePoints = sourceRect.size
+        (captureWidth, captureHeight) = CaptureGeometry.pixelSize(points: captureSizePoints, scale: displayScale)
+    }
+
+    /// The screen containing a point in global display space (top-left origin, as
+    /// `SCWindow.frame` uses), not the bottom-left based space `NSScreen.frame` uses.
+    private static func screen(containingGlobalPoint point: CGPoint) -> NSScreen? {
+        NSScreen.screens.first { CGDisplayBounds($0.displayIdentifier).contains(point) }
     }
 
     private func configureWindowGeometry(window: SCWindow, displayScale: CGFloat) {
         let frame = window.frame
         captureOrigin = frame.origin
         captureSizePoints = frame.size
-        captureWidth = Int(frame.width * displayScale)
-        captureHeight = Int(frame.height * displayScale)
+        (captureWidth, captureHeight) = CaptureGeometry.pixelSize(points: frame.size, scale: displayScale)
     }
 
-    private func setupWriter(outputURL: URL, width: Int, height: Int, includeAudio: Bool) throws {
+    private func setupWriter(
+        outputURL: URL,
+        width: Int,
+        height: Int,
+        includeAudio: Bool,
+        includeSystemAudio: Bool
+    ) throws {
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
-        let settings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: width,
-            AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: width * height * 4,
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
-            ]
-        ]
+        let settings = VideoCodecChoice.forFrame(width: width, height: height).outputSettings(
+            width: width,
+            height: height,
+            compression: [AVVideoAverageBitRateKey: width * height * 4]
+        )
 
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
@@ -313,6 +367,26 @@ final class ScreenRecorder: NSObject {
             audioWriterInput = audioInput
         } else {
             audioWriterInput = nil
+        }
+
+        if includeSystemAudio {
+            let systemInput = AVAssetWriterInput(
+                mediaType: .audio,
+                outputSettings: [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: 48_000,
+                    AVNumberOfChannelsKey: 2,
+                    AVEncoderBitRateKey: 192_000
+                ]
+            )
+            systemInput.expectsMediaDataInRealTime = true
+            guard writer.canAdd(systemInput) else {
+                throw ScreenRecorderError.writerFailed
+            }
+            writer.add(systemInput)
+            systemAudioWriterInput = systemInput
+        } else {
+            systemAudioWriterInput = nil
         }
 
         // Write in fragments so a crash mid-take leaves a recoverable movie.
@@ -372,9 +446,9 @@ final class ScreenRecorder: NSObject {
         }
     }
 
-    private func writeAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer, hostTime: CMTime) {
+    /// Called on the writer queue with a mic or system audio buffer.
+    private func writeAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer, hostTime: CMTime, to audioWriterInput: AVAssetWriterInput) {
         guard isRecording,
-              let audioWriterInput,
               audioWriterInput.isReadyForMoreMediaData,
               let assetWriter,
               assetWriter.status == .writing,
@@ -417,8 +491,20 @@ final class ScreenRecorder: NSObject {
 
 extension ScreenRecorder: SCStreamOutput {
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen else { return }
-        appendSampleBuffer(sampleBuffer)
+        switch type {
+        case .screen:
+            appendSampleBuffer(sampleBuffer)
+        case .audio:
+            // System audio is stamped on the host clock, like the screen frames.
+            guard sampleBuffer.isValid, let systemAudioWriterInput else { return }
+            writeAudioSampleBuffer(
+                sampleBuffer,
+                hostTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer),
+                to: systemAudioWriterInput
+            )
+        default:
+            break
+        }
     }
 }
 
