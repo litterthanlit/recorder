@@ -515,11 +515,15 @@ extension ProjectEditSettings {
         case timeline
         case audio
         case canvas
-        /// Before canvases: source, 1080p or 720p.
-        case exportPreset
         case exportStyle
         case zoomPreset
         case camera
+    }
+
+    /// Keys only read, to migrate older settings.
+    private enum LegacyKeys: String, CodingKey {
+        /// Before canvases: source, 1080p or 720p.
+        case exportPreset
     }
 
     init(from decoder: Decoder) throws {
@@ -531,7 +535,8 @@ extension ProjectEditSettings {
         audio = (try? container.decodeIfPresent(AudioMixSettings.self, forKey: .audio)) ?? defaults.audio
         if let canvas = try? container.decodeIfPresent(CanvasSpec.self, forKey: .canvas) {
             self.canvas = canvas
-        } else if let preset = try? container.decodeIfPresent(ExportResolutionPreset.self, forKey: .exportPreset) {
+        } else if let preset = try? decoder.container(keyedBy: LegacyKeys.self)
+            .decodeIfPresent(ExportResolutionPreset.self, forKey: .exportPreset) {
             canvas = CanvasSpec.migrated(from: preset)
         } else {
             canvas = defaults.canvas
