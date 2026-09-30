@@ -8,8 +8,8 @@ struct ExportConfiguration {
     let keyframes: [ZoomKeyframe]
     let outputSize: CGSize
     let bitrate: Int
-    let trimStart: TimeInterval
-    let trimEnd: TimeInterval
+    /// The edit: which parts of the recording play, in order, at what speed.
+    let timeline: EditTimeline
     let exportStyle: ExportStyle
     let zoomPreset: ZoomPreset
     let cursorEvents: [CursorEvent]
@@ -23,6 +23,9 @@ struct ExportConfiguration {
     let camera: CameraOverlayStyle
     /// Capture scale factor (source pixels per screen point), for sizing the cursor.
     let sourcePixelsPerPoint: CGFloat
+    /// What each audio track holds, and their levels.
+    let audioTrackRoles: [AudioTrackRole]
+    let audio: AudioMixSettings
 }
 
 final class VideoExporter {
@@ -44,21 +47,20 @@ final class VideoExporter {
         let assetDuration = try await asset.load(.duration)
         let fullDuration = CMTimeGetSeconds(assetDuration)
 
-        let trimStart = max(0, min(configuration.trimStart, fullDuration))
-        let trimEnd = max(trimStart, min(configuration.trimEnd, fullDuration))
-        let exportDuration = trimEnd - trimStart
+        let edit = configuration.timeline.normalized(sourceDuration: fullDuration)
+        let exportDuration = edit.outputDuration
 
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
 
-        let timeRange = CMTimeRange(
-            start: CMTime(seconds: trimStart, preferredTimescale: 600),
-            duration: CMTime(seconds: exportDuration, preferredTimescale: 600)
-        )
-
+        // Video is read from the recording itself, once and in order: segments are never
+        // reordered, so each output frame's source time is at or after the previous one's.
         let reader = try AVAssetReader(asset: asset)
-        reader.timeRange = timeRange
+        reader.timeRange = CMTimeRange(
+            start: CMTime(seconds: edit.trimStart, preferredTimescale: 600),
+            end: CMTime(seconds: edit.trimEnd, preferredTimescale: 600)
+        )
 
         let readerOutput = AVAssetReaderTrackOutput(
             track: videoTrack,
@@ -69,23 +71,29 @@ final class VideoExporter {
         readerOutput.alwaysCopiesSampleData = false
         reader.add(readerOutput)
 
-        // One track is copied as is. Several (mic + system audio) are mixed to PCM here
-        // and encoded to AAC by the writer, since an MP4 player plays only one.
-        let mixesAudio = audioTracks.count > 1
+        // Audio is read from a composition of the edit, which cuts it, time-stretches the
+        // sped-up parts (keeping pitch) and mixes mic and system audio at their levels.
+        var audioReader: AVAssetReader?
         var audioReaderOutput: AVAssetReaderOutput?
-        if mixesAudio {
-            let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: Self.mixedPCMSettings)
-            output.alwaysCopiesSampleData = false
-            if reader.canAdd(output) {
-                reader.add(output)
-                audioReaderOutput = output
-            }
-        } else if let audioTrack = audioTracks.first {
-            let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
-            output.alwaysCopiesSampleData = false
-            if reader.canAdd(output) {
-                reader.add(output)
-                audioReaderOutput = output
+        if !audioTracks.isEmpty {
+            let built = try await TimelineCompositionBuilder.build(
+                asset: asset,
+                timeline: edit,
+                includeVideo: false,
+                audioRoles: configuration.audioTrackRoles,
+                audio: configuration.audio
+            )
+            if !built.audioTracks.isEmpty {
+                let compositionReader = try AVAssetReader(asset: built.composition)
+                let output = AVAssetReaderAudioMixOutput(audioTracks: built.audioTracks, audioSettings: Self.mixedPCMSettings)
+                output.audioMix = built.audioMix
+                output.audioTimePitchAlgorithm = .spectral
+                output.alwaysCopiesSampleData = false
+                if compositionReader.canAdd(output) {
+                    compositionReader.add(output)
+                    audioReader = compositionReader
+                    audioReaderOutput = output
+                }
             }
         }
 
@@ -123,10 +131,7 @@ final class VideoExporter {
 
         var audioWriterInput: AVAssetWriterInput?
         if audioReaderOutput != nil {
-            let input = AVAssetWriterInput(
-                mediaType: .audio,
-                outputSettings: mixesAudio ? Self.mixedAACSettings : nil
-            )
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: Self.mixedAACSettings)
             input.expectsMediaDataInRealTime = false
             if writer.canAdd(input) {
                 writer.add(input)
@@ -139,6 +144,9 @@ final class VideoExporter {
 
         guard reader.startReading() else {
             throw reader.error ?? VideoExporterError.readerFailed
+        }
+        if let audioReader, !audioReader.startReading() {
+            throw audioReader.error ?? VideoExporterError.readerFailed
         }
 
         let renderSize = naturalSize.applying(preferredTransform)
@@ -165,7 +173,6 @@ final class VideoExporter {
             cameraFrames = try await CameraFrameSource(url: configuration.cameraURL)
         }
 
-        let trimStartTime = CMTime(seconds: trimStart, preferredTimescale: 600)
         var lastVideoTime = CMTime.zero
 
         // Each input must be marked finished as soon as its source runs dry. AVAssetWriter
@@ -179,20 +186,14 @@ final class VideoExporter {
                     audioFinished = true
                     return
                 }
-                try appendShiftedAudio(
-                    audioSample,
-                    to: audioWriterInput,
-                    trimStartTime: trimStartTime,
-                    writer: writer
-                )
+                // The composition is already on the output timeline.
+                if !audioWriterInput.append(audioSample) {
+                    throw writer.error ?? VideoExporterError.writerSetupFailed
+                }
             }
         }
 
-        let timeline = ConstantFrameRateTimeline(
-            frameRate: configuration.frameRate,
-            duration: exportDuration,
-            sourceStart: trimStart
-        )
+        let timeline = ConstantFrameRateTimeline(frameRate: configuration.frameRate, duration: exportDuration)
         let outputTimescale = CMTimeScale(timeline.frameRate)
 
         func readNextSourceFrame() -> (buffer: CVPixelBuffer, time: TimeInterval)? {
@@ -203,11 +204,12 @@ final class VideoExporter {
             return nil
         }
 
-        // Hold the most recent source frame at or before each output time; `pending` is
-        // the next source frame, read ahead to know when to switch.
+        // Hold the most recent source frame at or before each output frame's source time;
+        // `pending` is the next source frame, read ahead to know when to switch.
         var heldFrame: (buffer: CVPixelBuffer, time: TimeInterval)?
         var pendingFrame = readNextSourceFrame()
         var frameIndex = 0
+        var lastReportedProgress = -1.0
 
         while frameIndex < timeline.frameCount {
             try Task.checkCancellation()
@@ -218,7 +220,7 @@ final class VideoExporter {
                 continue
             }
 
-            let sourceTime = timeline.sourceTime(forFrame: frameIndex)
+            let sourceTime = edit.sourceTime(forOutput: timeline.outputTime(forFrame: frameIndex))
             // Before the first source frame, show it anyway rather than a blank frame.
             while let pending = pendingFrame,
                   heldFrame == nil
@@ -245,16 +247,17 @@ final class VideoExporter {
             }
             lastVideoTime = presentationTime
             frameIndex += 1
-            progressHandler(Double(frameIndex) / Double(max(timeline.frameCount, 1)))
+
+            // Report whole percents at most, not every frame.
+            let progress = Double(frameIndex) / Double(max(timeline.frameCount, 1))
+            if progress - lastReportedProgress >= 0.01 || frameIndex == timeline.frameCount {
+                lastReportedProgress = progress
+                progressHandler(progress)
+            }
         }
 
         writerInput.markAsFinished()
-
-        // Anything left in the trimmed range is past the last output frame. Drain it so
-        // the reader can keep feeding the audio output.
-        while pendingFrame != nil {
-            pendingFrame = readNextSourceFrame()
-        }
+        reader.cancelReading()
 
         while !audioFinished {
             try Task.checkCancellation()
@@ -264,12 +267,12 @@ final class VideoExporter {
             }
         }
 
-        if reader.status == .failed {
-            throw reader.error ?? VideoExporterError.readerFailed
+        if let audioReader, audioReader.status == .failed {
+            throw audioReader.error ?? VideoExporterError.readerFailed
         }
 
         // Keep a static tail: without this the file ends at the last source frame,
-        // which can be well before the trim end when the screen stopped changing.
+        // which can be well before the end when the screen stopped changing.
         writer.endSession(atSourceTime: CMTimeMaximum(
             lastVideoTime,
             CMTime(seconds: exportDuration, preferredTimescale: 600)
@@ -295,27 +298,6 @@ final class VideoExporter {
         AVNumberOfChannelsKey: 2,
         AVEncoderBitRateKey: 192_000
     ]
-
-    private func appendShiftedAudio(
-        _ audioSample: CMSampleBuffer,
-        to audioWriterInput: AVAssetWriterInput,
-        trimStartTime: CMTime,
-        writer: AVAssetWriter
-    ) throws {
-        // Skip any buffer that starts before the trim start (at most one buffer, a few
-        // tens of milliseconds, is lost). Moving it later instead would shift the
-        // audio out of sync with the video.
-        if CMSampleBufferGetPresentationTimeStamp(audioSample) < trimStartTime {
-            return
-        }
-
-        guard let shifted = audioSample.retimed(by: CMTimeMultiply(trimStartTime, multiplier: -1)) else {
-            return
-        }
-        if !audioWriterInput.append(shifted) {
-            throw writer.error ?? VideoExporterError.writerSetupFailed
-        }
-    }
 
     private func finishWriting(_ writer: AVAssetWriter) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in

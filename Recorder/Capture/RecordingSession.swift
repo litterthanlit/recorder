@@ -433,6 +433,14 @@ final class RecordingSession: ObservableObject {
             let keyframes = generator.generate(from: trackingResult.clicks)
 
             var editSettings = ProjectEditSettings()
+            // Splits where the take was paused, so those moments are easy to find and trim.
+            var timeline = EditTimeline(sourceDuration: recordingResult.duration)
+            for point in clock.pausePoints {
+                if let output = timeline.outputTime(forSource: point) {
+                    timeline.split(atOutput: output)
+                }
+            }
+            editSettings.setTimeline(timeline)
             editSettings.exportStyle.cursorSmoothingEnabled = preferences.cursorSmoothingEnabled
             editSettings.camera.position = preferences.cameraPosition
             editSettings.camera.size = preferences.cameraSize
@@ -452,7 +460,9 @@ final class RecordingSession: ObservableObject {
                 captureTarget: preferences.captureTarget,
                 windowTitle: recordingResult.windowTitle,
                 appName: recordingResult.appName,
-                pausePoints: clock.pausePoints
+                pausePoints: clock.pausePoints,
+                audioTrackRoles: (preferences.microphoneEnabled ? [AudioTrackRole.microphone] : [])
+                    + (preferences.systemAudioEnabled ? [.systemAudio] : [])
             )
 
             let project = RecorderProject(

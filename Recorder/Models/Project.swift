@@ -19,6 +19,19 @@ struct ProjectMetadata: Codable, Equatable {
     /// Where the take was paused, in seconds on the recording's timeline (paused time is
     /// already left out of the movie).
     let pausePoints: [TimeInterval]
+    /// What each audio track in video.mov holds, in track order. Empty for takes from
+    /// before this was recorded; see `resolvedAudioTrackRoles(trackCount:)`.
+    let audioTrackRoles: [AudioTrackRole]
+
+    /// Roles for `trackCount` audio tracks. Older takes recorded the mic first, then
+    /// system audio.
+    func resolvedAudioTrackRoles(trackCount: Int) -> [AudioTrackRole] {
+        if audioTrackRoles.count == trackCount {
+            return audioTrackRoles
+        }
+        return Array([AudioTrackRole.microphone, .systemAudio].prefix(trackCount))
+            + Array(repeating: .systemAudio, count: max(0, trackCount - 2))
+    }
 
     var captureOrigin: CGPoint {
         CGPoint(x: captureOriginX, y: captureOriginY)
@@ -39,7 +52,8 @@ struct ProjectMetadata: Codable, Equatable {
         captureTarget: CaptureTargetKind = .display,
         windowTitle: String? = nil,
         appName: String? = nil,
-        pausePoints: [TimeInterval] = []
+        pausePoints: [TimeInterval] = [],
+        audioTrackRoles: [AudioTrackRole] = []
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -56,6 +70,7 @@ struct ProjectMetadata: Codable, Equatable {
         self.windowTitle = windowTitle
         self.appName = appName
         self.pausePoints = pausePoints
+        self.audioTrackRoles = audioTrackRoles
     }
 
     init(from decoder: Decoder) throws {
@@ -75,6 +90,7 @@ struct ProjectMetadata: Codable, Equatable {
         windowTitle = try container.decodeIfPresent(String.self, forKey: .windowTitle)
         appName = try container.decodeIfPresent(String.self, forKey: .appName)
         pausePoints = try container.decodeIfPresent([TimeInterval].self, forKey: .pausePoints) ?? []
+        audioTrackRoles = (try? container.decodeIfPresent([AudioTrackRole].self, forKey: .audioTrackRoles)) ?? []
     }
 }
 
@@ -163,7 +179,8 @@ struct RecorderProject: Codable, Equatable {
 /// Version of the files in a project bundle. Bumped when a change means an older build
 /// would lose information by rewriting them; a bundle from a newer version is refused.
 enum ProjectFormat {
-    static let current = 1
+    /// 2: cuts, splits and speed (`ProjectEditSettings.timeline`).
+    static let current = 2
 }
 
 enum ProjectStoreError: LocalizedError, Equatable {

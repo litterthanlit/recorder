@@ -44,6 +44,7 @@ struct TimelineView: View {
                         .fill(Color.primary.opacity(0.06))
 
                     trimExcludedRegions(width: width, duration: duration)
+                    cutRegions(width: width, duration: duration)
 
                     ForEach(editor.keyframes) { keyframe in
                         keyframeBlock(keyframe, timelineWidth: width, duration: duration)
@@ -84,6 +85,31 @@ struct TimelineView: View {
                 .frame(width: width - endX, height: trackHeight)
                 .offset(x: endX)
         }
+    }
+
+    /// Cut material between segments, dimmed like the trimmed ends, with a line at each
+    /// split.
+    private func cutRegions(width: CGFloat, duration: TimeInterval) -> some View {
+        let segments = editor.timeline.segments
+        return ZStack(alignment: .leading) {
+            ForEach(Array(zip(segments, segments.dropFirst())), id: \.0.id) { previous, next in
+                let startX = CGFloat(previous.source.end / duration) * width
+                let endX = CGFloat(next.source.start / duration) * width
+                if endX - startX > 0.5 {
+                    Rectangle()
+                        .fill(Color.black.opacity(0.35))
+                        .frame(width: endX - startX)
+                        .offset(x: startX)
+                } else {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.5))
+                        .frame(width: 1)
+                        .offset(x: startX)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func trimHandle(at time: TimeInterval, width: CGFloat, duration: TimeInterval, kind: TrimDrag) -> some View {
@@ -188,7 +214,7 @@ struct TimelineView: View {
                 )
                 .onTapGesture {
                     editor.selectKeyframe(keyframe.id)
-                    editor.seek(to: keyframe.peakTime)
+                    editor.seek(toSource: keyframe.peakTime)
                 }
 
             Circle()
@@ -213,7 +239,7 @@ struct TimelineView: View {
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction {
             editor.selectKeyframe(keyframe.id)
-            editor.seek(to: keyframe.peakTime)
+            editor.seek(toSource: keyframe.peakTime)
         }
         .accessibilityAdjustableAction { direction in
             editor.selectKeyframe(keyframe.id)
@@ -281,7 +307,7 @@ struct TimelineView: View {
     }
 
     private func playhead(in width: CGFloat, duration: TimeInterval) -> some View {
-        let x = CGFloat(editor.playheadTime / duration) * width
+        let x = CGFloat(editor.playheadSourceTime / duration) * width
 
         return Rectangle()
             .fill(Color.red)
@@ -303,7 +329,7 @@ struct TimelineView: View {
 
     private func seekFromLocation(_ x: CGFloat, width: CGFloat, duration: TimeInterval) {
         let fraction = max(0, min(1, x / width))
-        editor.seek(to: duration * Double(fraction))
+        editor.seek(toSource: duration * Double(fraction))
     }
 
     private func spokenTime(_ time: TimeInterval) -> String {

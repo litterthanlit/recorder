@@ -194,3 +194,45 @@ struct ProjectFormatTests {
         try JSONSerialization.data(withJSONObject: object).write(to: url)
     }
 }
+
+@Suite("Edit settings migration")
+struct EditSettingsMigrationTests {
+    @Test func oldTrimBecomesTheTimeline() throws {
+        let json = #"{ "trimStart": 1.5, "trimEnd": 8 }"#
+        let settings = try JSONDecoder().decode(ProjectEditSettings.self, from: Data(json.utf8))
+        #expect(settings.timeline == nil)
+        let timeline = settings.resolvedTimeline(sourceDuration: 10)
+        #expect(timeline.segments.count == 1)
+        #expect(isClose(timeline.trimStart, 1.5) && isClose(timeline.trimEnd, 8))
+    }
+
+    @Test func savedTimelineWinsAndKeepsLegacyTrimInStep() throws {
+        var settings = ProjectEditSettings()
+        var timeline = EditTimeline(sourceDuration: 10)
+        timeline.split(atOutput: 4)
+        timeline.setTrimStart(1)
+        settings.setTimeline(timeline)
+        #expect(isClose(settings.trimStart, 1))
+        #expect(settings.trimEnd == 10)
+
+        let data = try JSONEncoder().encode(settings)
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["trimStart"] as? Double == 1)
+        let decoded = try JSONDecoder().decode(ProjectEditSettings.self, from: data)
+        #expect(decoded == settings)
+        #expect(decoded.resolvedTimeline(sourceDuration: 10).segments.count == 2)
+    }
+
+    @Test func audioLevelsDecodeWithDefaultsAndClamp() throws {
+        let settings = try JSONDecoder().decode(ProjectEditSettings.self, from: Data(#"{ "audio": { "systemAudioVolume": 5 } }"#.utf8))
+        #expect(settings.audio.microphoneVolume == 1)
+        #expect(settings.audio.volume(for: .systemAudio) == 2)
+    }
+
+    @Test func legacyAudioTracksAreMicThenSystem() {
+        let metadata = ProjectModelTests.sampleProject().metadata
+        #expect(metadata.resolvedAudioTrackRoles(trackCount: 0).isEmpty)
+        #expect(metadata.resolvedAudioTrackRoles(trackCount: 1) == [.microphone])
+        #expect(metadata.resolvedAudioTrackRoles(trackCount: 2) == [.microphone, .systemAudio])
+    }
+}

@@ -22,8 +22,10 @@ final class ProjectEditor: ObservableObject {
     /// Changed only through the editing methods below, so every change can be undone.
     @Published private(set) var keyframes: [ZoomKeyframe]
     @Published private(set) var editSettings: ProjectEditSettings
+    /// Output time: where the edited video is.
     @Published var playheadTime: TimeInterval = 0
     @Published var selectedKeyframeID: UUID?
+    @Published var selectedSegmentID: UUID?
     @Published var isManualZoomMode = false
     @Published var isPlaying = false
     @Published private(set) var state: State = .editing
@@ -47,6 +49,11 @@ final class ProjectEditor: ObservableObject {
     private var timeObserver: Any?
     private var terminationObserver: NSObjectProtocol?
     private var history = EditHistory<EditorSnapshot>()
+    /// The edit the player's current items were built from. Until a change is rebuilt,
+    /// it's what the preview must map player time with.
+    @Published private(set) var playerTimeline: EditTimeline?
+    private var builtAudio: AudioMixSettings?
+    private var compositionTask: Task<Void, Never>?
     /// State at the start of a drag or slider gesture that's still in progress.
     private var interaction: (start: EditorSnapshot, actionName: String)?
 
@@ -58,16 +65,34 @@ final class ProjectEditor: ObservableObject {
         project.metadata.duration
     }
 
-    var trimmedDuration: TimeInterval {
-        editSettings.trimmedDuration(for: duration)
+    /// The edit (always set once the editor exists).
+    var timeline: EditTimeline {
+        editSettings.timeline ?? editSettings.resolvedTimeline(sourceDuration: duration)
     }
 
+    /// Length of the edited video.
+    var outputDuration: TimeInterval {
+        timeline.outputDuration
+    }
+
+    /// The recording's own time at the playhead (what zooms, clicks and cursor use).
+    var playheadSourceTime: TimeInterval {
+        timeline.sourceTime(forOutput: playheadTime)
+    }
+
+    /// The segment under the playhead.
+    var segmentAtPlayhead: EditSegment? {
+        timeline.segmentIndex(atOutput: playheadTime).map { timeline.segments[$0] }
+    }
+
+    /// Head trim, in source time.
     var trimStart: TimeInterval {
-        editSettings.trimStart
+        timeline.trimStart
     }
 
+    /// Tail trim, in source time.
     var trimEnd: TimeInterval {
-        editSettings.effectiveTrimEnd(for: duration)
+        timeline.trimEnd
     }
 
     var interpolator: ZoomInterpolator {
@@ -75,14 +100,6 @@ final class ProjectEditor: ObservableObject {
             keyframes: keyframes,
             springEnabled: editSettings.exportStyle.springCameraEnabled,
             springSettings: editSettings.zoomPreset.motionFX.spring
-        )
-    }
-
-    var composition: CompositionTimeMap {
-        CompositionFactory.singleClip(
-            sourcePath: project.videoURL.path,
-            sourceIn: trimStart,
-            sourceOut: trimEnd
         )
     }
 
@@ -116,11 +133,9 @@ final class ProjectEditor: ObservableObject {
         } else {
             cameraPlayer = nil
         }
-        if editSettings.trimEnd == nil {
-            editSettings.trimEnd = project.metadata.duration
-        }
-        player.replaceCurrentItem(with: AVPlayerItem(url: project.videoURL))
+        editSettings.setTimeline(editSettings.resolvedTimeline(sourceDuration: project.metadata.duration))
         installTimeObserver()
+        scheduleCompositionRebuild(immediately: true)
 
         // Edits are saved shortly after they happen; make sure the last one lands.
         let autosaver = self.autosaver
@@ -134,6 +149,7 @@ final class ProjectEditor: ObservableObject {
     }
 
     deinit {
+        compositionTask?.cancel()
         if let terminationObserver {
             NotificationCenter.default.removeObserver(terminationObserver)
         }
@@ -215,21 +231,106 @@ final class ProjectEditor: ObservableObject {
         }
     }
 
+    /// Moves the head trim (source time).
     func setTrimStart(_ value: TimeInterval) {
-        performEdit("Trim", coalescingKey: AnyHashable("trim"), continuous: true) {
-            editSettings.trimStart = max(0, min(value, trimEnd - 0.1))
-        }
-        if playheadTime < editSettings.trimStart {
-            seek(to: editSettings.trimStart)
+        editTimeline("Trim", coalescingKey: AnyHashable("trim"), continuous: true) { timeline in
+            timeline.setTrimStart(value)
         }
     }
 
+    /// Moves the tail trim (source time).
     func setTrimEnd(_ value: TimeInterval) {
-        performEdit("Trim", coalescingKey: AnyHashable("trim"), continuous: true) {
-            editSettings.trimEnd = min(duration, max(value, trimStart + 0.1))
+        let duration = self.duration
+        editTimeline("Trim", coalescingKey: AnyHashable("trim"), continuous: true) { timeline in
+            timeline.setTrimEnd(value, sourceDuration: duration)
         }
-        if playheadTime > trimEnd {
-            seek(to: trimEnd)
+    }
+
+    // MARK: - Cuts and speed
+
+    /// Splits the segment under the playhead there. Beeps when the playhead is at an edge.
+    func splitAtPlayhead() {
+        var updated = timeline
+        guard updated.split(atOutput: playheadTime) else {
+            NSSound.beep()
+            return
+        }
+        editTimeline("Split") { $0 = updated }
+        selectedSegmentID = segmentAtPlayhead?.id
+    }
+
+    /// Removes a segment; the rest closes up behind it.
+    func deleteSegment(_ id: UUID) {
+        var updated = timeline
+        guard updated.deleteSegment(id: id) else {
+            NSSound.beep()
+            return
+        }
+        editTimeline("Delete Clip") { $0 = updated }
+        if selectedSegmentID == id {
+            selectedSegmentID = nil
+        }
+    }
+
+    func setSpeed(_ speed: Double, forSegment id: UUID) {
+        editTimeline("Change Speed") { $0.setSpeed(speed, forSegment: id) }
+    }
+
+    /// Moves a segment's edges (source time), e.g. dragging a clip's end on the timeline.
+    func setSegmentSourceRange(_ id: UUID, start: TimeInterval? = nil, end: TimeInterval? = nil) {
+        let duration = self.duration
+        editTimeline("Trim Clip", coalescingKey: AnyHashable(id), continuous: true) { timeline in
+            if let start {
+                timeline.setSourceStart(start, forSegment: id)
+            }
+            if let end {
+                timeline.setSourceEnd(end, forSegment: id, sourceDuration: duration)
+            }
+        }
+    }
+
+    /// Speeds up every stretch where nothing happens on screen input-wise (no clicks,
+    /// pointer movement or keys) for at least `minimumIdle` seconds.
+    @discardableResult
+    func speedUpIdleStretches(speed: Double = 4, minimumIdle: TimeInterval = 2) -> Int {
+        let activity = IdleStretchDetector.activityTimes(
+            clicks: project.clickEvents,
+            cursor: project.cursorEvents,
+            keystrokes: project.inputs.keystrokes
+        )
+        var updated = timeline
+        var count = 0
+        for segment in timeline.segments where abs(segment.speed - 1) < 1e-9 {
+            let stretches = IdleStretchDetector.idleStretches(
+                activity: activity,
+                within: segment.source,
+                minimumIdle: minimumIdle
+            )
+            for stretch in stretches {
+                updated.applySpeed(speed, toSource: stretch)
+                count += 1
+            }
+        }
+        guard count > 0 else { return 0 }
+        editTimeline("Speed Up Idle Time") { $0 = updated }
+        return count
+    }
+
+    /// Changes the edit as one undoable step and keeps the legacy trim fields in step.
+    private func editTimeline(
+        _ actionName: String,
+        coalescingKey: AnyHashable? = nil,
+        continuous: Bool = false,
+        _ change: (inout EditTimeline) -> Void
+    ) {
+        var updated = timeline
+        change(&updated)
+        guard updated != timeline else { return }
+        performEdit(actionName, coalescingKey: coalescingKey, continuous: continuous) {
+            editSettings.setTimeline(updated)
+        }
+        if playheadTime > outputDuration {
+            seek(to: outputDuration)
         }
     }
 
@@ -254,7 +355,7 @@ final class ProjectEditor: ObservableObject {
 
     func addManualZoom(from normalizedRect: CGRect) {
         let keyframe = ZoomKeyframeEditor.makeManualKeyframe(
-            at: playheadTime,
+            at: playheadSourceTime,
             normalizedRect: normalizedRect,
             duration: duration,
             settings: editSettings.zoomPreset.settings
@@ -362,9 +463,12 @@ final class ProjectEditor: ObservableObject {
         if let selectedKeyframeID, !keyframes.contains(where: { $0.id == selectedKeyframeID }) {
             self.selectedKeyframeID = nil
         }
-        // Keep the playhead inside a restored trim range.
-        if playheadTime < trimStart || playheadTime > trimEnd {
-            seek(to: playheadTime)
+        if let selectedSegmentID, !timeline.segments.contains(where: { $0.id == selectedSegmentID }) {
+            self.selectedSegmentID = nil
+        }
+        // Keep the playhead inside the restored edit.
+        if playheadTime > outputDuration {
+            seek(to: outputDuration)
         }
         persist()
         refreshUndoState()
@@ -379,20 +483,27 @@ final class ProjectEditor: ObservableObject {
 
     // MARK: - Playback
 
+    /// Moves the playhead to output time `time`.
     func seek(to time: TimeInterval) {
-        let clamped = max(trimStart, min(time, trimEnd))
+        let clamped = max(0, min(time, outputDuration))
         playheadTime = clamped
         let target = CMTime(seconds: clamped, preferredTimescale: 600)
-        player.seek(to: target)
-        cameraPlayer?.seek(to: target)
+        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+        cameraPlayer?.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    /// Moves the playhead to where source time `time` plays (or where the edit continues
+    /// after it, if it was cut).
+    func seek(toSource time: TimeInterval) {
+        seek(to: timeline.outputTimeClamped(forSource: time))
     }
 
     func togglePlayback() {
         if player.rate > 0 {
             pausePlayback()
         } else {
-            if playheadTime >= trimEnd - 0.05 {
-                seek(to: trimStart)
+            if playheadTime >= outputDuration - 0.05 {
+                seek(to: 0)
             }
             player.play()
             cameraPlayer?.play()
@@ -435,6 +546,7 @@ final class ProjectEditor: ObservableObject {
 
             let sourceSize = CGSize(width: project.metadata.width, height: project.metadata.height)
             let outputSize = editSettings.exportPreset.outputSize(for: sourceSize)
+            let audioTrackCount = try await AVURLAsset(url: project.videoURL).loadTracks(withMediaType: .audio).count
 
             try await videoExporter.export(
                 sourceURL: project.videoURL,
@@ -443,8 +555,7 @@ final class ProjectEditor: ObservableObject {
                     keyframes: keyframes,
                     outputSize: outputSize,
                     bitrate: editSettings.exportPreset.targetBitrate(for: outputSize, fps: project.metadata.fps),
-                    trimStart: trimStart,
-                    trimEnd: trimEnd,
+                    timeline: timeline,
                     exportStyle: editSettings.exportStyle,
                     zoomPreset: editSettings.zoomPreset,
                     cursorEvents: project.cursorEvents,
@@ -453,7 +564,9 @@ final class ProjectEditor: ObservableObject {
                     frameRate: project.metadata.fps,
                     cameraURL: project.hasCameraTrack ? project.cameraURL : nil,
                     camera: editSettings.camera,
-                    sourcePixelsPerPoint: project.metadata.scaleFactor
+                    sourcePixelsPerPoint: project.metadata.scaleFactor,
+                    audioTrackRoles: project.metadata.resolvedAudioTrackRoles(trackCount: audioTrackCount),
+                    audio: editSettings.audio
                 )
             ) { [weak self] progress in
                 Task { @MainActor in
@@ -485,6 +598,76 @@ final class ProjectEditor: ObservableObject {
         project.keyframes = keyframes
         project.editSettings = editSettings
         autosaver.schedule(project)
+        if timeline != playerTimeline || editSettings.audio != builtAudio {
+            scheduleCompositionRebuild()
+        }
+    }
+
+    // MARK: - Player items
+
+    /// Rebuilds what the players play after the edit or audio levels change, shortly
+    /// after the last change (a drag rebuilds once it pauses, not on every tick).
+    private func scheduleCompositionRebuild(immediately: Bool = false) {
+        compositionTask?.cancel()
+        compositionTask = Task { [weak self] in
+            if !immediately {
+                try? await Task.sleep(nanoseconds: 150_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            await self?.rebuildComposition()
+        }
+    }
+
+    private func rebuildComposition() async {
+        let timeline = self.timeline
+        let audio = editSettings.audio
+        guard timeline != playerTimeline || audio != builtAudio else { return }
+
+        // Keep showing the same moment of the recording across the change.
+        let playheadSource = (playerTimeline ?? timeline).sourceTime(forOutput: playheadTime)
+        let wasPlaying = isPlaying
+        do {
+            let asset = AVURLAsset(url: project.videoURL)
+            let audioTrackCount = try await asset.loadTracks(withMediaType: .audio).count
+            let screen = try await TimelineCompositionBuilder.build(
+                asset: asset,
+                timeline: timeline,
+                includeVideo: true,
+                audioRoles: project.metadata.resolvedAudioTrackRoles(trackCount: audioTrackCount),
+                audio: audio
+            )
+            var cameraItem: AVPlayerItem?
+            if cameraPlayer != nil {
+                let camera = try await TimelineCompositionBuilder.build(
+                    asset: AVURLAsset(url: project.cameraURL),
+                    timeline: timeline,
+                    includeVideo: true,
+                    audioRoles: nil
+                )
+                cameraItem = AVPlayerItem(asset: camera.composition)
+            }
+            // A newer change arrived while building: its rebuild takes over.
+            guard !Task.isCancelled, timeline == self.timeline, audio == editSettings.audio else { return }
+
+            let item = AVPlayerItem(asset: screen.composition)
+            item.audioMix = screen.audioMix
+            item.audioTimePitchAlgorithm = .spectral
+            if wasPlaying {
+                player.pause()
+                cameraPlayer?.pause()
+            }
+            player.replaceCurrentItem(with: item)
+            cameraPlayer?.replaceCurrentItem(with: cameraItem)
+            playerTimeline = timeline
+            builtAudio = audio
+            seek(to: timeline.outputTimeClamped(forSource: playheadSource))
+            if wasPlaying {
+                player.play()
+                cameraPlayer?.play()
+            }
+        } catch {
+            Log.editor.error("Building the preview failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func installTimeObserver() {
@@ -500,9 +683,9 @@ final class ProjectEditor: ObservableObject {
                 } else {
                     self.cameraPlayer?.pause()
                 }
-                if seconds >= self.trimEnd, self.player.rate > 0 {
+                if seconds >= self.outputDuration, self.player.rate > 0 {
                     self.pausePlayback()
-                    self.seek(to: self.trimEnd)
+                    self.seek(to: self.outputDuration)
                 }
             }
         }

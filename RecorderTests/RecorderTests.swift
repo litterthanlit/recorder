@@ -444,23 +444,23 @@ struct ClickRippleEvaluatorTests {
 @Suite("ConstantFrameRateTimeline")
 struct ConstantFrameRateTimelineTests {
     @Test func producesEvenlySpacedFramesForTheWholeDuration() {
-        let timeline = ConstantFrameRateTimeline(frameRate: 60, duration: 2, sourceStart: 5)
+        let timeline = ConstantFrameRateTimeline(frameRate: 60, duration: 2)
         #expect(timeline.frameCount == 120)
-        #expect(timeline.sourceTime(forFrame: 0) == 5)
+        #expect(timeline.outputTime(forFrame: 0) == 0)
         #expect(abs(timeline.outputTime(forFrame: 119) - 119.0 / 60.0) < 1e-9)
     }
 
     @Test func coversPartialLastFrame() {
-        let timeline = ConstantFrameRateTimeline(frameRate: 30, duration: 1.01, sourceStart: 0)
+        let timeline = ConstantFrameRateTimeline(frameRate: 30, duration: 1.01)
         #expect(timeline.frameCount == 31)
-        #expect(ConstantFrameRateTimeline(frameRate: 30, duration: 0, sourceStart: 0).frameCount == 0)
+        #expect(ConstantFrameRateTimeline(frameRate: 30, duration: 0).frameCount == 0)
     }
 
     @Test func holdsLastFrameThroughStillStretches() {
         // Screen changed at 0, 0.1, then nothing until 1.0 (a still page), then 1.02.
         let sourceTimes: [TimeInterval] = [0, 0.1, 1.0, 1.02]
-        let timeline = ConstantFrameRateTimeline(frameRate: 10, duration: 1.5, sourceStart: 0)
-        let held = timeline.heldSourceFrameIndices(sourceTimes: sourceTimes)
+        let timeline = ConstantFrameRateTimeline(frameRate: 10, duration: 1.5)
+        let held = timeline.heldSourceFrameIndices(sourceTimes: sourceTimes, edit: EditTimeline(sourceDuration: 1.5))
 
         #expect(held.count == 15)
         #expect(held[0] == 0)
@@ -472,43 +472,39 @@ struct ConstantFrameRateTimelineTests {
     }
 
     @Test func showsFirstFrameWhenTrimStartsBeforeIt() {
-        let timeline = ConstantFrameRateTimeline(frameRate: 10, duration: 0.5, sourceStart: 2)
-        let held = timeline.heldSourceFrameIndices(sourceTimes: [2.25, 2.4])
+        let timeline = ConstantFrameRateTimeline(frameRate: 10, duration: 0.5)
+        let edit = EditTimeline.legacy(trimStart: 2, trimEnd: 2.5, sourceDuration: 10)
+        let held = timeline.heldSourceFrameIndices(sourceTimes: [2.25, 2.4], edit: edit)
         #expect(held == [0, 0, 0, 0, 1])
     }
 
+    @Test func followsCutsAndSpeedChanges() {
+        // Source frames every 0.1 s; keep 0–1 at 2× and 3–4 at normal speed.
+        let sourceTimes = stride(from: 0.0, to: 5, by: 0.1).map { $0 }
+        let edit = EditTimeline(
+            segments: [
+                EditSegment(source: TimeSpan(start: 0, end: 1), speed: 2),
+                EditSegment(source: TimeSpan(start: 3, end: 4), speed: 1)
+            ],
+            sourceDuration: 5
+        )
+        let timeline = ConstantFrameRateTimeline(frameRate: 10, duration: edit.outputDuration)
+        let held = timeline.heldSourceFrameIndices(sourceTimes: sourceTimes, edit: edit)
+        #expect(held.count == 15)
+        // Fast part: every other source frame.
+        #expect(held[0...4] == [0, 2, 4, 6, 8])
+        // After the cut, straight from 3.0 s.
+        #expect(held[5] == 30)
+        #expect(held[14] == 39)
+        // Never goes backwards.
+        #expect(zip(held, held.dropFirst()).allSatisfy { $0 <= $1 })
+    }
+
     @Test func frameAtExactOutputTimeIsUsedDespiteRounding() {
-        let timeline = ConstantFrameRateTimeline(frameRate: 60, duration: 1, sourceStart: 0)
+        let timeline = ConstantFrameRateTimeline(frameRate: 60, duration: 1)
         // 1/60 computed a different way lands a hair after the output time.
-        let held = timeline.heldSourceFrameIndices(sourceTimes: [0, 1.0 / 60.0 + 1e-7])
+        let held = timeline.heldSourceFrameIndices(sourceTimes: [0, 1.0 / 60.0 + 1e-7], edit: EditTimeline(sourceDuration: 1))
         #expect(held[1] == 1)
-    }
-}
-
-@Suite("CompositionTimeMap")
-struct CompositionTimeMapTests {
-    @Test func oneClipMapsCompositionTimeToSourceTime() {
-        let map = CompositionFactory.singleClip(
-            sourcePath: "/tmp/video.mov",
-            sourceIn: 2,
-            sourceOut: 10
-        )
-
-        let start = map.resolve(compositionTime: 0)
-        #expect(start?.sourceTime == 2)
-
-        let middle = map.resolve(compositionTime: 3)
-        #expect(middle?.sourceTime == 5)
-        #expect(map.duration == 8)
-    }
-
-    @Test func outsideClipReturnsNil() {
-        let map = CompositionFactory.singleClip(
-            sourcePath: "/tmp/video.mov",
-            sourceIn: 0,
-            sourceOut: 4
-        )
-        #expect(map.resolve(compositionTime: 4.2) == nil)
     }
 }
 

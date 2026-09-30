@@ -243,20 +243,72 @@ struct CameraOverlayStyle: Codable, Equatable {
     }
 }
 
+/// What a recorded audio track holds.
+enum AudioTrackRole: String, Codable, Equatable {
+    case microphone
+    case systemAudio
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = AudioTrackRole(rawValue: raw) ?? .microphone
+    }
+}
+
+/// Levels for the recorded audio tracks (1 is as recorded, 0 is muted).
+struct AudioMixSettings: Codable, Equatable {
+    static let volumeRange: ClosedRange<Double> = 0...2
+
+    var microphoneVolume: Double = 1
+    var systemAudioVolume: Double = 1
+
+    func volume(for role: AudioTrackRole) -> Double {
+        let volume = role == .microphone ? microphoneVolume : systemAudioVolume
+        return min(max(volume, Self.volumeRange.lowerBound), Self.volumeRange.upperBound)
+    }
+
+    init(microphoneVolume: Double = 1, systemAudioVolume: Double = 1) {
+        self.microphoneVolume = microphoneVolume
+        self.systemAudioVolume = systemAudioVolume
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        microphoneVolume = try container.decodeIfPresent(Double.self, forKey: .microphoneVolume) ?? 1
+        systemAudioVolume = try container.decodeIfPresent(Double.self, forKey: .systemAudioVolume) ?? 1
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case microphoneVolume, systemAudioVolume
+    }
+}
+
 struct ProjectEditSettings: Codable, Equatable {
+    /// Head and tail trim from before cuts existed. Still written (the outer edges of
+    /// `timeline`) so an older build opening the project keeps the trim.
     var trimStart: TimeInterval = 0
     var trimEnd: TimeInterval?
+    /// The edit (cuts, splits, speed). `nil` in projects from before it existed: see
+    /// `resolvedTimeline(sourceDuration:)`.
+    var timeline: EditTimeline?
+    var audio = AudioMixSettings()
     var exportPreset: ExportResolutionPreset = .hd1080p
     var exportStyle: ExportStyle = .runlyxDark
     var zoomPreset: ZoomPreset = .demo
     var camera = CameraOverlayStyle()
 
-    func effectiveTrimEnd(for duration: TimeInterval) -> TimeInterval {
-        min(trimEnd ?? duration, duration)
+    /// The edit to use: the saved one, or the old trim as a single segment.
+    func resolvedTimeline(sourceDuration: TimeInterval) -> EditTimeline {
+        if let timeline {
+            return timeline.normalized(sourceDuration: sourceDuration)
+        }
+        return EditTimeline.legacy(trimStart: trimStart, trimEnd: trimEnd, sourceDuration: sourceDuration)
     }
 
-    func trimmedDuration(for fullDuration: TimeInterval) -> TimeInterval {
-        max(0, effectiveTrimEnd(for: fullDuration) - trimStart)
+    /// Sets the edit and keeps the legacy trim fields in step with it.
+    mutating func setTimeline(_ timeline: EditTimeline) {
+        self.timeline = timeline
+        trimStart = timeline.trimStart
+        trimEnd = timeline.trimEnd
     }
 }
 
@@ -443,6 +495,8 @@ extension ProjectEditSettings {
     private enum CodingKeys: String, CodingKey {
         case trimStart
         case trimEnd
+        case timeline
+        case audio
         case exportPreset
         case exportStyle
         case zoomPreset
@@ -454,6 +508,8 @@ extension ProjectEditSettings {
         let defaults = ProjectEditSettings()
         trimStart = try container.decodeIfPresent(TimeInterval.self, forKey: .trimStart) ?? defaults.trimStart
         trimEnd = try container.decodeIfPresent(TimeInterval.self, forKey: .trimEnd)
+        timeline = try? container.decodeIfPresent(EditTimeline.self, forKey: .timeline)
+        audio = (try? container.decodeIfPresent(AudioMixSettings.self, forKey: .audio)) ?? defaults.audio
         exportPreset = try container.decodeIfPresent(ExportResolutionPreset.self, forKey: .exportPreset)
             ?? defaults.exportPreset
         exportStyle = try container.decodeIfPresent(ExportStyle.self, forKey: .exportStyle) ?? defaults.exportStyle

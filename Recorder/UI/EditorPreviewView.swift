@@ -67,7 +67,7 @@ struct EditorPreviewView: View {
                                       forSelection: selection,
                                       contentFrame: contentFrame,
                                       // The preview may already be zoomed; map through what is on screen.
-                                      visibleCrop: editor.interpolator.cropRect(at: editor.playheadTime)
+                                      visibleCrop: editor.interpolator.cropRect(at: editor.playheadSourceTime)
                                   )
                             else { return }
                             editor.addManualZoom(from: sourceRect)
@@ -105,7 +105,7 @@ struct EditorPreviewView: View {
                     get: { editor.playheadTime },
                     set: { editor.seek(to: $0) }
                 ),
-                in: editor.trimStart...max(editor.trimEnd, editor.trimStart + 0.01)
+                in: 0...max(editor.outputDuration, 0.01)
             )
 
             Text(formatTime(editor.playheadTime))

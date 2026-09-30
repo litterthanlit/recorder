@@ -93,8 +93,71 @@ struct EditorView: View {
         .accessibilityLabel("Move zoom \(isLarge ? "1 second" : "a tenth of a second") \(direction)")
     }
 
+    /// Split, delete, speed: cuts on the edited timeline.
+    private var clipControls: some View {
+        HStack(spacing: 10) {
+            Button {
+                editor.splitAtPlayhead()
+            } label: {
+                Label("Split", systemImage: "scissors")
+            }
+            .keyboardShortcut("b", modifiers: .command)
+            .help("Split the clip at the playhead (⌘B)")
+
+            Button(role: .destructive) {
+                if let segment = editor.segmentAtPlayhead {
+                    editor.deleteSegment(segment.id)
+                }
+            } label: {
+                Label("Delete Clip", systemImage: "rectangle.badge.minus")
+            }
+            .disabled(editor.timeline.segments.count < 2)
+            .help("Remove the clip under the playhead; the rest closes up")
+
+            Menu {
+                ForEach([0.5, 1, 1.5, 2, 4, 8], id: \.self) { speed in
+                    Button(Self.speedLabel(speed)) {
+                        if let segment = editor.segmentAtPlayhead {
+                            editor.setSpeed(speed, forSegment: segment.id)
+                        }
+                    }
+                }
+            } label: {
+                Label("Speed \(Self.speedLabel(editor.segmentAtPlayhead?.speed ?? 1))", systemImage: "gauge.with.dots.needle.67percent")
+            }
+            .fixedSize()
+            .help("Play the clip under the playhead faster or slower")
+
+            Button {
+                if editor.speedUpIdleStretches() == 0 {
+                    NSSound.beep()
+                }
+            } label: {
+                Label("Speed Up Idle Parts", systemImage: "hare")
+            }
+            .help("Play stretches with no clicks, pointer movement or typing at 4×")
+
+            Spacer()
+
+            Text("\(editor.timeline.segments.count) clips · \(Self.timecode(editor.outputDuration))")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.bordered)
+    }
+
+    static func speedLabel(_ speed: Double) -> String {
+        speed == speed.rounded() ? "\(Int(speed))×" : String(format: "%.2g×", speed)
+    }
+
+    static func timecode(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
     private var toolbar: some View {
         VStack(alignment: .leading, spacing: 10) {
+            clipControls
             HStack(spacing: 10) {
                 Button {
                     editor.isManualZoomMode.toggle()
