@@ -396,6 +396,8 @@ struct MenuBarView: View {
 // MARK: - Pieces
 
 /// The app's mark: the accent-coloured record glyph on a rounded square.
+/// The app icon's motif at small sizes: a cursor trail curving up to a click and its ring,
+/// on the brand gradient.
 struct BrandMark: View {
     var size: CGFloat = 22
 
@@ -404,14 +406,24 @@ struct BrandMark: View {
             RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [DS.Palette.accent, DS.Palette.accent.opacity(0.7)],
+                        colors: [Color(red: 0.61, green: 0.54, blue: 0.98), Color(red: 0.29, green: 0.18, blue: 0.76)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
-            Image(systemName: "record.circle")
-                .font(.system(size: size * 0.55, weight: .bold))
-                .foregroundStyle(.white)
+            Canvas { context, canvasSize in
+                let unit = canvasSize.width
+                let click = CGPoint(x: unit * 0.62, y: unit * 0.38)
+                let ring = Path(ellipseIn: CGRect(x: click.x - unit * 0.2, y: click.y - unit * 0.2, width: unit * 0.4, height: unit * 0.4))
+                context.stroke(ring, with: .color(.white.opacity(0.55)), lineWidth: unit * 0.05)
+                let dot = Path(ellipseIn: CGRect(x: click.x - unit * 0.1, y: click.y - unit * 0.1, width: unit * 0.2, height: unit * 0.2))
+                context.fill(dot, with: .color(.white))
+                let trail: [(CGFloat, CGFloat, CGFloat)] = [(0.26, 0.8, 0.045), (0.3, 0.64, 0.055), (0.4, 0.52, 0.065)]
+                for (x, y, radius) in trail {
+                    let circle = Path(ellipseIn: CGRect(x: unit * (x - radius), y: unit * (y - radius), width: unit * radius * 2, height: unit * radius * 2))
+                    context.fill(circle, with: .color(.white.opacity(0.75)))
+                }
+            }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)

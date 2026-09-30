@@ -1,60 +1,84 @@
-# Hypher Launch Demo — Rehearsal Guide
+# Recording a product demo with Trace
 
-Use this checklist when recording the 60–90s Hypher launch video with Recorder.
+A practical guide for a 30–90 second launch or feature video. Most demos come together
+in a single afternoon: three or four short takes, one editing pass each, then export.
 
-## Pre-flight
+## Before you record
 
-- [ ] Hypher seed demo project is live in staging/production
-- [ ] Clean browser profile (Hypher extension only, no personal bookmarks)
-- [ ] macOS Do Not Disturb enabled
-- [ ] Recorder permissions granted (Screen Recording + Accessibility)
-- [ ] Recorder: **Window** capture → select browser window
-- [ ] Recorder: **3s countdown** enabled
-- [ ] Recorder: **Hide menu bar & dock** enabled
-- [ ] Recorder: **Smooth cursor on export** enabled
-- [ ] Editor: **Spring camera** and **Click ripples** on (defaults)
-- [ ] Rehearse once with **⌘⇧R** start / **⌘⇧.** stop (no menu bar during take)
+- [ ] **Plan the story in beats**: problem → the one action that solves it → the result.
+      One beat per take; short takes are easier to redo than long ones.
+- [ ] **Prepare the product**: demo data loaded, logged in, nothing personal on screen.
+      Use a clean browser profile with no bookmarks bar or extensions you don't need.
+- [ ] **Set the window size** to the shape you'll publish: 1280×720 or 1920×1080 for
+      web and YouTube, a narrower window for vertical social clips.
+- [ ] **Turn on Do Not Disturb.** Trace leaves notification banners out of display and
+      area recordings anyway, but sounds can still reach the microphone.
+- [ ] **In Settings**: countdown 3 s, 60 fps, "Show keystrokes" on if shortcuts matter.
+- [ ] **Pick a default look** (Background › Look › "New takes"), so every take starts
+      styled the same way.
 
-## Editor defaults per scene
+## Choosing what to record
 
-| Setting | Value |
-|---------|-------|
-| Export resolution | **1080p** |
-| Zoom preset | **Demo** (Subtle for landing/digest) |
-| Background frame | **On** |
-| Watermark | **On** for end card (`hypher.app`) |
+| Capture | Use it when |
+|---------|-------------|
+| **Area** | Almost always. Drag the part that matters, or choose 16:9 / 1:1 / 9:16. The area is remembered, so the next take is ⇧⌘R then ⏎. |
+| **Window** | One app window, following it if it moves. Keep other windows from covering it. |
+| **Display** | Showing several apps or the desktop. Hide the menu bar and Dock in Settings. |
 
-## Six scenes (record separately, assemble in Final Cut)
+## Each take
 
-| # | Duration | Hypher action | Recorder tip |
-|---|----------|---------------|--------------|
-| 1 | 10s | Landing page → click Get started | Window capture; Subtle zoom; minimal clicks |
-| 2 | 15s | Capture 3 items (paste, extension, ⌘K) | Demo preset; auto zoom on each click |
-| 3 | 20s | Canvas with seed project (8–12 cards) | Manual zoom on cluster reveal |
-| 4 | 20s | Ambient Ask — streaming response | Trim to streaming start; hold on panel |
-| 5 | 15s | Daily digest panel | Subtle zoom on digest header |
-| 6 | 5s | Wordmark / URL end card | Watermark on; trim tight |
+1. Put the cursor where the take should start, then **⇧⌘R** and **⏎**.
+2. Wait for 3-2-1. Move deliberately: pause a beat before each click, since auto zoom
+   centres on it and the viewer needs a moment to see what changed.
+3. Made a mistake? **⇧⌘,** pauses; the HUD's restart button throws the take away and
+   starts again.
+4. **⇧⌘.** stops. The Quick Access card appears: **Edit** to polish.
 
-## Per-take workflow
+## The editing pass
 
-1. Position browser and cursor before countdown
-2. **⌘⇧R** — wait for 3-2-1, perform scene
-3. **⌘⇧.** — stop
-4. Editor opens → confirm the preview matches the padded/zoomed look (same compositor as export)
-5. Drag **green/orange trim handles** to cut dead air
-6. Verify zoom preset; leave spring camera and click ripples on unless the scene is a static hold
-7. **Export MP4** → check file is 1920×1080 (scene exports are high-quality intermediates; the size limit applies to the final assembly)
-8. Repeat for each scene — **⌘⇧R** works straight from the editor for the next take or a retake
+Work top to bottom; the whole pass takes a few minutes per take.
 
-## Assembly
+1. **Shape.** Pick the video's shape in the toolbar (16:9 for web, 9:16 for Reels and
+   Shorts, 1:1 for feeds).
+2. **Cut dead air.** Press S at the start and end of a pause, select the clip between,
+   press ⌫. Trim the first and last clips by dragging their edges.
+3. **Tighten the pace.** Select a slow clip and give it 2× in the inspector, or use
+   **Speed Up Idle** to play every stretch without clicks or typing at 4×.
+4. **Check the zooms.** Auto zoom follows your clicks. Delete the ones that distract
+   (select, ⌫), drag their edges to hold longer, and use **Adjust Focus** to aim one at
+   exactly the right spot. Press Z and drag over the preview to add your own.
+5. **Say what's happening.** Press T for a caption at the playhead; drag it into place
+   on the preview. Use Title for an opening line, Callout to point at a feature.
+6. **Hide anything private.** Press B for a blur box and drag it over emails, names or
+   keys. It follows zooms; drag its ends on the Blur track to cover the whole stretch.
+7. **Polish the look.** Background, padding and corners; cursor size (1.5× reads well on
+   small screens); click ripples on for tutorials, off for cinematic cuts.
+8. **Save the look** once you like it, and make it the default for new takes.
 
-- Import 6 trimmed exports into Final Cut / Premiere
-- Add music bed and cross-dissolves between scenes (0.3s)
-- Final export: 1920×1080 H.264, target under 8MB for Product Hunt
+## Export
 
-## Success criteria
+| Destination | Format | Quality | Notes |
+|-------------|--------|---------|-------|
+| Landing page, docs video | MP4 | Web | Small and plays everywhere |
+| YouTube, Product Hunt | MP4 | High | 1080p, 60 fps |
+| Social (Reels, TikTok, Shorts) | MP4 | High | 9:16 shape, 1080p |
+| README, Slack, Notion | GIF | n/a | Under 30 s, 15 fps, scaled to 720 px wide |
+| Further editing (Final Cut, Premiere) | ProRes | n/a | Large files, best quality |
 
-- [ ] No Recorder UI visible in any take
-- [ ] Dark padded background on all exports
-- [ ] Clicks feel intentional (not jarring)
-- [ ] Full assembly achievable in one afternoon
+**⌘E** opens the export sheet. When it's done, **Copy** puts the file on the clipboard
+ready to paste, or drag the file icon straight into Slack, Mail or your editor.
+
+## Putting takes together
+
+Trace exports each take on its own. For a multi-scene video, export every take as MP4
+High (or ProRes), assemble them in your video editor, add music and short cross-dissolves
+(0.2–0.3 s), and do the final size-limited export there.
+
+## Checklist before publishing
+
+- [ ] Nothing private visible (blurred, or not on screen at all)
+- [ ] No Trace UI in the shot (the HUD, countdown and camera controls are never recorded)
+- [ ] Every zoom helps the viewer; none jump for a stray click
+- [ ] Captions are short and on screen long enough to read (about 3 s for five words)
+- [ ] Audio levels balanced between narration and system sound
+- [ ] Watched once with sound off, once at full screen
