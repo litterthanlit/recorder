@@ -261,7 +261,7 @@ struct LibraryTests {
     @Test func searchMatchesNameAndDescription() {
         var metadata = ProjectModelTests.sampleProject().metadata
         metadata.name = "Pricing Page Walkthrough"
-        let summary = ProjectSummary(metadata: metadata, bundleURL: URL(fileURLWithPath: "/tmp/x.recorder"), hasExport: false)
+        let summary = ProjectSummary(metadata: metadata, bundleURL: URL(fileURLWithPath: "/tmp/x.recorder"))
         #expect(summary.matches("pricing"))
         #expect(summary.matches("SAFARI"))
         #expect(summary.matches(""))
@@ -276,7 +276,7 @@ struct LibraryTests {
                 scaleFactor: 2, captureOriginX: 0, captureOriginY: 0, captureWidth: 5, captureHeight: 5
             )
             metadata.name = name
-            return ProjectSummary(metadata: metadata, bundleURL: URL(fileURLWithPath: "/tmp/\(name).recorder"), hasExport: false)
+            return ProjectSummary(metadata: metadata, bundleURL: URL(fileURLWithPath: "/tmp/\(name).recorder"))
         }
         let projects = [summary("b", created: 2, duration: 5), summary("a", created: 3, duration: 1), summary("c", created: 1, duration: 9)]
         #expect(ProjectSort.newest.sorted(projects).map(\.displayName) == ["a", "b", "c"])

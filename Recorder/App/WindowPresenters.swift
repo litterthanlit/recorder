@@ -95,8 +95,7 @@ final class EditorPresenter: NSObject, NSWindowDelegate {
         presentedEditor = editor
         let actions = EditorActions(
             export: { [weak editor] in
-                guard let editor else { return }
-                Task { await editor.export() }
+                editor?.isExportSheetPresented = true
             },
             retake: onRetake
         )

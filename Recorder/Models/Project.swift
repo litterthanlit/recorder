@@ -136,7 +136,8 @@ struct RecorderProject: Codable, Equatable {
         bundleURL.appendingPathComponent(ProjectStore.File.settings)
     }
 
-    var exportURL: URL {
+    /// Where builds before export destinations wrote the export (read, never written).
+    var legacyExportURL: URL {
         bundleURL.appendingPathComponent("export.mp4")
     }
 
@@ -150,6 +151,11 @@ struct RecorderProject: Codable, Equatable {
 
     var hasCameraTrack: Bool {
         FileManager.default.fileExists(atPath: cameraURL.path)
+    }
+
+    /// The latest export's file, if it's still there (reads exports.json).
+    var latestExportURL: URL? {
+        ProjectStore.latestExport(in: bundleURL)
     }
 
     /// The picture behind the recording when the background is an image in the bundle.
@@ -239,6 +245,11 @@ enum ProjectStore {
     }
 
     /// The library folder used before the app was renamed (see `LibraryMigration`).
+    /// Where exports go unless the user picks another folder.
+    static var exportsDirectory: URL {
+        projectsDirectory.appendingPathComponent("Exports", isDirectory: true)
+    }
+
     static var legacyProjectsDirectory: URL {
         moviesDirectory.appendingPathComponent(Brand.legacyLibraryFolderName, isDirectory: true)
     }
@@ -304,6 +315,29 @@ enum ProjectStore {
         static let settings = "settings.json"
         static let inputs = "inputs.json"
         static let export = "export.mp4"
+        static let exports = "exports.json"
+    }
+
+    /// Remembers where a project was last exported to.
+    static func saveExportRecord(_ record: ExportRecord, in bundleURL: URL) throws {
+        try makeEncoder().encode(record)
+            .write(to: bundleURL.appendingPathComponent(File.exports), options: .atomic)
+    }
+
+    /// The project's latest export if its file is still there: the recorded one, or the
+    /// export.mp4 older builds wrote into the bundle.
+    static func latestExport(in bundleURL: URL) -> URL? {
+        let fileManager = FileManager.default
+        if let data = try? Data(contentsOf: bundleURL.appendingPathComponent(File.exports)) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            if let record = try? decoder.decode(ExportRecord.self, from: data),
+               fileManager.fileExists(atPath: record.path) {
+                return record.url
+            }
+        }
+        let legacy = bundleURL.appendingPathComponent(File.export)
+        return fileManager.fileExists(atPath: legacy.path) ? legacy : nil
     }
 
     private static func makeEncoder() -> JSONEncoder {
@@ -421,7 +455,12 @@ struct ProjectSummary: Identifiable, Equatable {
     let title: String
     /// The user's name for it, if any.
     let name: String?
-    let hasExport: Bool
+    /// The latest export's file, if it's still there.
+    let latestExport: URL?
+
+    var hasExport: Bool {
+        latestExport != nil
+    }
 
     /// What the library shows: the user's name, or a description of what was recorded.
     var displayName: String {
@@ -441,18 +480,14 @@ struct ProjectSummary: Identifiable, Equatable {
         bundleURL.appendingPathComponent("video.mov")
     }
 
-    var exportURL: URL {
-        bundleURL.appendingPathComponent("export.mp4")
-    }
-
-    init(metadata: ProjectMetadata, bundleURL: URL, hasExport: Bool) {
+    init(metadata: ProjectMetadata, bundleURL: URL, latestExport: URL? = nil) {
         id = metadata.id
         self.bundleURL = bundleURL
         createdAt = metadata.createdAt
         duration = metadata.duration
         title = Self.title(for: metadata)
         name = metadata.name
-        self.hasExport = hasExport
+        self.latestExport = latestExport
     }
 
     /// "Google Chrome — Hypher", "Google Chrome", or "Full display".
@@ -530,8 +565,7 @@ extension ProjectStore {
             .filter { $0.pathExtension == RecorderProject.bundleExtension }
             .compactMap { url -> ProjectSummary? in
                 guard let metadata = try? loadMetadata(from: url) else { return nil }
-                let hasExport = fileManager.fileExists(atPath: url.appendingPathComponent(File.export).path)
-                return ProjectSummary(metadata: metadata, bundleURL: url, hasExport: hasExport)
+                return ProjectSummary(metadata: metadata, bundleURL: url, latestExport: latestExport(in: url))
             }
             .sorted { $0.createdAt > $1.createdAt }
 

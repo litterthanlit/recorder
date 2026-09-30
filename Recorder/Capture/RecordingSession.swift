@@ -575,7 +575,7 @@ final class RecordingSession: ObservableObject {
 
     func revealExportInFinder() {
         guard case let .finished(project) = state else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([project.exportURL])
+        NSWorkspace.shared.activateFileViewerSelecting([project.latestExportURL ?? project.bundleURL])
     }
 
     /// Only after the take is stopped or paused, so the sound isn't recorded.

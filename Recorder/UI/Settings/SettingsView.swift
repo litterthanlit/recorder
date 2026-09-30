@@ -21,6 +21,7 @@ enum SettingsWindow {
             settings: appState.settingsStore,
             hotkeys: appState.hotkeys
         )))
+        tabs.addTabViewItem(item("Export", symbol: "square.and.arrow.up", ExportSettingsPane()))
         return tabs
     }
 
@@ -261,5 +262,82 @@ struct ShortcutsSettingsPane: View {
             .foregroundStyle(DS.Palette.warning)
             .help(message)
             .accessibilityLabel(message)
+    }
+}
+
+struct ExportSettingsPane: View {
+    @State private var preferences = ExportPreferences.load()
+
+    private var folderText: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let path = preferences.folderURL.path
+        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Format", selection: $preferences.options.format) {
+                    ForEach(ExportFormat.allCases) { format in
+                        Text("\(format.label) — \(format.detail)").tag(format)
+                    }
+                }
+                Picker("Quality", selection: $preferences.options.quality) {
+                    ForEach(ExportQuality.allCases) { quality in
+                        Text(quality.label).tag(quality)
+                    }
+                }
+                .disabled(!preferences.options.format.usesQuality)
+                Picker("Frame rate", selection: $preferences.options.frameRate) {
+                    Text("As recorded").tag(Int?.none)
+                    ForEach(ExportOptions.frameRateChoices, id: \.self) { rate in
+                        Text("\(rate) fps").tag(Int?.some(rate))
+                    }
+                }
+                .disabled(preferences.options.format == .gif)
+            } header: {
+                Text("Default format")
+            } footer: {
+                Text("Quick Access exports with these, and the editor's Export sheet starts with them.")
+            }
+
+            Section {
+                LabeledContent("Folder") {
+                    HStack(spacing: DS.Spacing.xs) {
+                        Text(folderText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Button("Change…") { chooseFolder() }
+                        Button("Show") {
+                            try? FileManager.default.createDirectory(at: preferences.folderURL, withIntermediateDirectories: true)
+                            NSWorkspace.shared.open(preferences.folderURL)
+                        }
+                    }
+                }
+                Toggle("Ask where to save each time", isOn: $preferences.askForLocation)
+                TextField("File name", text: $preferences.fileNameTemplate)
+                Toggle("Show in Finder when an export finishes", isOn: $preferences.revealWhenDone)
+            } header: {
+                Text("Saving")
+            } footer: {
+                Text("File names can use {name}, {date} and {time}. An export never replaces a file already in the folder.")
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: paneWidth, height: 440)
+        .onChange(of: preferences) { _, newValue in
+            newValue.save()
+        }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = preferences.folderURL
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        preferences.folderPath = url.path
     }
 }

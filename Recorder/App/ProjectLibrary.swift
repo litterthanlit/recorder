@@ -81,7 +81,7 @@ final class ProjectLibrary: ObservableObject {
 
     /// Shows the export in Finder if there is one, otherwise the project bundle.
     func reveal(_ project: ProjectSummary) {
-        let target = project.hasExport ? project.exportURL : project.bundleURL
+        let target = project.latestExport ?? project.bundleURL
         NSWorkspace.shared.activateFileViewerSelecting([target])
     }
 

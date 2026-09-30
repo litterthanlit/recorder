@@ -30,7 +30,7 @@ final class ProjectEditor: ObservableObject {
     enum State: Equatable {
         case editing
         case exporting(progress: Double)
-        case exported
+        case exported(URL)
         case failed(String)
     }
 
@@ -43,6 +43,7 @@ final class ProjectEditor: ObservableObject {
     @Published var isManualZoomMode = false
     /// The canvas shows the whole recording with the selected zoom's focus to drag.
     @Published var isEditingZoomFocus = false
+    @Published var isExportSheetPresented = false
     let playback = EditorPlayback()
     @Published private(set) var state: State = .editing
     @Published private(set) var exportProgress: Double = 0
@@ -69,6 +70,7 @@ final class ProjectEditor: ObservableObject {
     @Published private(set) var playerTimeline: EditTimeline?
     private var builtAudio: AudioMixSettings?
     private var compositionTask: Task<Void, Never>?
+    private var exportTask: Task<Void, Never>?
     /// State at the start of a drag or slider gesture that's still in progress.
     private var interaction: (start: EditorSnapshot, actionName: String)?
 
@@ -244,6 +246,7 @@ final class ProjectEditor: ObservableObject {
 
     deinit {
         compositionTask?.cancel()
+        exportTask?.cancel()
         if let terminationObserver {
             NotificationCenter.default.removeObserver(terminationObserver)
         }
@@ -880,26 +883,52 @@ final class ProjectEditor: ObservableObject {
         return false
     }
 
-    func export() async {
+    /// Exports with `options` to `destination` (see `ExportService`). Replaces a running
+    /// export's result only once it finishes; `cancelExport()` stops it.
+    func export(options: ExportOptions, to destination: URL) {
         guard !isExporting else { return }
+        endInteractiveEdit()
+        persist()
+        autosaver.flush()
         state = .exporting(progress: 0)
         exportProgress = 0
-
-        do {
-            endInteractiveEdit()
-            persist()
-            autosaver.flush()
-            try await ExportService.export(project) { [weak self] progress in
-                // Progress updates can land after the export has already finished.
-                guard let self, self.isExporting else { return }
-                self.exportProgress = progress
-                self.state = .exporting(progress: progress)
+        let project = self.project
+        exportTask = Task { [weak self] in
+            do {
+                let url = try await ExportService.export(project, options: options, to: destination) { progress in
+                    // Progress updates can land after the export has already finished.
+                    guard let self, self.isExporting else { return }
+                    self.exportProgress = progress
+                    self.state = .exporting(progress: progress)
+                }
+                self?.state = .exported(url)
+            } catch is CancellationError {
+                self?.state = .editing
+            } catch {
+                Log.export.error("Export failed: \(error.localizedDescription, privacy: .public)")
+                self?.state = .failed(error.localizedDescription)
             }
-            state = .exported
-        } catch {
-            Log.export.error("Export failed: \(error.localizedDescription, privacy: .public)")
-            state = .failed(error.localizedDescription)
+            self?.exportTask = nil
         }
+    }
+
+    func cancelExport() {
+        exportTask?.cancel()
+    }
+
+    /// Back to editing after a finished or failed export.
+    func dismissExportResult() {
+        if !isExporting {
+            state = .editing
+        }
+    }
+
+    /// The file the last export wrote, if it's still there.
+    var latestExportURL: URL? {
+        if case let .exported(url) = state, FileManager.default.fileExists(atPath: url.path) {
+            return url
+        }
+        return project.latestExportURL
     }
 
     /// Writes any pending edit to disk now (the window is closing), and removes
@@ -915,7 +944,8 @@ final class ProjectEditor: ObservableObject {
     }
 
     func revealExportInFinder() {
-        NSWorkspace.shared.activateFileViewerSelecting([project.exportURL])
+        guard let url = latestExportURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     private func persist() {

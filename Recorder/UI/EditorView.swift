@@ -31,6 +31,9 @@ struct EditorView: View {
         }
         .frame(minWidth: 1040, minHeight: 700)
         .background(EditorKeyCommands(handler: perform))
+        .sheet(isPresented: $editor.isExportSheetPresented) {
+            ExportSheet(editor: editor)
+        }
     }
 
     private func toggleManualZoom() {

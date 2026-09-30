@@ -126,7 +126,11 @@ final class QuickAccessModel: ObservableObject {
     init(project: RecorderProject, autoDismiss: Bool) {
         self.project = project
         self.autoDismiss = autoDismiss
-        exportState = FileManager.default.fileExists(atPath: project.exportURL.path) ? .exported(project.exportURL) : .none
+        if let url = project.latestExportURL {
+            exportState = .exported(url)
+        } else {
+            exportState = ExportState.none
+        }
         Task { await loadThumbnail() }
         scheduleDismiss()
     }

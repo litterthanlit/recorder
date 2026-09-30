@@ -95,6 +95,9 @@
 		B20000000000000000000057 /* TimelineTracks.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005B /* TimelineTracks.swift */; };
 		B20000000000000000000058 /* TimelineMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005C /* TimelineMedia.swift */; };
 		B20000000000000000000059 /* TextPlateLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005D /* TextPlateLayout.swift */; };
+		B2000000000000000000005A /* GIFWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005E /* GIFWriter.swift */; };
+		B2000000000000000000005B /* ExportOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005F /* ExportOptions.swift */; };
+		B2000000000000000000005C /* ExportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000060 /* ExportSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -190,6 +193,9 @@
 		A2000000000000000000005B /* TimelineTracks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineTracks.swift; sourceTree = "<group>"; };
 		A2000000000000000000005C /* TimelineMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineMedia.swift; sourceTree = "<group>"; };
 		A2000000000000000000005D /* TextPlateLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextPlateLayout.swift; sourceTree = "<group>"; };
+		A2000000000000000000005E /* GIFWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GIFWriter.swift; sourceTree = "<group>"; };
+		A2000000000000000000005F /* ExportOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportOptions.swift; sourceTree = "<group>"; };
+		A20000000000000000000060 /* ExportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -305,6 +311,7 @@
 				A2000000000000000000004A /* ExportService.swift */,
 				A20000000000000000000050 /* SystemCursorImages.swift */,
 				A2000000000000000000005D /* TextPlateLayout.swift */,
+				A2000000000000000000005E /* GIFWriter.swift */,
 			);
 			path = Export;
 			sourceTree = "<group>";
@@ -354,6 +361,7 @@
 				A20000000000000000000032 /* AppSettings.swift */,
 				A2000000000000000000004D /* LookStyle.swift */,
 				A2000000000000000000004F /* StylePreset.swift */,
+				A2000000000000000000005F /* ExportOptions.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -424,6 +432,7 @@
 				A20000000000000000000058 /* EditorToolbar.swift */,
 				A20000000000000000000059 /* CanvasOverlays.swift */,
 				A2000000000000000000005A /* TransportBar.swift */,
+				A20000000000000000000060 /* ExportSheet.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -501,6 +510,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2000000000000000000005C /* ExportSheet.swift in Sources */,
+				B2000000000000000000005B /* ExportOptions.swift in Sources */,
+				B2000000000000000000005A /* GIFWriter.swift in Sources */,
 				B20000000000000000000059 /* TextPlateLayout.swift in Sources */,
 				B20000000000000000000058 /* TimelineMedia.swift in Sources */,
 				B20000000000000000000057 /* TimelineTracks.swift in Sources */,
