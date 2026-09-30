@@ -139,3 +139,58 @@ struct ProjectModelTests {
         )
     }
 }
+
+@Suite("Project format version")
+struct ProjectFormatTests {
+    @Test func savingWritesTheCurrentVersion() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.cleanup() }
+        let project = ProjectModelTests.sampleProject()
+        let bundleURL = ProjectStore.bundleURL(for: project.metadata.id, in: directory.url)
+        try ProjectStore.save(project, to: bundleURL)
+
+        for file in [ProjectStore.File.meta, ProjectStore.File.settings] {
+            let data = try Data(contentsOf: bundleURL.appendingPathComponent(file))
+            let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(object["formatVersion"] as? Int == ProjectFormat.current)
+        }
+        // The version key sits next to the value's own keys.
+        let settings = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: bundleURL.appendingPathComponent(ProjectStore.File.settings))
+        ) as? [String: Any]
+        #expect(settings?["trimStart"] as? Double == 0.5)
+    }
+
+    @Test func filesWithoutAVersionLoad() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.cleanup() }
+        let project = ProjectModelTests.sampleProject()
+        let bundleURL = ProjectStore.bundleURL(for: project.metadata.id, in: directory.url)
+        try ProjectStore.save(project, to: bundleURL)
+        try Self.rewrite(bundleURL.appendingPathComponent(ProjectStore.File.settings)) { $0["formatVersion"] = nil }
+
+        #expect(try ProjectStore.loadProject(from: bundleURL) == project)
+    }
+
+    @Test func newerFormatsAreRefused() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.cleanup() }
+        let project = ProjectModelTests.sampleProject()
+        let bundleURL = ProjectStore.bundleURL(for: project.metadata.id, in: directory.url)
+        try ProjectStore.save(project, to: bundleURL)
+        try Self.rewrite(bundleURL.appendingPathComponent(ProjectStore.File.settings)) { $0["formatVersion"] = 99 }
+
+        #expect(throws: ProjectStoreError.newerFormat(99)) {
+            try ProjectStore.loadProject(from: bundleURL)
+        }
+
+        try Self.rewrite(bundleURL.appendingPathComponent(ProjectStore.File.meta)) { $0["formatVersion"] = 99 }
+        #expect(ProjectStore.listProjects(in: directory.url).isEmpty)
+    }
+
+    private static func rewrite(_ url: URL, _ change: (inout [String: Any]) -> Void) throws {
+        var object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        change(&object)
+        try JSONSerialization.data(withJSONObject: object).write(to: url)
+    }
+}

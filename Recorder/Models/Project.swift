@@ -90,23 +90,23 @@ struct RecorderProject: Codable, Equatable {
     }
 
     var eventsURL: URL {
-        bundleURL.appendingPathComponent(File.events)
+        bundleURL.appendingPathComponent(ProjectStore.File.events)
     }
 
     var cursorURL: URL {
-        bundleURL.appendingPathComponent(File.cursor)
+        bundleURL.appendingPathComponent(ProjectStore.File.cursor)
     }
 
     var keyframesURL: URL {
-        bundleURL.appendingPathComponent(File.keyframes)
+        bundleURL.appendingPathComponent(ProjectStore.File.keyframes)
     }
 
     var metaURL: URL {
-        bundleURL.appendingPathComponent(File.meta)
+        bundleURL.appendingPathComponent(ProjectStore.File.meta)
     }
 
     var settingsURL: URL {
-        bundleURL.appendingPathComponent(File.settings)
+        bundleURL.appendingPathComponent(ProjectStore.File.settings)
     }
 
     var exportURL: URL {
@@ -149,6 +149,50 @@ struct RecorderProject: Codable, Equatable {
     }
 }
 
+/// Version of the files in a project bundle. Bumped when a change means an older build
+/// would lose information by rewriting them; a bundle from a newer version is refused.
+enum ProjectFormat {
+    static let current = 1
+}
+
+enum ProjectStoreError: LocalizedError, Equatable {
+    case newerFormat(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .newerFormat:
+            return "This project was saved by a newer version of \(Brand.name). Update the app to open it."
+        }
+    }
+}
+
+/// Encodes `value` with a `formatVersion` key added alongside its own keys.
+private struct Versioned<Value: Encodable>: Encodable {
+    let value: Value
+
+    private enum CodingKeys: String, CodingKey {
+        case formatVersion
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try value.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(ProjectFormat.current, forKey: .formatVersion)
+    }
+}
+
+/// Reads only the `formatVersion` key; files written before it existed are version 1.
+private struct FormatProbe: Decodable {
+    let formatVersion: Int?
+
+    static func check(_ data: Data) throws {
+        let version = (try? JSONDecoder().decode(FormatProbe.self, from: data))?.formatVersion ?? 1
+        if version > ProjectFormat.current {
+            throw ProjectStoreError.newerFormat(version)
+        }
+    }
+}
+
 enum ProjectStore {
     static var projectsDirectory: URL {
         let movies = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first!
@@ -176,7 +220,8 @@ enum ProjectStore {
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
         let encoder = makeEncoder()
-        try encoder.encode(project.metadata).write(to: bundleURL.appendingPathComponent(File.meta), options: .atomic)
+        try encoder.encode(Versioned(value: project.metadata))
+            .write(to: bundleURL.appendingPathComponent(File.meta), options: .atomic)
         try encoder.encode(project.clickEvents).write(to: bundleURL.appendingPathComponent(File.events), options: .atomic)
         try encoder.encode(project.cursorEvents).write(to: bundleURL.appendingPathComponent(File.cursor), options: .atomic)
         try saveEdits(project, to: bundleURL, encoder: encoder)
@@ -195,7 +240,8 @@ enum ProjectStore {
 
     private static func saveEdits(_ project: RecorderProject, to bundleURL: URL, encoder: JSONEncoder) throws {
         try encoder.encode(project.keyframes).write(to: bundleURL.appendingPathComponent(File.keyframes), options: .atomic)
-        try encoder.encode(project.editSettings).write(to: bundleURL.appendingPathComponent(File.settings), options: .atomic)
+        try encoder.encode(Versioned(value: project.editSettings))
+            .write(to: bundleURL.appendingPathComponent(File.settings), options: .atomic)
     }
 
     /// File names inside a project bundle.
@@ -218,6 +264,7 @@ enum ProjectStore {
 
     static func loadMetadata(from bundleURL: URL) throws -> ProjectMetadata {
         let data = try Data(contentsOf: bundleURL.appendingPathComponent(File.meta))
+        try FormatProbe.check(data)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(ProjectMetadata.self, from: data)
@@ -246,6 +293,7 @@ enum ProjectStore {
             return ProjectEditSettings()
         }
         let data = try Data(contentsOf: url)
+        try FormatProbe.check(data)
         return try JSONDecoder().decode(ProjectEditSettings.self, from: data)
     }
 
