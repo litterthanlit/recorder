@@ -29,7 +29,7 @@ struct EditorPreviewView: View {
                     }
                 }
             }
-            .aspectRatio(16 / 9, contentMode: .fit)
+            .aspectRatio(editor.exportOutputSize.width / max(editor.exportOutputSize.height, 1), contentMode: .fit)
             .frame(maxWidth: .infinity)
             .frame(minHeight: 360)
 
@@ -40,9 +40,12 @@ struct EditorPreviewView: View {
     /// Where the compositor draws the video inside the preview, in view coordinates.
     private func contentFrame(in size: CGSize) -> CGRect {
         let style = editor.editSettings.exportStyle
-        let padding = style.backgroundEnabled ? size.width * style.paddingFraction : 0
         let aspect = CGFloat(editor.project.metadata.width) / CGFloat(max(editor.project.metadata.height, 1))
-        return ZoomKeyframeEditor.fittedContentFrame(contentAspect: aspect, in: size, padding: padding)
+        return CanvasLayout.contentFrame(
+            canvas: size,
+            contentAspect: aspect,
+            paddingRatio: style.backgroundEnabled ? style.paddingRatio : 0
+        )
     }
 
     @ViewBuilder

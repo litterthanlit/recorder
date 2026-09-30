@@ -74,6 +74,7 @@
 		B20000000000000000000042 /* EditTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000046 /* EditTimeline.swift */; };
 		B20000000000000000000043 /* IdleStretchDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000047 /* IdleStretchDetector.swift */; };
 		B20000000000000000000044 /* TimelineCompositionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000048 /* TimelineCompositionBuilder.swift */; };
+		B20000000000000000000045 /* CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000049 /* CanvasLayout.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -148,6 +149,7 @@
 		A20000000000000000000046 /* EditTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditTimeline.swift; sourceTree = "<group>"; };
 		A20000000000000000000047 /* IdleStretchDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleStretchDetector.swift; sourceTree = "<group>"; };
 		A20000000000000000000048 /* TimelineCompositionBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineCompositionBuilder.swift; sourceTree = "<group>"; };
+		A20000000000000000000049 /* CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasLayout.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -249,6 +251,7 @@
 				A2000000000000000000003D /* AreaSelection.swift */,
 				A2000000000000000000003E /* PauseLedger.swift */,
 				A20000000000000000000040 /* CaptureExclusion.swift */,
+				A20000000000000000000049 /* CanvasLayout.swift */,
 			);
 			path = Composition;
 			sourceTree = "<group>";
@@ -414,6 +417,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000045 /* CanvasLayout.swift in Sources */,
 				B20000000000000000000044 /* TimelineCompositionBuilder.swift in Sources */,
 				B20000000000000000000043 /* IdleStretchDetector.swift in Sources */,
 				B20000000000000000000042 /* EditTimeline.swift in Sources */,

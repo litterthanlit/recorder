@@ -40,7 +40,7 @@ struct ProjectModelTests {
         let settings = try JSONDecoder().decode(ProjectEditSettings.self, from: Data(legacySettingsJSON.utf8))
         #expect(isClose(settings.trimStart, 1.25))
         #expect(settings.trimEnd == 12.5)
-        #expect(settings.exportPreset == .hd720p)
+        #expect(settings.canvas == CanvasSpec(aspect: .widescreen, resolution: .hd720))
         #expect(settings.zoomPreset == .demo)
         #expect(settings.camera == CameraOverlayStyle())
         #expect(settings.exportStyle.backgroundEnabled == false)

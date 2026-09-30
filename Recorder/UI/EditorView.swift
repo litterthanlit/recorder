@@ -247,9 +247,15 @@ struct EditorView: View {
                 .font(.headline)
 
             HStack(spacing: 12) {
-                Picker("Resolution", selection: editor.settingBinding(\.exportPreset, actionName: "Change Resolution")) {
-                    ForEach(ExportResolutionPreset.allCases) { preset in
-                        Text(preset.label).tag(preset)
+                Picker("Shape", selection: editor.settingBinding(\.canvas.aspect, actionName: "Change Shape")) {
+                    ForEach(OutputAspect.allCases) { aspect in
+                        Text(aspect.label).tag(aspect)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Picker("Resolution", selection: editor.settingBinding(\.canvas.resolution, actionName: "Change Resolution")) {
+                    ForEach(OutputResolution.allCases) { resolution in
+                        Text(resolution.label).tag(resolution)
                     }
                 }
                 .pickerStyle(.segmented)

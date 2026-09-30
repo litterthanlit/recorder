@@ -33,7 +33,14 @@ enum ExportResolutionPreset: String, Codable, CaseIterable, Identifiable {
     /// more than a size-capped delivery encode: ~0.08 bits per pixel per frame at 60 fps
     /// (≈10 Mbps at 1080p). Apply file-size limits to the final assembled video instead.
     func targetBitrate(for outputSize: CGSize, fps: Int = 60) -> Int {
-        let bitsPerPixelPerFrame = 0.08
+        ExportBitrate.target(for: outputSize, fps: fps)
+    }
+}
+
+enum ExportBitrate {
+    /// ~0.08 bits per pixel per frame (≈10 Mbps at 1080p60): screen content with zooms
+    /// changes every pixel during camera moves, so it needs more than a talking head.
+    static func target(for outputSize: CGSize, fps: Int = 60, bitsPerPixelPerFrame: Double = 0.08) -> Int {
         let bitrate = Double(outputSize.width * outputSize.height) * Double(max(fps, 1)) * bitsPerPixelPerFrame
         return max(2_000_000, Int(bitrate.rounded()))
     }
@@ -134,7 +141,8 @@ enum ZoomPreset: String, Codable, CaseIterable, Identifiable {
 struct ExportStyle: Codable, Equatable {
     var backgroundEnabled: Bool = true
     var cornerRadius: CGFloat = 16
-    var paddingFraction: CGFloat = 0.06
+    /// Space around the recording, as a fraction of the canvas's shorter side.
+    var paddingRatio: CGFloat = 0.1
     var shadowEnabled: Bool = true
     var watermarkEnabled: Bool = false
     var watermarkText: String = ""
@@ -149,6 +157,8 @@ struct ExportStyle: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case backgroundEnabled
         case cornerRadius
+        case paddingRatio
+        /// Before canvases: a fraction of a 16:9 canvas's width.
         case paddingFraction
         case shadowEnabled
         case watermarkEnabled
@@ -163,7 +173,7 @@ struct ExportStyle: Codable, Equatable {
     init(
         backgroundEnabled: Bool = true,
         cornerRadius: CGFloat = 16,
-        paddingFraction: CGFloat = 0.06,
+        paddingRatio: CGFloat = 0.1,
         shadowEnabled: Bool = true,
         watermarkEnabled: Bool = false,
         watermarkText: String = "",
@@ -175,7 +185,7 @@ struct ExportStyle: Codable, Equatable {
     ) {
         self.backgroundEnabled = backgroundEnabled
         self.cornerRadius = cornerRadius
-        self.paddingFraction = paddingFraction
+        self.paddingRatio = paddingRatio
         self.shadowEnabled = shadowEnabled
         self.watermarkEnabled = watermarkEnabled
         self.watermarkText = watermarkText
@@ -190,7 +200,13 @@ struct ExportStyle: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         backgroundEnabled = try container.decodeIfPresent(Bool.self, forKey: .backgroundEnabled) ?? true
         cornerRadius = try container.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 16
-        paddingFraction = try container.decodeIfPresent(CGFloat.self, forKey: .paddingFraction) ?? 0.06
+        if let ratio = try container.decodeIfPresent(CGFloat.self, forKey: .paddingRatio) {
+            paddingRatio = ratio
+        } else if let fraction = try container.decodeIfPresent(CGFloat.self, forKey: .paddingFraction) {
+            paddingRatio = fraction * 16 / 9
+        } else {
+            paddingRatio = 0.1
+        }
         shadowEnabled = try container.decodeIfPresent(Bool.self, forKey: .shadowEnabled) ?? true
         watermarkEnabled = try container.decodeIfPresent(Bool.self, forKey: .watermarkEnabled) ?? false
         watermarkText = try container.decodeIfPresent(String.self, forKey: .watermarkText) ?? ""
@@ -205,7 +221,7 @@ struct ExportStyle: Codable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(backgroundEnabled, forKey: .backgroundEnabled)
         try container.encode(cornerRadius, forKey: .cornerRadius)
-        try container.encode(paddingFraction, forKey: .paddingFraction)
+        try container.encode(paddingRatio, forKey: .paddingRatio)
         try container.encode(shadowEnabled, forKey: .shadowEnabled)
         try container.encode(watermarkEnabled, forKey: .watermarkEnabled)
         try container.encode(watermarkText, forKey: .watermarkText)
@@ -291,7 +307,8 @@ struct ProjectEditSettings: Codable, Equatable {
     /// `resolvedTimeline(sourceDuration:)`.
     var timeline: EditTimeline?
     var audio = AudioMixSettings()
-    var exportPreset: ExportResolutionPreset = .hd1080p
+    /// Shape and size of the export.
+    var canvas = CanvasSpec()
     var exportStyle: ExportStyle = .runlyxDark
     var zoomPreset: ZoomPreset = .demo
     var camera = CameraOverlayStyle()
@@ -497,6 +514,8 @@ extension ProjectEditSettings {
         case trimEnd
         case timeline
         case audio
+        case canvas
+        /// Before canvases: source, 1080p or 720p.
         case exportPreset
         case exportStyle
         case zoomPreset
@@ -510,8 +529,13 @@ extension ProjectEditSettings {
         trimEnd = try container.decodeIfPresent(TimeInterval.self, forKey: .trimEnd)
         timeline = try? container.decodeIfPresent(EditTimeline.self, forKey: .timeline)
         audio = (try? container.decodeIfPresent(AudioMixSettings.self, forKey: .audio)) ?? defaults.audio
-        exportPreset = try container.decodeIfPresent(ExportResolutionPreset.self, forKey: .exportPreset)
-            ?? defaults.exportPreset
+        if let canvas = try? container.decodeIfPresent(CanvasSpec.self, forKey: .canvas) {
+            self.canvas = canvas
+        } else if let preset = try? container.decodeIfPresent(ExportResolutionPreset.self, forKey: .exportPreset) {
+            canvas = CanvasSpec.migrated(from: preset)
+        } else {
+            canvas = defaults.canvas
+        }
         exportStyle = try container.decodeIfPresent(ExportStyle.self, forKey: .exportStyle) ?? defaults.exportStyle
         zoomPreset = try container.decodeIfPresent(ZoomPreset.self, forKey: .zoomPreset) ?? defaults.zoomPreset
         camera = try container.decodeIfPresent(CameraOverlayStyle.self, forKey: .camera) ?? defaults.camera

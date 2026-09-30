@@ -119,7 +119,7 @@ final class ProjectEditor: ObservableObject {
 
     var exportOutputSize: CGSize {
         let source = CGSize(width: project.metadata.width, height: project.metadata.height)
-        return editSettings.exportPreset.outputSize(for: source)
+        return editSettings.canvas.pixelSize(source: source)
     }
 
     init(project: RecorderProject) {
@@ -545,7 +545,7 @@ final class ProjectEditor: ObservableObject {
             autosaver.flush()
 
             let sourceSize = CGSize(width: project.metadata.width, height: project.metadata.height)
-            let outputSize = editSettings.exportPreset.outputSize(for: sourceSize)
+            let outputSize = editSettings.canvas.pixelSize(source: sourceSize)
             let audioTrackCount = try await AVURLAsset(url: project.videoURL).loadTracks(withMediaType: .audio).count
 
             try await videoExporter.export(
@@ -554,7 +554,7 @@ final class ProjectEditor: ObservableObject {
                 configuration: ExportConfiguration(
                     keyframes: keyframes,
                     outputSize: outputSize,
-                    bitrate: editSettings.exportPreset.targetBitrate(for: outputSize, fps: project.metadata.fps),
+                    bitrate: ExportBitrate.target(for: outputSize, fps: project.metadata.fps),
                     timeline: timeline,
                     exportStyle: editSettings.exportStyle,
                     zoomPreset: editSettings.zoomPreset,

@@ -216,7 +216,10 @@ final class CompositionRenderer {
         outputHeight: Int
     ) -> FittedContent {
         let padding = settings.exportStyle.backgroundEnabled
-            ? CGFloat(outputWidth) * settings.exportStyle.paddingFraction
+            ? CanvasLayout.padding(
+                canvas: CGSize(width: outputWidth, height: outputHeight),
+                ratio: settings.exportStyle.paddingRatio
+            )
             : 0
         let availableWidth = CGFloat(outputWidth) - padding * 2
         let availableHeight = CGFloat(outputHeight) - padding * 2
@@ -299,11 +302,14 @@ final class CompositionRenderer {
 
     private func backdropLayers(contentFrame: CGRect, outputWidth: Int, outputHeight: Int) -> BackdropLayers {
         let style = settings.exportStyle
+        // Sizes are designed at 1080p and scale with the canvas.
+        let unit = CanvasLayout.referenceUnit(for: CGSize(width: outputWidth, height: outputHeight))
+        let cornerRadius = style.cornerRadius * unit
         let key = BackdropKey(
             outputWidth: outputWidth,
             outputHeight: outputHeight,
             contentFrame: contentFrame,
-            cornerRadius: style.cornerRadius,
+            cornerRadius: cornerRadius,
             shadowEnabled: style.shadowEnabled
         )
         if let cachedBackdrop, cachedBackdrop.key == key {
@@ -317,8 +323,8 @@ final class CompositionRenderer {
         if style.shadowEnabled {
             // Core Image space is y-up, so a negative offset puts the shadow below.
             let shadowMask = roundedRectMask(
-                rect: contentFrame.offsetBy(dx: 0, dy: -6),
-                radius: style.cornerRadius,
+                rect: contentFrame.offsetBy(dx: 0, dy: -6 * unit),
+                radius: cornerRadius,
                 canvasSize: outputSize
             )
             let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.35))
@@ -326,13 +332,13 @@ final class CompositionRenderer {
                 .applyingFilter("CIBlendWithMask", parameters: [
                     kCIInputMaskImageKey: shadowMask
                         .clampedToExtent()
-                        .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 16])
+                        .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 16 * unit])
                         .cropped(to: outputRect)
                 ])
             background = shadow.composited(over: background)
         }
 
-        let contentMask = roundedRectMask(rect: contentFrame, radius: style.cornerRadius, canvasSize: outputSize)
+        let contentMask = roundedRectMask(rect: contentFrame, radius: cornerRadius, canvasSize: outputSize)
         let layers = BackdropLayers(
             background: materialize(background, size: outputSize),
             contentMask: materialize(contentMask, size: outputSize)
@@ -367,19 +373,22 @@ final class CompositionRenderer {
 
     private func compositeWatermark(onto image: CIImage, canvas: CGSize, avoiding bubble: CGRect?) -> CIImage {
         let text = settings.exportStyle.watermarkText
+        let unit = CanvasLayout.referenceUnit(for: canvas)
+        let key = "\(text)@\(Int((unit * 100).rounded()))"
         let textImage: CIImage
-        if let cachedWatermark, cachedWatermark.text == text {
+        if let cachedWatermark, cachedWatermark.text == key {
             textImage = cachedWatermark.image
         } else {
-            textImage = makeWatermarkImage(text: text)
-            cachedWatermark = (text, textImage)
+            textImage = makeWatermarkImage(text: text, fontSize: 18 * unit)
+            cachedWatermark = (key, textImage)
         }
 
-        // Bottom-right corner, 24 px in from each edge, unless the camera bubble is there.
+        // Bottom-right corner, 24 px (at 1080p) in from each edge, unless the camera
+        // bubble is there.
         let origin = OverlayLayout.watermarkOrigin(
             size: textImage.extent.size,
             canvas: canvas,
-            margin: 24,
+            margin: 24 * unit,
             avoiding: bubble
         )
         return textImage
@@ -388,9 +397,9 @@ final class CompositionRenderer {
     }
 
     /// Just the text, in a bitmap the size of the text.
-    private func makeWatermarkImage(text: String) -> CIImage {
+    private func makeWatermarkImage(text: String, fontSize: CGFloat) -> CIImage {
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 18, weight: .medium),
+            .font: NSFont.systemFont(ofSize: max(6, fontSize), weight: .medium),
             .foregroundColor: NSColor.white.withAlphaComponent(0.55)
         ]
         let size = (text as NSString).size(withAttributes: attributes)
@@ -625,8 +634,9 @@ final class CompositionRenderer {
         let outputRect = CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight)
         guard let filter = CIFilter(name: "CIRadialGradient") else { return image }
         filter.setValue(CIVector(x: point.x, y: point.y), forKey: "inputCenter")
-        filter.setValue(motionFX.spotlightInnerRadius, forKey: "inputRadius0")
-        filter.setValue(motionFX.spotlightOuterRadius, forKey: "inputRadius1")
+        let unit = CanvasLayout.referenceUnit(for: outputRect.size)
+        filter.setValue(motionFX.spotlightInnerRadius * unit, forKey: "inputRadius0")
+        filter.setValue(motionFX.spotlightOuterRadius * unit, forKey: "inputRadius1")
         filter.setValue(CIColor(red: 0, green: 0, blue: 0, alpha: 1), forKey: "inputColor0")
         filter.setValue(CIColor(red: 1, green: 1, blue: 1, alpha: 1), forKey: "inputColor1")
         let mask = (filter.outputImage ?? CIImage.empty()).cropped(to: outputRect)
