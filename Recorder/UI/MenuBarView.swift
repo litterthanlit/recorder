@@ -311,13 +311,6 @@ struct MenuBarView: View {
                     .foregroundStyle(.secondary)
             }
 
-        case .exporting:
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Exporting with auto zoom…", systemImage: "film")
-                    .font(.subheadline)
-                ProgressView(value: session.exportProgress)
-            }
-
         case let .finished(project):
             VStack(alignment: .leading, spacing: 10) {
                 Label("Export complete", systemImage: "checkmark.circle.fill")
@@ -366,7 +359,7 @@ struct MenuBarView: View {
             }
             .buttonStyle(.borderedProminent)
 
-        case .processing, .exporting:
+        case .processing:
             EmptyView()
 
         case let .editing(project):

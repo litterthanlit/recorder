@@ -10,7 +10,6 @@ final class RecordingSession: ObservableObject {
         case recording(startedAt: Date)
         case processing
         case editing(RecorderProject)
-        case exporting(progress: Double)
         case finished(RecorderProject)
         case failed(String)
     }
@@ -18,7 +17,6 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var elapsedTime: TimeInterval = 0
     @Published private(set) var clickCount: Int = 0
-    @Published private(set) var exportProgress: Double = 0
     @Published private(set) var activeEditor: ProjectEditor?
     @Published var preferences = RecordingPreferences.load() {
         didSet { preferences.save() }
@@ -42,6 +40,9 @@ final class RecordingSession: ObservableObject {
     private var currentProjectID = UUID()
     private var currentBundleURL: URL?
     private var hasStartedInputTracking = false
+    /// The first frame can arrive while `start()` is still waiting for capture to start,
+    /// before the state says `.recording`; it's kept here and handled right after.
+    private var pendingFirstFrameHostTime: CMTime?
     private var screenParametersObserver: NSObjectProtocol?
 
     init() {
@@ -100,7 +101,7 @@ final class RecordingSession: ObservableObject {
         switch state {
         case .countdown, .recording, .processing:
             return true
-        case .idle, .editing, .exporting, .finished, .failed:
+        case .idle, .editing, .finished, .failed:
             return false
         }
     }
@@ -124,7 +125,7 @@ final class RecordingSession: ObservableObject {
             break
         case .failed, .editing, .finished:
             reset()
-        case .countdown, .recording, .processing, .exporting:
+        case .countdown, .recording, .processing:
             return
         }
         notice = nil
@@ -195,6 +196,7 @@ final class RecordingSession: ObservableObject {
 
             let videoURL = bundleURL.appendingPathComponent("video.mov")
             hasStartedInputTracking = false
+            pendingFirstFrameHostTime = nil
             recordingStartTime = 0
 
             if preferences.cameraEnabled {
@@ -260,6 +262,10 @@ final class RecordingSession: ObservableObject {
             state = .recording(startedAt: Date())
             elapsedTime = 0
             clickCount = 0
+            if let pendingFirstFrameHostTime {
+                self.pendingFirstFrameHostTime = nil
+                beginInputTrackingAlignedToVideo(firstFrameHostTime: pendingFirstFrameHostTime)
+            }
         } catch {
             cameraMicCapture.trackWriter.cancel()
             teardownCaptureHelpers()
@@ -381,11 +387,20 @@ final class RecordingSession: ObservableObject {
         switch state {
         case let .editing(project), let .finished(project):
             shownProjectID = project.metadata.id
-        case .idle, .countdown, .recording, .processing, .exporting, .failed:
+        case .idle, .countdown, .recording, .processing, .failed:
             shownProjectID = nil
         }
         if activeEditor?.project.metadata.id == id || shownProjectID == id {
             reset()
+        }
+    }
+
+    /// The editor window for this project closed: let go of its editor.
+    func releaseEditor(id: UUID) {
+        guard activeEditor?.project.metadata.id == id else { return }
+        activeEditor = nil
+        if case let .editing(project) = state, project.metadata.id == id {
+            state = .idle
         }
     }
 
@@ -409,10 +424,10 @@ final class RecordingSession: ObservableObject {
         countdownOverlay.cancel()
         _ = inputTracker.stop()
         hasStartedInputTracking = false
+        pendingFirstFrameHostTime = nil
         state = .idle
         elapsedTime = 0
         clickCount = 0
-        exportProgress = 0
         notice = nil
         currentBundleURL = nil
         activeEditor = nil
@@ -485,7 +500,11 @@ final class RecordingSession: ObservableObject {
 extension RecordingSession: ScreenRecorderDelegate {
     nonisolated func screenRecorder(_ recorder: ScreenRecorder, didReceiveFirstFrameAt hostTime: CMTime) {
         Task { @MainActor in
-            self.beginInputTrackingAlignedToVideo(firstFrameHostTime: hostTime)
+            if case .recording = self.state {
+                self.beginInputTrackingAlignedToVideo(firstFrameHostTime: hostTime)
+            } else {
+                self.pendingFirstFrameHostTime = hostTime
+            }
         }
     }
 

@@ -470,6 +470,13 @@ final class ProjectEditor: ObservableObject {
         }
     }
 
+    /// Writes any pending edit to disk now (the window is closing).
+    func flushAutosave() {
+        endInteractiveEdit()
+        persist()
+        autosaver.flush()
+    }
+
     func revealExportInFinder() {
         NSWorkspace.shared.activateFileViewerSelecting([project.exportURL])
     }

@@ -15,6 +15,9 @@ final class AppState: ObservableObject {
     init() {
         // Bind at launch so ⌘⇧R / ⌘⇧. work before the menu panel is opened.
         hotkeys.bind(session: session)
+        editorPresenter.onClose = { [weak session] projectID in
+            session?.releaseEditor(id: projectID)
+        }
 
         session.$state
             .receive(on: RunLoop.main)
@@ -79,20 +82,31 @@ final class AppState: ObservableObject {
 
 /// Opens the editor without depending on MenuBarView / openWindow lifecycle.
 @MainActor
-final class EditorPresenter {
+final class EditorPresenter: NSObject, NSWindowDelegate {
     private var windowController: NSWindowController?
-    private var presentedProjectID: UUID?
+    private var presentedEditor: ProjectEditor?
+    /// Called with the project ID after its editor window closes.
+    var onClose: ((UUID) -> Void)?
 
     /// Closes the editor window if it's showing this project, releasing its editor.
     func close(projectID: UUID) {
-        guard presentedProjectID == projectID, let window = windowController?.window else { return }
+        guard presentedEditor?.project.metadata.id == projectID, let window = windowController?.window else { return }
         window.close()
-        window.contentViewController = nil
-        presentedProjectID = nil
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let editor = presentedEditor else { return }
+        presentedEditor = nil
+        editor.pausePlayback()
+        editor.flushAutosave()
+        // Takes the preview out of the window, which stops its display link, and drops
+        // the view's reference to the editor.
+        windowController?.window?.contentViewController = nil
+        onClose?(editor.project.metadata.id)
     }
 
     func present(editor: ProjectEditor, onExported: @escaping (RecorderProject) -> Void) {
-        presentedProjectID = editor.project.metadata.id
+        presentedEditor = editor
         let rootView = EditorView(editor: editor)
             .onChange(of: editor.state) { _, newState in
                 if case .exported = newState {
@@ -110,6 +124,7 @@ final class EditorPresenter {
             window.setContentSize(NSSize(width: 1100, height: 860))
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.isReleasedWhenClosed = false
+            window.delegate = self
             window.center()
             let controller = NSWindowController(window: window)
             controller.showWindow(nil)

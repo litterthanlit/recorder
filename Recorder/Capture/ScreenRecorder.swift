@@ -81,7 +81,7 @@ final class ScreenRecorder: NSObject {
     }
 
     func startRecording(to url: URL, options: ScreenRecorderOptions = ScreenRecorderOptions()) async throws {
-        guard !isRecording else {
+        guard !writerQueue.sync(execute: { isRecording }) else {
             throw ScreenRecorderError.alreadyRecording
         }
         self.options = options
@@ -172,14 +172,21 @@ final class ScreenRecorder: NSObject {
             includeSystemAudio: options.captureSystemAudio
         )
 
-        firstSampleTime = nil
-        droppedVideoFrames = 0
-        droppedAudioBuffers = 0
-        lastWrittenTime = .zero
-        lastWrittenPixelBuffer = nil
-        didNotifyFirstFrame = false
-        didReportFailure = false
         outputURL = url
+
+        // Ready the writer-side state before capture starts: the first frame (on a still
+        // screen, possibly the only one for a while) can arrive before startCapture()
+        // returns, and it must not be dropped. These are read on the writer queue.
+        writerQueue.sync {
+            firstSampleTime = nil
+            droppedVideoFrames = 0
+            droppedAudioBuffers = 0
+            lastWrittenTime = .zero
+            lastWrittenPixelBuffer = nil
+            didNotifyFirstFrame = false
+            didReportFailure = false
+            isRecording = true
+        }
 
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         do {
@@ -189,14 +196,16 @@ final class ScreenRecorder: NSObject {
             }
             try await stream.startCapture()
         } catch {
-            assetWriter?.cancelWriting()
-            assetWriter = nil
+            writerQueue.sync {
+                isRecording = false
+                assetWriter?.cancelWriting()
+                assetWriter = nil
+            }
             throw error
         }
 
         self.stream = stream
         sessionStartTime = CACurrentMediaTime()
-        isRecording = true
     }
 
     /// - Parameter hostTime: the buffer's capture time on the host clock.
@@ -210,12 +219,15 @@ final class ScreenRecorder: NSObject {
     /// Stops capture and finalizes the movie. Safe to call after a stream error: the
     /// writer is always finished so whatever was recorded stays playable.
     func stopRecording() async throws -> RecordingResult {
-        guard isRecording else {
+        let stopHostTime = CMClockGetTime(CMClockGetHostTimeClock())
+        let wasRecording = writerQueue.sync {
+            let wasRecording = isRecording
+            isRecording = false
+            return wasRecording
+        }
+        guard wasRecording else {
             throw ScreenRecorderError.notRecording
         }
-
-        let stopHostTime = CMClockGetTime(CMClockGetHostTimeClock())
-        isRecording = false
 
         if let stream {
             // The stream may already have stopped on its own (window closed, error, user
@@ -414,7 +426,8 @@ final class ScreenRecorder: NSObject {
               let writerInput,
               let assetWriter,
               assetWriter.status == .writing,
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
+              Self.isCompleteFrame(sampleBuffer)
         else { return }
         guard writerInput.isReadyForMoreMediaData else {
             droppedVideoFrames += 1
@@ -493,6 +506,19 @@ final class ScreenRecorder: NSObject {
             guard let self else { return }
             self.delegate?.screenRecorder(self, didFailWith: error)
         }
+    }
+
+    /// Only `.complete` frames carry new content; idle, blank and suspended ones don't.
+    private static func isCompleteFrame(_ sampleBuffer: CMSampleBuffer) -> Bool {
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
+                as? [[SCStreamFrameInfo: Any]],
+              let rawStatus = attachments.first?[.status] as? Int,
+              let status = SCFrameStatus(rawValue: rawStatus)
+        else {
+            // No status attached: trust the image buffer.
+            return true
+        }
+        return status == .complete
     }
 
     /// ScreenCaptureKit often reports invalid/zero sample durations — fall back to 1/fps.
