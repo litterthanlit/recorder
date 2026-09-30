@@ -10,19 +10,14 @@ struct ExportConfiguration {
     let bitrate: Int
     /// The edit: which parts of the recording play, in order, at what speed.
     let timeline: EditTimeline
-    let exportStyle: ExportStyle
-    let zoomPreset: ZoomPreset
-    let cursorEvents: [CursorEvent]
-    let clickEvents: [ClickEvent]
-    let drawCursor: Bool
+    /// What to draw (look, cursor, overlays). Its source size is replaced with the
+    /// recording's actual size.
+    let render: CompositionRenderSettings
     /// Output frame rate. The export runs on this fixed clock regardless of how often
     /// the (variable frame rate) source recording changed.
     let frameRate: Int
-    /// Separately recorded camera track, if any, and how to show it.
+    /// Separately recorded camera track, if any.
     let cameraURL: URL?
-    let camera: CameraOverlayStyle
-    /// Capture scale factor (source pixels per screen point), for sizing the cursor.
-    let sourcePixelsPerPoint: CGFloat
     /// What each audio track holds, and their levels.
     let audioTrackRoles: [AudioTrackRole]
     let audio: AudioMixSettings
@@ -153,23 +148,13 @@ final class VideoExporter {
         let sourceWidth = abs(renderSize.width)
         let sourceHeight = abs(renderSize.height)
 
-        let compositor = CompositionRenderer(
-            keyframes: configuration.keyframes,
-            settings: CompositionRenderSettings(
-                exportStyle: configuration.exportStyle,
-                zoomPreset: configuration.zoomPreset,
-                cursorEvents: configuration.cursorEvents,
-                clickEvents: configuration.clickEvents,
-                sourceWidth: sourceWidth,
-                sourceHeight: sourceHeight,
-                drawCursor: configuration.drawCursor,
-                camera: configuration.camera,
-                sourcePixelsPerPoint: configuration.sourcePixelsPerPoint
-            )
-        )
+        var renderSettings = configuration.render
+        renderSettings.sourceWidth = sourceWidth
+        renderSettings.sourceHeight = sourceHeight
+        let compositor = CompositionRenderer(keyframes: configuration.keyframes, settings: renderSettings)
 
         var cameraFrames: CameraFrameSource?
-        if configuration.camera.isVisible {
+        if renderSettings.camera.isVisible {
             cameraFrames = try await CameraFrameSource(url: configuration.cameraURL)
         }
 

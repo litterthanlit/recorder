@@ -21,6 +21,37 @@ enum OverlayLayout {
         let keepOut = obstacle.insetBy(dx: -margin / 2, dy: -margin / 2)
         return candidates.first { !CGRect(origin: $0, size: size).intersects(keepOut) } ?? candidates[0]
     }
+
+    /// A box of `size` centred on `center` (normalized, top-left origin, as text overlays
+    /// store it) on `canvas`, in Core Image space, moved back inside the canvas (`margin`
+    /// from the edges) if it would stick out.
+    static func centeredFrame(size: CGSize, normalizedCenter center: CGPoint, canvas: CGSize, margin: CGFloat) -> CGRect {
+        let x = center.x * canvas.width - size.width / 2
+        let y = (1 - center.y) * canvas.height - size.height / 2
+        let maxX = max(margin, canvas.width - size.width - margin)
+        let maxY = max(margin, canvas.height - size.height - margin)
+        return CGRect(
+            x: min(max(x, margin), maxX),
+            y: min(max(y, margin), maxY),
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    /// Where the keystroke pill goes: centred on the recording, `margin` in from its
+    /// bottom or top edge.
+    static func keystrokeOrigin(
+        size: CGSize,
+        contentFrame: CGRect,
+        placement: KeystrokeOverlayStyle.Placement,
+        margin: CGFloat
+    ) -> CGPoint {
+        let x = contentFrame.midX - size.width / 2
+        let y = placement == .bottom
+            ? contentFrame.minY + margin
+            : contentFrame.maxY - margin - size.height
+        return CGPoint(x: x, y: y)
+    }
 }
 
 enum CameraBubblePosition: String, Codable, CaseIterable, Identifiable {
@@ -93,9 +124,16 @@ enum CameraBubbleLayout {
 
     /// The bubble's square in a frame of `bounds` (bottom-left origin).
     static func frame(in bounds: CGSize, position: CameraBubblePosition, size: CameraBubbleSize = .medium) -> CGRect {
+        frame(in: bounds, position: position, diameterFraction: size.diameterFraction)
+    }
+
+    /// The bubble's square in a frame of `bounds` (bottom-left origin), `diameterFraction`
+    /// of its shorter side across (at most what fits inside the padding).
+    static func frame(in bounds: CGSize, position: CameraBubblePosition, diameterFraction: CGFloat) -> CGRect {
         let shorter = min(bounds.width, bounds.height)
-        let diameter = shorter * size.diameterFraction
         let padding = shorter * paddingFraction
+        let fraction = diameterFraction.isFinite ? max(0, diameterFraction) : 0
+        let diameter = min(shorter * fraction, max(0, shorter - padding * 2))
 
         let x: CGFloat
         let y: CGFloat

@@ -14,15 +14,9 @@ enum ExportService {
             outputSize: outputSize,
             bitrate: ExportBitrate.target(for: outputSize, fps: project.metadata.fps),
             timeline: settings.resolvedTimeline(sourceDuration: project.metadata.duration),
-            exportStyle: settings.exportStyle,
-            zoomPreset: settings.zoomPreset,
-            cursorEvents: project.cursorEvents,
-            clickEvents: project.clickEvents,
-            drawCursor: !project.cursorEvents.isEmpty,
+            render: CompositionRenderSettings(project: project, editSettings: settings),
             frameRate: project.metadata.fps,
             cameraURL: project.hasCameraTrack ? project.cameraURL : nil,
-            camera: settings.camera,
-            sourcePixelsPerPoint: project.metadata.scaleFactor,
             audioTrackRoles: project.metadata.resolvedAudioTrackRoles(trackCount: audioTrackCount),
             audio: settings.audio
         )
@@ -35,6 +29,8 @@ enum ExportService {
         _ project: RecorderProject,
         progress: @escaping @MainActor (Double) -> Void
     ) async throws -> URL {
+        // The recorded cursor is drawn with the system's own cursor images.
+        await SystemCursorImages.shared.load()
         let configuration = try await configuration(for: project)
         try await VideoExporter().export(
             sourceURL: project.videoURL,

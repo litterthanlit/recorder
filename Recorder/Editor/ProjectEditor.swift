@@ -103,17 +103,7 @@ final class ProjectEditor: ObservableObject {
     }
 
     var renderSettings: CompositionRenderSettings {
-        CompositionRenderSettings(
-            exportStyle: editSettings.exportStyle,
-            zoomPreset: editSettings.zoomPreset,
-            cursorEvents: project.cursorEvents,
-            clickEvents: project.clickEvents,
-            sourceWidth: CGFloat(project.metadata.width),
-            sourceHeight: CGFloat(project.metadata.height),
-            drawCursor: !project.cursorEvents.isEmpty,
-            camera: editSettings.camera,
-            sourcePixelsPerPoint: project.metadata.scaleFactor
-        )
+        CompositionRenderSettings(project: project, editSettings: editSettings)
     }
 
     var exportOutputSize: CGSize {
@@ -133,6 +123,8 @@ final class ProjectEditor: ObservableObject {
             cameraPlayer = nil
         }
         editSettings.setTimeline(editSettings.resolvedTimeline(sourceDuration: project.metadata.duration))
+        // The preview draws the recorded cursor with the system's own cursor images.
+        SystemCursorImages.shared.load()
         installTimeObserver()
         scheduleCompositionRebuild(immediately: true)
 

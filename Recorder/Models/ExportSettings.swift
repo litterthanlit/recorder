@@ -138,8 +138,11 @@ enum ZoomPreset: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// The look of the video: background and frame, cursor and clicks, keystrokes,
+/// watermark. (The camera has its own `CameraOverlayStyle`.)
 struct ExportStyle: Codable, Equatable {
-    var backgroundEnabled: Bool = true
+    var background = BackgroundStyle()
+    /// Corner radius of the recording, in points at 1080p (scaled with the canvas).
     var cornerRadius: CGFloat = 16
     /// Space around the recording, as a fraction of the canvas's shorter side.
     var paddingRatio: CGFloat = 0.1
@@ -151,10 +154,38 @@ struct ExportStyle: Codable, Equatable {
     var clickRipplesEnabled: Bool = true
     var cursorSpotlightEnabled: Bool = false
     var cursorScaleOnClickEnabled: Bool = true
+    /// Draw the recorded cursor at all.
+    var showCursor: Bool = true
+    /// Size relative to the real cursor.
+    var cursorSize: Double = 1
+    /// Fade the cursor out when the pointer rests.
+    var hideIdleCursor: Bool = false
+    var keystrokes = KeystrokeOverlayStyle()
+    /// Blur the picture while the camera zooms and pans.
+    var motionBlurEnabled: Bool = false
 
+    static let cursorSizeRange: ClosedRange<Double> = 0.5...3
     static let runlyxDark = ExportStyle()
 
+    /// Whether there's a frame around the recording (any background but none).
+    var backgroundEnabled: Bool {
+        get { background.kind != .none }
+        set {
+            if newValue {
+                if background.kind == .none {
+                    background.kind = .wallpaper
+                }
+            } else {
+                background.kind = .none
+            }
+        }
+    }
+
+    init() {}
+
     enum CodingKeys: String, CodingKey {
+        case background
+        /// Before backgrounds had kinds: on (the dark gradient) or off. Still written.
         case backgroundEnabled
         case cornerRadius
         case paddingRatio
@@ -168,57 +199,54 @@ struct ExportStyle: Codable, Equatable {
         case clickRipplesEnabled
         case cursorSpotlightEnabled
         case cursorScaleOnClickEnabled
-    }
-
-    init(
-        backgroundEnabled: Bool = true,
-        cornerRadius: CGFloat = 16,
-        paddingRatio: CGFloat = 0.1,
-        shadowEnabled: Bool = true,
-        watermarkEnabled: Bool = false,
-        watermarkText: String = "",
-        cursorSmoothingEnabled: Bool = true,
-        springCameraEnabled: Bool = true,
-        clickRipplesEnabled: Bool = true,
-        cursorSpotlightEnabled: Bool = false,
-        cursorScaleOnClickEnabled: Bool = true
-    ) {
-        self.backgroundEnabled = backgroundEnabled
-        self.cornerRadius = cornerRadius
-        self.paddingRatio = paddingRatio
-        self.shadowEnabled = shadowEnabled
-        self.watermarkEnabled = watermarkEnabled
-        self.watermarkText = watermarkText
-        self.cursorSmoothingEnabled = cursorSmoothingEnabled
-        self.springCameraEnabled = springCameraEnabled
-        self.clickRipplesEnabled = clickRipplesEnabled
-        self.cursorSpotlightEnabled = cursorSpotlightEnabled
-        self.cursorScaleOnClickEnabled = cursorScaleOnClickEnabled
+        case showCursor
+        case cursorSize
+        case hideIdleCursor
+        case keystrokes
+        case motionBlurEnabled
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        backgroundEnabled = try container.decodeIfPresent(Bool.self, forKey: .backgroundEnabled) ?? true
-        cornerRadius = try container.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 16
+        let defaults = ExportStyle()
+        if let background = try? container.decodeIfPresent(BackgroundStyle.self, forKey: .background) {
+            self.background = background
+        } else if try container.decodeIfPresent(Bool.self, forKey: .backgroundEnabled) == false {
+            background = BackgroundStyle(kind: .none)
+        } else {
+            background = BackgroundStyle(kind: .wallpaper, wallpaper: .midnight)
+        }
+        cornerRadius = try container.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? defaults.cornerRadius
         if let ratio = try container.decodeIfPresent(CGFloat.self, forKey: .paddingRatio) {
             paddingRatio = ratio
         } else if let fraction = try container.decodeIfPresent(CGFloat.self, forKey: .paddingFraction) {
             paddingRatio = fraction * 16 / 9
         } else {
-            paddingRatio = 0.1
+            paddingRatio = defaults.paddingRatio
         }
-        shadowEnabled = try container.decodeIfPresent(Bool.self, forKey: .shadowEnabled) ?? true
-        watermarkEnabled = try container.decodeIfPresent(Bool.self, forKey: .watermarkEnabled) ?? false
-        watermarkText = try container.decodeIfPresent(String.self, forKey: .watermarkText) ?? ""
-        cursorSmoothingEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorSmoothingEnabled) ?? true
-        springCameraEnabled = try container.decodeIfPresent(Bool.self, forKey: .springCameraEnabled) ?? true
-        clickRipplesEnabled = try container.decodeIfPresent(Bool.self, forKey: .clickRipplesEnabled) ?? true
-        cursorSpotlightEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorSpotlightEnabled) ?? false
-        cursorScaleOnClickEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorScaleOnClickEnabled) ?? true
+        shadowEnabled = try container.decodeIfPresent(Bool.self, forKey: .shadowEnabled) ?? defaults.shadowEnabled
+        watermarkEnabled = try container.decodeIfPresent(Bool.self, forKey: .watermarkEnabled) ?? defaults.watermarkEnabled
+        watermarkText = try container.decodeIfPresent(String.self, forKey: .watermarkText) ?? defaults.watermarkText
+        cursorSmoothingEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorSmoothingEnabled)
+            ?? defaults.cursorSmoothingEnabled
+        springCameraEnabled = try container.decodeIfPresent(Bool.self, forKey: .springCameraEnabled)
+            ?? defaults.springCameraEnabled
+        clickRipplesEnabled = try container.decodeIfPresent(Bool.self, forKey: .clickRipplesEnabled)
+            ?? defaults.clickRipplesEnabled
+        cursorSpotlightEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorSpotlightEnabled)
+            ?? defaults.cursorSpotlightEnabled
+        cursorScaleOnClickEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorScaleOnClickEnabled)
+            ?? defaults.cursorScaleOnClickEnabled
+        showCursor = try container.decodeIfPresent(Bool.self, forKey: .showCursor) ?? defaults.showCursor
+        cursorSize = try container.decodeIfPresent(Double.self, forKey: .cursorSize) ?? defaults.cursorSize
+        hideIdleCursor = try container.decodeIfPresent(Bool.self, forKey: .hideIdleCursor) ?? defaults.hideIdleCursor
+        keystrokes = (try? container.decodeIfPresent(KeystrokeOverlayStyle.self, forKey: .keystrokes)) ?? defaults.keystrokes
+        motionBlurEnabled = try container.decodeIfPresent(Bool.self, forKey: .motionBlurEnabled) ?? defaults.motionBlurEnabled
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(background, forKey: .background)
         try container.encode(backgroundEnabled, forKey: .backgroundEnabled)
         try container.encode(cornerRadius, forKey: .cornerRadius)
         try container.encode(paddingRatio, forKey: .paddingRatio)
@@ -230,6 +258,11 @@ struct ExportStyle: Codable, Equatable {
         try container.encode(clickRipplesEnabled, forKey: .clickRipplesEnabled)
         try container.encode(cursorSpotlightEnabled, forKey: .cursorSpotlightEnabled)
         try container.encode(cursorScaleOnClickEnabled, forKey: .cursorScaleOnClickEnabled)
+        try container.encode(showCursor, forKey: .showCursor)
+        try container.encode(cursorSize, forKey: .cursorSize)
+        try container.encode(hideIdleCursor, forKey: .hideIdleCursor)
+        try container.encode(keystrokes, forKey: .keystrokes)
+        try container.encode(motionBlurEnabled, forKey: .motionBlurEnabled)
     }
 }
 
@@ -238,6 +271,18 @@ struct CameraOverlayStyle: Codable, Equatable {
     var isVisible: Bool = true
     var position: CameraBubblePosition = .bottomRight
     var size: CameraBubbleSize = .medium
+    /// Diameter as a fraction of the recording's shorter side, set by the size slider;
+    /// `nil` uses `size`.
+    var customSize: Double?
+    var shape: CameraShape = .circle
+    var borderEnabled: Bool = true
+
+    static let sizeRange: ClosedRange<Double> = 0.08...0.4
+
+    /// The diameter fraction to draw with.
+    var diameterFraction: CGFloat {
+        CGFloat(customSize.map { min(max($0, Self.sizeRange.lowerBound), Self.sizeRange.upperBound) } ?? Double(size.diameterFraction))
+    }
 
     init(isVisible: Bool = true, position: CameraBubblePosition = .bottomRight, size: CameraBubbleSize = .medium) {
         self.isVisible = isVisible
@@ -250,12 +295,18 @@ struct CameraOverlayStyle: Codable, Equatable {
         isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
         position = try container.decodeIfPresent(CameraBubblePosition.self, forKey: .position) ?? .bottomRight
         size = try container.decodeIfPresent(CameraBubbleSize.self, forKey: .size) ?? .medium
+        customSize = try container.decodeIfPresent(Double.self, forKey: .customSize)
+        shape = try container.decodeIfPresent(CameraShape.self, forKey: .shape) ?? .circle
+        borderEnabled = try container.decodeIfPresent(Bool.self, forKey: .borderEnabled) ?? true
     }
 
     private enum CodingKeys: String, CodingKey {
         case isVisible
         case position
         case size
+        case customSize
+        case shape
+        case borderEnabled
     }
 }
 
@@ -312,6 +363,8 @@ struct ProjectEditSettings: Codable, Equatable {
     var exportStyle: ExportStyle = .runlyxDark
     var zoomPreset: ZoomPreset = .demo
     var camera = CameraOverlayStyle()
+    var textOverlays: [TextOverlay] = []
+    var blurRegions: [BlurRegion] = []
 
     /// The edit to use: the saved one, or the old trim as a single segment.
     func resolvedTimeline(sourceDuration: TimeInterval) -> EditTimeline {
@@ -518,6 +571,8 @@ extension ProjectEditSettings {
         case exportStyle
         case zoomPreset
         case camera
+        case textOverlays
+        case blurRegions
     }
 
     /// Keys only read, to migrate older settings.
@@ -544,5 +599,7 @@ extension ProjectEditSettings {
         exportStyle = try container.decodeIfPresent(ExportStyle.self, forKey: .exportStyle) ?? defaults.exportStyle
         zoomPreset = try container.decodeIfPresent(ZoomPreset.self, forKey: .zoomPreset) ?? defaults.zoomPreset
         camera = try container.decodeIfPresent(CameraOverlayStyle.self, forKey: .camera) ?? defaults.camera
+        textOverlays = (try? container.decodeIfPresent([TextOverlay].self, forKey: .textOverlays)) ?? []
+        blurRegions = (try? container.decodeIfPresent([BlurRegion].self, forKey: .blurRegions)) ?? []
     }
 }

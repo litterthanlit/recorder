@@ -152,6 +152,15 @@ struct RecorderProject: Codable, Equatable {
         FileManager.default.fileExists(atPath: cameraURL.path)
     }
 
+    /// The picture behind the recording when the background is an image in the bundle.
+    var backgroundImageURL: URL? {
+        let background = editSettings.exportStyle.background
+        guard background.kind == .image, let name = background.imageFileName,
+              ProjectStore.isBackgroundImageName(name)
+        else { return nil }
+        return bundleURL.appendingPathComponent(name)
+    }
+
     init(
         metadata: ProjectMetadata,
         clickEvents: [ClickEvent],
@@ -330,6 +339,35 @@ enum ProjectStore {
         let url = bundleURL.appendingPathComponent(File.inputs)
         guard let data = try? Data(contentsOf: url) else { return InputLog() }
         return (try? JSONDecoder().decode(InputLog.self, from: data)) ?? InputLog()
+    }
+
+    /// Copies a picture into the bundle for an image background and returns its file
+    /// name there (for `BackgroundStyle.imageFileName`). The bundle keeps its own copy so
+    /// the project still renders if the original moves.
+    static func importBackgroundImage(from sourceURL: URL, into bundleURL: URL) throws -> String {
+        let pathExtension = sourceURL.pathExtension.lowercased()
+        let allowed = ["png", "jpg", "jpeg", "heic", "tif", "tiff", "webp", "gif", "bmp"]
+        let ext = allowed.contains(pathExtension) ? pathExtension : "png"
+        let name = "\(backgroundImagePrefix)\(UUID().uuidString.prefix(8).lowercased()).\(ext)"
+        try FileManager.default.copyItem(at: sourceURL, to: bundleURL.appendingPathComponent(name))
+        return name
+    }
+
+    /// Removes background pictures in the bundle other than `keeping`.
+    static func removeUnusedBackgroundImages(in bundleURL: URL, keeping name: String?) {
+        let fileManager = FileManager.default
+        guard let contents = try? fileManager.contentsOfDirectory(atPath: bundleURL.path) else { return }
+        for file in contents where isBackgroundImageName(file) && file != name {
+            try? fileManager.removeItem(at: bundleURL.appendingPathComponent(file))
+        }
+    }
+
+    private static let backgroundImagePrefix = "background-"
+
+    /// A file name this app gave an imported background (never a path, so a
+    /// hand-edited settings.json can't point outside the bundle).
+    static func isBackgroundImageName(_ name: String) -> Bool {
+        name.hasPrefix(backgroundImagePrefix) && !name.contains("/") && !name.contains("..")
     }
 
     /// Names a project (an empty name clears it). Only meta.json is rewritten.

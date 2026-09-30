@@ -427,14 +427,6 @@ final class RecordingSession: ObservableObject {
             _ = await cameraMicCapture.trackWriter.finish()
             teardownCaptureHelpers()
 
-            let generator = AutoZoomGenerator(
-                settings: ProjectEditSettings().zoomPreset.settings,
-                frameWidth: CGFloat(recordingResult.width),
-                frameHeight: CGFloat(recordingResult.height)
-            )
-            let keyframes = generator.generate(from: trackingResult.clicks)
-
-            var editSettings = ProjectEditSettings()
             // Splits where the take was paused, so those moments are easy to find and trim.
             var timeline = EditTimeline(sourceDuration: recordingResult.duration)
             for point in clock.pausePoints {
@@ -442,10 +434,21 @@ final class RecordingSession: ObservableObject {
                     timeline.split(atOutput: output)
                 }
             }
-            editSettings.setTimeline(timeline)
-            editSettings.exportStyle.cursorSmoothingEnabled = preferences.cursorSmoothingEnabled
-            editSettings.camera.position = preferences.cameraPosition
-            editSettings.camera.size = preferences.cameraSize
+            // New takes start with the look chosen as the default, if any.
+            let editSettings = ProjectEditSettings.forNewTake(
+                timeline: timeline,
+                look: StyleLibraryStore.load().defaultPreset,
+                cursorSmoothing: preferences.cursorSmoothingEnabled,
+                cameraPosition: preferences.cameraPosition,
+                cameraSize: preferences.cameraSize
+            )
+
+            let generator = AutoZoomGenerator(
+                settings: editSettings.zoomPreset.settings,
+                frameWidth: CGFloat(recordingResult.width),
+                frameHeight: CGFloat(recordingResult.height)
+            )
+            let keyframes = generator.generate(from: trackingResult.clicks)
 
             let metadata = ProjectMetadata(
                 id: currentProjectID,
