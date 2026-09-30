@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Owns one app window (settings, onboarding, library): creates it on first show,
@@ -60,8 +61,11 @@ final class EditorPresenter: NSObject, NSWindowDelegate {
     private var windowController: NSWindowController?
     private var presentedEditor: ProjectEditor?
     private var toolbarController: EditorToolbarController?
+    private var nameObserver: AnyCancellable?
     /// Called with the project ID after its editor window closes.
     var onClose: ((UUID) -> Void)?
+    /// Called when the recording is renamed in the editor.
+    var onRename: (() -> Void)?
 
     var isVisible: Bool {
         windowController?.window?.isVisible ?? false
@@ -83,6 +87,7 @@ final class EditorPresenter: NSObject, NSWindowDelegate {
         windowController?.window?.contentViewController = nil
         windowController?.window?.toolbar = nil
         toolbarController = nil
+        nameObserver = nil
         onClose?(editor.project.metadata.id)
     }
 
@@ -127,6 +132,16 @@ final class EditorPresenter: NSObject, NSWindowDelegate {
         }
         window.title = editor.displayName
         window.toolbar = toolbarController.makeToolbar()
+        // The window title (Window menu, Mission Control) and the library follow renames.
+        nameObserver = editor.$project
+            .map(\.metadata.name)
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self, weak editor, weak window] _ in
+                guard let editor else { return }
+                window?.title = editor.displayName
+                self?.onRename?()
+            }
         windowController?.showWindow(nil)
         window.makeKeyAndOrderFront(nil)
 

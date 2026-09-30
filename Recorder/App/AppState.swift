@@ -75,6 +75,9 @@ final class AppState: ObservableObject {
         editorPresenter.onClose = { [weak session] projectID in
             session?.releaseEditor(id: projectID)
         }
+        editorPresenter.onRename = { [weak self] in
+            self?.library.refresh()
+        }
         onboardingPresenter.onClose = { [weak self] in
             self?.settingsStore.settings.hasCompletedOnboarding = true
         }
