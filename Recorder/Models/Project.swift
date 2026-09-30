@@ -195,8 +195,17 @@ private struct FormatProbe: Decodable {
 
 enum ProjectStore {
     static var projectsDirectory: URL {
-        let movies = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first!
-        return movies.appendingPathComponent("Recorder", isDirectory: true)
+        moviesDirectory.appendingPathComponent(Brand.libraryFolderName, isDirectory: true)
+    }
+
+    /// The library folder used before the app was renamed (see `LibraryMigration`).
+    static var legacyProjectsDirectory: URL {
+        moviesDirectory.appendingPathComponent(Brand.legacyLibraryFolderName, isDirectory: true)
+    }
+
+    private static var moviesDirectory: URL {
+        FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Movies", isDirectory: true)
     }
 
     /// Where the project with this ID lives in `root` (the library by default).

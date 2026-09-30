@@ -137,7 +137,7 @@ struct ExportStyle: Codable, Equatable {
     var paddingFraction: CGFloat = 0.06
     var shadowEnabled: Bool = true
     var watermarkEnabled: Bool = false
-    var watermarkText: String = "hypher.app"
+    var watermarkText: String = ""
     var cursorSmoothingEnabled: Bool = true
     var springCameraEnabled: Bool = true
     var clickRipplesEnabled: Bool = true
@@ -166,7 +166,7 @@ struct ExportStyle: Codable, Equatable {
         paddingFraction: CGFloat = 0.06,
         shadowEnabled: Bool = true,
         watermarkEnabled: Bool = false,
-        watermarkText: String = "hypher.app",
+        watermarkText: String = "",
         cursorSmoothingEnabled: Bool = true,
         springCameraEnabled: Bool = true,
         clickRipplesEnabled: Bool = true,
@@ -193,7 +193,7 @@ struct ExportStyle: Codable, Equatable {
         paddingFraction = try container.decodeIfPresent(CGFloat.self, forKey: .paddingFraction) ?? 0.06
         shadowEnabled = try container.decodeIfPresent(Bool.self, forKey: .shadowEnabled) ?? true
         watermarkEnabled = try container.decodeIfPresent(Bool.self, forKey: .watermarkEnabled) ?? false
-        watermarkText = try container.decodeIfPresent(String.self, forKey: .watermarkText) ?? "hypher.app"
+        watermarkText = try container.decodeIfPresent(String.self, forKey: .watermarkText) ?? ""
         cursorSmoothingEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorSmoothingEnabled) ?? true
         springCameraEnabled = try container.decodeIfPresent(Bool.self, forKey: .springCameraEnabled) ?? true
         clickRipplesEnabled = try container.decodeIfPresent(Bool.self, forKey: .clickRipplesEnabled) ?? true

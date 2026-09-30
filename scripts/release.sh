@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds Recorder for distribution outside the App Store: Release configuration, signed
+# Builds Trace for distribution outside the App Store: Release configuration, signed
 # with your Developer ID Application certificate (hardened runtime, secure timestamp),
 # notarized by Apple, and stapled, so it opens on other Macs without Gatekeeper warnings.
 #
@@ -16,7 +16,7 @@
 #
 # TEAM_ID defaults to DEVELOPMENT_TEAM in Config/Local.xcconfig. The notary profile
 # defaults to "recorder-notary"; set NOTARY_PROFILE to use another. Set SKIP_NOTARIZE=1
-# to only build and sign. Output: build/release/Recorder.zip (notarized and stapled).
+# to only build and sign. Output: build/release/Trace.zip (notarized and stapled).
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,8 +38,10 @@ fi
 
 notary_profile="${NOTARY_PROFILE:-recorder-notary}"
 out_dir="$repo_root/build/release"
-app="$out_dir/build/Release/Recorder.app"
-zip="$out_dir/Recorder.zip"
+# PRODUCT_NAME of the Recorder target.
+app_name="Trace"
+app="$out_dir/build/Release/$app_name.app"
+zip="$out_dir/$app_name.zip"
 
 rm -rf "$out_dir"
 mkdir -p "$out_dir"

@@ -1,6 +1,6 @@
 # Recorder: notes for coding agents
 
-Native macOS (14+) menu bar screen recorder with auto-zoom on clicks, a timeline editor,
+Trace (formerly "Recorder"): native macOS (14+) menu bar screen recorder with auto-zoom on clicks, a timeline editor,
 and MP4 export. Swift 5 language mode, SwiftUI + AppKit, ScreenCaptureKit, AVFoundation,
 Core Image. See README.md for features and DEMO.md for the recording workflow it serves.
 
@@ -22,9 +22,10 @@ Core Image. See README.md for features and DEMO.md for the recording workflow it
 
 - The Xcode project is edited by hand. A new source file needs a PBXBuildFile, a
   PBXFileReference, a group child, and a Sources build-phase entry, using the sequential
-  IDs (`A2…` file references, last used `A2000000000000000000002C`; `B2…` build files, last
-  used `B20000000000000000000028`). Add it to Package.swift too if it belongs in
-  `RecorderCore`.
+  IDs (`A2…` file references, `B2…` build files, `C2…` groups). `scripts/pbxproj-add.py
+  <group path> File.swift…` does all four with the next free IDs (and creates missing
+  groups); `--remove File.swift…` undoes it. Files under `Zoom/`, `Composition/` and
+  `Models/` are in `RecorderCore` automatically; other Core files need a Package.swift entry.
 - Coordinates: click and cursor positions, zoom centers, and crop rects use a bottom-left
   origin (Core Image space), in source pixels or normalized 0–1. SwiftUI is top-left; map
   preview selections with `ZoomKeyframeEditor.sourceRect(forSelection:contentFrame:visibleCrop:)`.

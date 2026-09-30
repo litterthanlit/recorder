@@ -45,7 +45,7 @@ struct MenuBarView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Recorder")
+            Text(Brand.name)
                 .font(.title3.weight(.semibold))
             Text("Spring zoom, click FX, launch-ready export")
                 .font(.caption)

@@ -4,15 +4,20 @@ import SwiftUI
 
 @MainActor
 final class AppState: ObservableObject {
-    let session = RecordingSession()
+    let session: RecordingSession
     let permissions = PermissionsManager.shared
-    let library = ProjectLibrary()
+    let library: ProjectLibrary
 
     private let hotkeys = RecordingHotkeysController()
     private let editorPresenter = EditorPresenter()
     private var cancellables = Set<AnyCancellable>()
 
     init() {
+        // Before anything lists or writes projects.
+        LibraryMigration.migrateDefaultLibrary()
+        session = RecordingSession()
+        library = ProjectLibrary()
+
         // Bind at launch so ⌘⇧R / ⌘⇧. work before the menu panel is opened.
         hotkeys.bind(session: session)
         editorPresenter.onClose = { [weak session] projectID in
@@ -140,7 +145,7 @@ struct RecorderApp: App {
     @StateObject private var appState = AppState()
 
     var body: some Scene {
-        MenuBarExtra("Recorder", systemImage: "record.circle") {
+        MenuBarExtra(Brand.name, systemImage: "record.circle") {
             MenuBarView(
                 session: appState.session,
                 permissions: appState.permissions,
