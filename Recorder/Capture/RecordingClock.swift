@@ -22,11 +22,11 @@ final class RecordingClock: @unchecked Sendable {
         locked { ledger.isPaused }
     }
 
-    func pause(at host: CMTime = Self.now) {
+    func pause(at host: CMTime = RecordingClock.now) {
         locked { ledger.pause(at: host) }
     }
 
-    func resume(at host: CMTime = Self.now) {
+    func resume(at host: CMTime = RecordingClock.now) {
         locked { ledger.resume(at: host) }
     }
 
@@ -45,7 +45,7 @@ final class RecordingClock: @unchecked Sendable {
     }
 
     /// Recorded time so far; stops advancing while paused.
-    func activeDuration(atHost host: CMTime = Self.now) -> CMTime {
+    func activeDuration(atHost host: CMTime = RecordingClock.now) -> CMTime {
         locked { ledger.activeDuration(atHost: host) }
     }
 

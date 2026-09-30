@@ -24,7 +24,8 @@ let package = Package(
                 "Editor/ZoomKeyframeEditor.swift",
                 "Editor/EditHistory.swift",
                 "Composition",
-                "Models"
+                "Models",
+                "Timeline"
             ]
         ),
         .testTarget(
