@@ -465,6 +465,7 @@ final class ProjectEditor: ObservableObject {
             }
             state = .exported
         } catch {
+            Log.export.error("Export failed: \(error.localizedDescription, privacy: .public)")
             state = .failed(error.localizedDescription)
         }
     }

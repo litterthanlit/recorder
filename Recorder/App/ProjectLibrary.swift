@@ -39,7 +39,13 @@ final class ProjectLibrary: ObservableObject {
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 240, height: 150)
         let time = CMTime(seconds: min(1, max(0, project.duration / 2)), preferredTimescale: 600)
-        guard let result = try? await generator.image(at: time) else { return nil }
+        let result: (image: CGImage, actualTime: CMTime)
+        do {
+            result = try await generator.image(at: time)
+        } catch {
+            Log.library.error("Thumbnail failed for \(project.id.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
 
         let image = NSImage(cgImage: result.image, size: .zero)
         thumbnails[project.id] = image

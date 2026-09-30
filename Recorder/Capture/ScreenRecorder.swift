@@ -44,6 +44,10 @@ final class ScreenRecorder: NSObject {
     private var isRecording = false
     private var didNotifyFirstFrame = false
     private var didReportFailure = false
+    /// Samples the writer wasn't ready for (writer queue only). Logged at stop: dropped
+    /// audio shifts later narration earlier, so these should stay at zero.
+    private var droppedVideoFrames = 0
+    private var droppedAudioBuffers = 0
     /// Last frame handed to the writer; re-appended at stop so a still ending isn't cut off.
     private var lastWrittenPixelBuffer: CVPixelBuffer?
     private let writerQueue = DispatchQueue(label: "com.recorder.writer")
@@ -169,6 +173,8 @@ final class ScreenRecorder: NSObject {
         )
 
         firstSampleTime = nil
+        droppedVideoFrames = 0
+        droppedAudioBuffers = 0
         lastWrittenTime = .zero
         lastWrittenPixelBuffer = nil
         didNotifyFirstFrame = false
@@ -247,6 +253,10 @@ final class ScreenRecorder: NSObject {
                    writerInput.isReadyForMoreMediaData,
                    self.pixelBufferAdaptor?.append(lastBuffer, withPresentationTime: stopTime) == true {
                     self.lastWrittenTime = stopTime
+                }
+
+                if self.droppedVideoFrames > 0 || self.droppedAudioBuffers > 0 {
+                    Log.capture.warning("Writer dropped \(self.droppedVideoFrames) video frames and \(self.droppedAudioBuffers) audio buffers")
                 }
 
                 self.writerInput?.markAsFinished()
@@ -402,11 +412,14 @@ final class ScreenRecorder: NSObject {
     private func appendSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
         guard isRecording,
               let writerInput,
-              writerInput.isReadyForMoreMediaData,
               let assetWriter,
               assetWriter.status == .writing,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
         else { return }
+        guard writerInput.isReadyForMoreMediaData else {
+            droppedVideoFrames += 1
+            return
+        }
 
         let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let isFirstFrame = firstSampleTime == nil
@@ -449,11 +462,14 @@ final class ScreenRecorder: NSObject {
     /// Called on the writer queue with a mic or system audio buffer.
     private func writeAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer, hostTime: CMTime, to audioWriterInput: AVAssetWriterInput) {
         guard isRecording,
-              audioWriterInput.isReadyForMoreMediaData,
               let assetWriter,
               assetWriter.status == .writing,
               let firstSampleTime
         else { return }
+        guard audioWriterInput.isReadyForMoreMediaData else {
+            droppedAudioBuffers += 1
+            return
+        }
 
         // Place audio on the video's timeline (t = 0 is the first video frame) rather than
         // starting at the mic's own first sample, which shifted narration by however long

@@ -378,6 +378,10 @@ final class ProjectAutosaver: @unchecked Sendable {
     private func writePending() {
         guard let project = pendingProject else { return }
         pendingProject = nil
-        try? ProjectStore.saveEdits(project)
+        do {
+            try ProjectStore.saveEdits(project)
+        } catch {
+            Log.editor.error("Autosave failed for \(project.metadata.id.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
