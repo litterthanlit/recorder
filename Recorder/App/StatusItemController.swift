@@ -33,9 +33,12 @@ final class StatusItemController: NSObject {
         appState.dismissPanelHandler = { [weak self] in self?.closePanel() }
 
         appState.session.$state
-            .combineLatest(appState.session.$elapsedTime.map { Int($0) }.removeDuplicates())
-            .sink { [weak self] state, elapsed in
-                self?.updateButton(state: state, elapsedSeconds: elapsed)
+            .combineLatest(
+                appState.session.$elapsedTime.map { Int($0) }.removeDuplicates(),
+                appState.session.$isPaused
+            )
+            .sink { [weak self] state, elapsed, isPaused in
+                self?.updateButton(state: state, elapsedSeconds: elapsed, isPaused: isPaused)
             }
             .store(in: &cancellables)
     }
@@ -82,6 +85,8 @@ final class StatusItemController: NSObject {
         switch session.state {
         case .recording:
             menu.addItem(item("Stop Recording", #selector(stopRecording)))
+            menu.addItem(item(session.isPaused ? "Resume Recording" : "Pause Recording", #selector(togglePause)))
+            menu.addItem(item("Restart Recording", #selector(restartRecording)))
         case .countdown:
             menu.addItem(item("Cancel Recording", #selector(stopRecording)))
         default:
@@ -105,7 +110,7 @@ final class StatusItemController: NSObject {
     }
 
     @objc private func newRecording() {
-        appState.startRecording()
+        appState.chooseAndRecord()
     }
 
     @objc private func stopRecording() {
@@ -117,6 +122,14 @@ final class StatusItemController: NSObject {
         default:
             break
         }
+    }
+
+    @objc private func togglePause() {
+        appState.session.togglePause()
+    }
+
+    @objc private func restartRecording() {
+        Task { await appState.session.restart() }
     }
 
     @objc private func openLibrary() {
@@ -133,9 +146,13 @@ final class StatusItemController: NSObject {
 
     // MARK: - Button
 
-    private func updateButton(state: RecordingSession.State, elapsedSeconds: Int) {
+    private func updateButton(state: RecordingSession.State, elapsedSeconds: Int, isPaused: Bool) {
         guard let button = statusItem.button else { return }
         switch state {
+        case .recording where isPaused:
+            button.image = Self.symbol("pause.circle.fill")
+            button.attributedTitle = Self.timerTitle(" " + Self.format(elapsedSeconds))
+            button.setAccessibilityLabel("Recording paused at \(Self.format(elapsedSeconds)). Click to stop.")
         case .recording:
             button.image = Self.recordingDot
             button.attributedTitle = Self.timerTitle(" " + Self.format(elapsedSeconds))

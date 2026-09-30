@@ -107,8 +107,9 @@ struct MenuBarView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                displayRow
+                areaRow
                 windowRow
+                displayRow
             }
 
             devices
@@ -175,32 +176,33 @@ struct MenuBarView: View {
         }
     }
 
+    private var areaRow: some View {
+        Button {
+            appState.chooseAndRecord(mode: .area)
+        } label: {
+            CaptureRow(
+                icon: "rectangle.dashed",
+                title: "Record Area",
+                subtitle: session.preferences.lastArea == nil ? "Drag out part of the screen" : "Draw a new area or reuse the last one",
+                shortcut: session.preferences.captureTarget == .area ? recordShortcut : nil,
+                showsChevron: false
+            )
+        }
+        .buttonStyle(HoverRowStyle())
+    }
+
     private var windowRow: some View {
-        Menu {
-            if session.availableWindows.isEmpty {
-                Text("No windows to record")
-            } else {
-                ForEach(session.availableWindows) { window in
-                    Button(window.displayName) {
-                        appState.startRecording(windowID: window.windowID)
-                    }
-                }
-            }
-            Divider()
-            Button("Refresh List") {
-                Task { await session.refreshWindows() }
-            }
+        Button {
+            appState.chooseAndRecord(mode: .window)
         } label: {
             CaptureRow(
                 icon: "macwindow",
                 title: "Record Window",
                 subtitle: "Just one app window, even when it moves",
                 shortcut: session.preferences.captureTarget == .window ? recordShortcut : nil,
-                showsChevron: true
+                showsChevron: false
             )
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
         .buttonStyle(HoverRowStyle())
     }
 
@@ -252,6 +254,11 @@ struct MenuBarView: View {
                     selection: $session.preferences.selectedCameraID
                 )
                 Divider()
+                Picker("Bubble Size", selection: $session.preferences.cameraSize) {
+                    ForEach(CameraBubbleSize.allCases) { size in
+                        Text(size.label).tag(size)
+                    }
+                }
                 Picker("Bubble Position", selection: $session.preferences.cameraPosition) {
                     ForEach(CameraBubblePosition.allCases) { position in
                         Text(position.label).tag(position)
@@ -343,10 +350,16 @@ struct MenuBarView: View {
         VStack(spacing: DS.Spacing.sm) {
             Text(Self.format(session.elapsedTime))
                 .font(.system(size: 40, weight: .semibold, design: .rounded).monospacedDigit())
-            Text(session.clickCount == 1 ? "1 click tracked" : "\(session.clickCount) clicks tracked")
+            Text(session.isPaused ? "Paused" : (session.clickCount == 1 ? "1 click tracked" : "\(session.clickCount) clicks tracked"))
                 .font(DS.Typeface.footnote)
                 .foregroundStyle(DS.Palette.secondaryText)
             HStack(spacing: DS.Spacing.xs) {
+                Button {
+                    session.togglePause()
+                } label: {
+                    Label(session.isPaused ? "Resume" : "Pause", systemImage: session.isPaused ? "play.fill" : "pause.fill")
+                }
+                .buttonStyle(SecondaryButtonStyle())
                 Button {
                     Task { await session.stop() }
                 } label: {

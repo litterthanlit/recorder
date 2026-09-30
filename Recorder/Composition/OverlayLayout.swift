@@ -39,6 +39,19 @@ enum CameraBubblePosition: String, Codable, CaseIterable, Identifiable {
         case .topLeft: return "Top Left"
         }
     }
+
+    /// The corner of `container` closest to `point` (both bottom-left origin), for
+    /// snapping a dragged bubble.
+    static func nearest(to point: CGPoint, in container: CGRect) -> CameraBubblePosition {
+        let isRight = point.x >= container.midX
+        let isTop = point.y >= container.midY
+        switch (isRight, isTop) {
+        case (true, false): return .bottomRight
+        case (false, false): return .bottomLeft
+        case (true, true): return .topRight
+        case (false, true): return .topLeft
+        }
+    }
 }
 
 enum CameraBubbleSize: String, Codable, CaseIterable, Identifiable {
@@ -53,6 +66,15 @@ enum CameraBubbleSize: String, Codable, CaseIterable, Identifiable {
         case .small: return "Small"
         case .medium: return "Medium"
         case .large: return "Large"
+        }
+    }
+
+    /// Diameter of the live bubble on screen while recording, in points.
+    var livePoints: CGFloat {
+        switch self {
+        case .small: return 120
+        case .medium: return 168
+        case .large: return 240
         }
     }
 

@@ -63,6 +63,14 @@
 		B20000000000000000000037 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003B /* DesignSystem.swift */; };
 		B20000000000000000000038 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003C /* OnboardingView.swift */; };
 		B20000000000000000000039 /* AreaSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003D /* AreaSelection.swift */; };
+		B2000000000000000000003A /* PauseLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003E /* PauseLedger.swift */; };
+		B2000000000000000000003B /* RecordingClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003F /* RecordingClock.swift */; };
+		B2000000000000000000003C /* CaptureExclusion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000040 /* CaptureExclusion.swift */; };
+		B2000000000000000000003D /* AreaSelectionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000041 /* AreaSelectionOverlay.swift */; };
+		B2000000000000000000003E /* RecordingHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000042 /* RecordingHUD.swift */; };
+		B2000000000000000000003F /* KeystrokeEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000043 /* KeystrokeEvent.swift */; };
+		B20000000000000000000040 /* CursorKindEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000044 /* CursorKindEvent.swift */; };
+		B20000000000000000000041 /* CursorKindSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000045 /* CursorKindSampler.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -126,6 +134,14 @@
 		A2000000000000000000003B /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		A2000000000000000000003C /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A2000000000000000000003D /* AreaSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AreaSelection.swift; sourceTree = "<group>"; };
+		A2000000000000000000003E /* PauseLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PauseLedger.swift; sourceTree = "<group>"; };
+		A2000000000000000000003F /* RecordingClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingClock.swift; sourceTree = "<group>"; };
+		A20000000000000000000040 /* CaptureExclusion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureExclusion.swift; sourceTree = "<group>"; };
+		A20000000000000000000041 /* AreaSelectionOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AreaSelectionOverlay.swift; sourceTree = "<group>"; };
+		A20000000000000000000042 /* RecordingHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingHUD.swift; sourceTree = "<group>"; };
+		A20000000000000000000043 /* KeystrokeEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeystrokeEvent.swift; sourceTree = "<group>"; };
+		A20000000000000000000044 /* CursorKindEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorKindEvent.swift; sourceTree = "<group>"; };
+		A20000000000000000000045 /* CursorKindSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorKindSampler.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -195,6 +211,8 @@
 				A2000000000000000000001F /* CameraMicCapture.swift */,
 				A20000000000000000000021 /* CameraBackgroundProcessor.swift */,
 				A20000000000000000000025 /* CameraTrackWriter.swift */,
+				A2000000000000000000003F /* RecordingClock.swift */,
+				A20000000000000000000045 /* CursorKindSampler.swift */,
 			);
 			path = Capture;
 			sourceTree = "<group>";
@@ -207,6 +225,8 @@
 				A20000000000000000000008 /* ZoomKeyframe.swift */,
 				A20000000000000000000009 /* AutoZoomGenerator.swift */,
 				A2000000000000000000000A /* ZoomInterpolator.swift */,
+				A20000000000000000000043 /* KeystrokeEvent.swift */,
+				A20000000000000000000044 /* CursorKindEvent.swift */,
 			);
 			path = Zoom;
 			sourceTree = "<group>";
@@ -220,6 +240,8 @@
 				A2000000000000000000002B /* CaptureGeometry.swift */,
 				A2000000000000000000002C /* OverlayLayout.swift */,
 				A2000000000000000000003D /* AreaSelection.swift */,
+				A2000000000000000000003E /* PauseLedger.swift */,
+				A20000000000000000000040 /* CaptureExclusion.swift */,
 			);
 			path = Composition;
 			sourceTree = "<group>";
@@ -247,6 +269,7 @@
 				C2000000000000000000000E /* Settings */,
 				C2000000000000000000000F /* Design */,
 				A2000000000000000000003C /* OnboardingView.swift */,
+				C20000000000000000000010 /* Capture */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -299,6 +322,15 @@
 				A2000000000000000000003B /* DesignSystem.swift */,
 			);
 			path = Design;
+			sourceTree = "<group>";
+		};
+		C20000000000000000000010 /* Capture */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000041 /* AreaSelectionOverlay.swift */,
+				A20000000000000000000042 /* RecordingHUD.swift */,
+			);
+			path = Capture;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -365,6 +397,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000041 /* CursorKindSampler.swift in Sources */,
+				B20000000000000000000040 /* CursorKindEvent.swift in Sources */,
+				B2000000000000000000003F /* KeystrokeEvent.swift in Sources */,
+				B2000000000000000000003E /* RecordingHUD.swift in Sources */,
+				B2000000000000000000003D /* AreaSelectionOverlay.swift in Sources */,
+				B2000000000000000000003C /* CaptureExclusion.swift in Sources */,
+				B2000000000000000000003B /* RecordingClock.swift in Sources */,
+				B2000000000000000000003A /* PauseLedger.swift in Sources */,
 				B20000000000000000000039 /* AreaSelection.swift in Sources */,
 				B20000000000000000000038 /* OnboardingView.swift in Sources */,
 				B20000000000000000000037 /* DesignSystem.swift in Sources */,

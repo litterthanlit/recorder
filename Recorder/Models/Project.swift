@@ -16,6 +16,9 @@ struct ProjectMetadata: Codable, Equatable {
     let captureTarget: CaptureTargetKind
     let windowTitle: String?
     let appName: String?
+    /// Where the take was paused, in seconds on the recording's timeline (paused time is
+    /// already left out of the movie).
+    let pausePoints: [TimeInterval]
 
     var captureOrigin: CGPoint {
         CGPoint(x: captureOriginX, y: captureOriginY)
@@ -35,7 +38,8 @@ struct ProjectMetadata: Codable, Equatable {
         captureHeight: CGFloat,
         captureTarget: CaptureTargetKind = .display,
         windowTitle: String? = nil,
-        appName: String? = nil
+        appName: String? = nil,
+        pausePoints: [TimeInterval] = []
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -51,6 +55,7 @@ struct ProjectMetadata: Codable, Equatable {
         self.captureTarget = captureTarget
         self.windowTitle = windowTitle
         self.appName = appName
+        self.pausePoints = pausePoints
     }
 
     init(from decoder: Decoder) throws {
@@ -69,6 +74,7 @@ struct ProjectMetadata: Codable, Equatable {
         captureTarget = try container.decodeIfPresent(CaptureTargetKind.self, forKey: .captureTarget) ?? .display
         windowTitle = try container.decodeIfPresent(String.self, forKey: .windowTitle)
         appName = try container.decodeIfPresent(String.self, forKey: .appName)
+        pausePoints = try container.decodeIfPresent([TimeInterval].self, forKey: .pausePoints) ?? []
     }
 }
 
@@ -78,6 +84,8 @@ struct RecorderProject: Codable, Equatable {
     var cursorEvents: [CursorEvent]
     var keyframes: [ZoomKeyframe]
     var editSettings: ProjectEditSettings
+    /// Key presses and cursor shapes (inputs.json; empty for older takes).
+    var inputs: InputLog
 
     static let bundleExtension = "recorder"
 
@@ -130,13 +138,15 @@ struct RecorderProject: Codable, Equatable {
         clickEvents: [ClickEvent],
         cursorEvents: [CursorEvent] = [],
         keyframes: [ZoomKeyframe],
-        editSettings: ProjectEditSettings = ProjectEditSettings()
+        editSettings: ProjectEditSettings = ProjectEditSettings(),
+        inputs: InputLog = InputLog()
     ) {
         self.metadata = metadata
         self.clickEvents = clickEvents
         self.cursorEvents = cursorEvents
         self.keyframes = keyframes
         self.editSettings = editSettings
+        self.inputs = inputs
     }
 
     init(from decoder: Decoder) throws {
@@ -146,6 +156,7 @@ struct RecorderProject: Codable, Equatable {
         cursorEvents = try container.decodeIfPresent([CursorEvent].self, forKey: .cursorEvents) ?? []
         keyframes = try container.decode([ZoomKeyframe].self, forKey: .keyframes)
         editSettings = try container.decodeIfPresent(ProjectEditSettings.self, forKey: .editSettings) ?? ProjectEditSettings()
+        inputs = try container.decodeIfPresent(InputLog.self, forKey: .inputs) ?? InputLog()
     }
 }
 
@@ -233,6 +244,7 @@ enum ProjectStore {
             .write(to: bundleURL.appendingPathComponent(File.meta), options: .atomic)
         try encoder.encode(project.clickEvents).write(to: bundleURL.appendingPathComponent(File.events), options: .atomic)
         try encoder.encode(project.cursorEvents).write(to: bundleURL.appendingPathComponent(File.cursor), options: .atomic)
+        try encoder.encode(project.inputs).write(to: bundleURL.appendingPathComponent(File.inputs), options: .atomic)
         try saveEdits(project, to: bundleURL, encoder: encoder)
     }
 
@@ -261,6 +273,7 @@ enum ProjectStore {
         static let cursor = "cursor.json"
         static let keyframes = "keyframes.json"
         static let settings = "settings.json"
+        static let inputs = "inputs.json"
         static let export = "export.mp4"
     }
 
@@ -291,6 +304,14 @@ enum ProjectStore {
         return try JSONDecoder().decode([CursorEvent].self, from: data)
     }
 
+    /// Key presses and cursor shapes; empty for takes recorded before they were tracked,
+    /// and for a damaged file (they only drive optional overlays).
+    static func loadInputs(from bundleURL: URL) -> InputLog {
+        let url = bundleURL.appendingPathComponent(File.inputs)
+        guard let data = try? Data(contentsOf: url) else { return InputLog() }
+        return (try? JSONDecoder().decode(InputLog.self, from: data)) ?? InputLog()
+    }
+
     static func loadKeyframes(from bundleURL: URL) throws -> [ZoomKeyframe] {
         let data = try Data(contentsOf: bundleURL.appendingPathComponent(File.keyframes))
         return try JSONDecoder().decode([ZoomKeyframe].self, from: data)
@@ -317,7 +338,8 @@ enum ProjectStore {
             clickEvents: events,
             cursorEvents: cursorEvents,
             keyframes: keyframes,
-            editSettings: editSettings
+            editSettings: editSettings,
+            inputs: loadInputs(from: bundleURL)
         )
     }
 }
@@ -354,6 +376,9 @@ struct ProjectSummary: Identifiable, Equatable {
         switch metadata.captureTarget {
         case .display:
             return "Full display"
+        case .area:
+            let app = metadata.appName?.trimmingCharacters(in: .whitespaces) ?? ""
+            return app.isEmpty ? "Screen area" : "\(app) — area"
         case .window:
             let app = metadata.appName?.trimmingCharacters(in: .whitespaces) ?? ""
             let window = metadata.windowTitle?.trimmingCharacters(in: .whitespaces) ?? ""

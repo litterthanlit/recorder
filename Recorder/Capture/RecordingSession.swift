@@ -17,6 +17,9 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var elapsedTime: TimeInterval = 0
     @Published private(set) var clickCount: Int = 0
+    @Published private(set) var isPaused = false
+    /// Play a sound when a take stops or pauses (Settings > While recording).
+    var soundsEnabled = true
     @Published private(set) var activeEditor: ProjectEditor?
     @Published var preferences = RecordingPreferences.load() {
         didSet { preferences.save() }
@@ -28,7 +31,7 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var availableCameras: [MediaDeviceInfo] = []
     @Published private(set) var availableMicrophones: [MediaDeviceInfo] = []
 
-    private let screenRecorder = ScreenRecorder()
+    private nonisolated let screenRecorder = ScreenRecorder()
     private let cameraMicCapture = CameraMicCapture()
     private let cameraBubble = CameraBubbleOverlay()
     private let cameraPreviewRenderer = CameraPreviewRenderer()
@@ -36,7 +39,8 @@ final class RecordingSession: ObservableObject {
     private let countdownOverlay = CountdownOverlay()
     private let presentationMode = PresentationModeManager()
     private var elapsedTimer: Timer?
-    private var recordingStartTime: TimeInterval = 0
+    /// This take's clock (t = 0 at the first frame, paused time left out).
+    private var clock = RecordingClock()
     private var currentProjectID = UUID()
     private var currentBundleURL: URL?
     private var hasStartedInputTracking = false
@@ -48,6 +52,10 @@ final class RecordingSession: ObservableObject {
     init() {
         screenRecorder.delegate = self
         cameraMicCapture.delegate = self
+        cameraBubble.onPositionChange = { [weak self] position in
+            // The export starts with the bubble where it was left.
+            self?.preferences.cameraPosition = position
+        }
         refreshMediaDevices()
         refreshDisplays()
         screenParametersObserver = NotificationCenter.default.addObserver(
@@ -71,16 +79,40 @@ final class RecordingSession: ObservableObject {
         }
     }
 
-    /// The screen being recorded in display mode, where the countdown and camera bubble
-    /// belong. In window mode the main screen.
-    private var recordingScreen: NSScreen? {
-        guard preferences.captureTarget == .display else { return NSScreen.main }
+    /// The screen being recorded, where the countdown, camera bubble and controls belong.
+    /// In window mode the main screen.
+    var recordingScreen: NSScreen? {
+        let preferred: UInt32?
+        switch preferences.captureTarget {
+        case .display:
+            preferred = preferences.selectedDisplayID
+        case .area:
+            preferred = preferences.lastArea?.displayID
+        case .window:
+            return NSScreen.main
+        }
         let displayID = CaptureGeometry.resolvedDisplayID(
-            preferred: preferences.selectedDisplayID,
+            preferred: preferred,
             available: NSScreen.screens.map(\.displayIdentifier),
             main: CGMainDisplayID()
         )
         return displayID.flatMap { NSScreen.screen(forDisplayID: $0) } ?? NSScreen.main
+    }
+
+    /// In area mode, the recorded area in global Cocoa coordinates (bottom-left origin),
+    /// for drawing its border and placing the controls.
+    var recordingAreaFrame: CGRect? {
+        guard preferences.captureTarget == .area,
+              let area = preferences.lastArea,
+              let screen = NSScreen.screen(forDisplayID: area.displayID)
+        else { return nil }
+        let frame = screen.frame
+        return CGRect(
+            x: frame.minX + area.rect.minX,
+            y: frame.maxY - area.rect.maxY,
+            width: area.rect.width,
+            height: area.rect.height
+        )
     }
 
     func refreshMediaDevices() {
@@ -134,12 +166,22 @@ final class RecordingSession: ObservableObject {
             return
         }
 
-        if preferences.captureTarget == .window {
+        switch preferences.captureTarget {
+        case .window:
             await refreshWindows()
             guard preferences.selectedWindowID != nil else {
                 state = .failed("Select a window to record.")
                 return
             }
+        case .area:
+            guard let area = preferences.lastArea,
+                  NSScreen.screen(forDisplayID: area.displayID) != nil
+            else {
+                state = .failed("Select an area to record.")
+                return
+            }
+        case .display:
+            break
         }
 
         if preferences.cameraEnabled {
@@ -172,7 +214,11 @@ final class RecordingSession: ObservableObject {
                     guard let self, case .countdown = self.state else { return }
                     self.state = .countdown(remaining: remaining)
                 }
-                let completed = await countdownOverlay.run(seconds: preferences.countdownSeconds, on: recordingScreen)
+                let completed = await countdownOverlay.run(
+                    seconds: preferences.countdownSeconds,
+                    on: recordingScreen,
+                    highlight: preferences.captureTarget == .area ? preferences.lastArea?.rect : nil
+                )
                 countdownOverlay.onTick = nil
                 guard completed else {
                     presentationMode.exit()
@@ -197,11 +243,13 @@ final class RecordingSession: ObservableObject {
             let videoURL = bundleURL.appendingPathComponent("video.mov")
             hasStartedInputTracking = false
             pendingFirstFrameHostTime = nil
-            recordingStartTime = 0
+            clock = RecordingClock()
+            isPaused = false
 
             if preferences.cameraEnabled {
                 cameraMicCapture.trackWriter.prepare(
-                    outputURL: bundleURL.appendingPathComponent(RecorderProject.cameraFileName)
+                    outputURL: bundleURL.appendingPathComponent(RecorderProject.cameraFileName),
+                    clock: clock
                 )
             }
 
@@ -215,7 +263,11 @@ final class RecordingSession: ObservableObject {
 
             if preferences.cameraEnabled {
                 if preferences.cameraBackground.requiresProcessing {
-                    cameraBubble.showProcessedPreview(position: preferences.cameraPosition, on: recordingScreen)
+                    cameraBubble.showProcessedPreview(
+                        position: preferences.cameraPosition,
+                        size: preferences.cameraSize,
+                        on: recordingScreen
+                    )
                     // Called on the camera queue: build the small preview image there and
                     // only hand the finished image to the main thread.
                     let previewRenderer = cameraPreviewRenderer
@@ -231,7 +283,12 @@ final class RecordingSession: ObservableObject {
                         }
                     }
                 } else if let previewLayer = cameraMicCapture.previewLayer {
-                    cameraBubble.show(previewLayer: previewLayer, position: preferences.cameraPosition, on: recordingScreen)
+                    cameraBubble.show(
+                        previewLayer: previewLayer,
+                        position: preferences.cameraPosition,
+                        size: preferences.cameraSize,
+                        on: recordingScreen
+                    )
                 }
             }
 
@@ -243,9 +300,16 @@ final class RecordingSession: ObservableObject {
             let recorderOptions = ScreenRecorderOptions(
                 captureTarget: preferences.captureTarget,
                 windowID: preferences.selectedWindowID,
-                displayID: preferences.selectedDisplayID,
+                displayID: preferences.captureTarget == .area
+                    ? preferences.lastArea?.displayID
+                    : preferences.selectedDisplayID,
+                area: preferences.captureTarget == .area ? preferences.lastArea?.rect : nil,
+                clock: clock,
+                frameRate: preferences.frameRate,
+                hideDesktopIcons: preferences.hideDesktopIcons,
+                hideNotifications: preferences.hideNotifications,
                 showCursor: !preferences.cursorSmoothingEnabled,
-                cropsMenuBar: preferences.hideChromeDuringRecording,
+                cropsMenuBar: preferences.hideChromeDuringRecording && preferences.captureTarget == .display,
                 excludeWindowIDs: excludeWindowIDs,
                 enableMicrophone: preferences.microphoneEnabled,
                 captureSystemAudio: preferences.systemAudioEnabled
@@ -280,6 +344,61 @@ final class RecordingSession: ObservableObject {
         await finishRecording(interruption: nil)
     }
 
+    // MARK: - Pause, restart, discard
+
+    func pause() {
+        guard case .recording = state, !isPaused else { return }
+        screenRecorder.pause()
+        isPaused = true
+        updateElapsedTime()
+        playSound("Tink")
+    }
+
+    func resume() {
+        guard case .recording = state, isPaused else { return }
+        screenRecorder.resume()
+        isPaused = false
+    }
+
+    func togglePause() {
+        if isPaused {
+            resume()
+        } else {
+            pause()
+        }
+    }
+
+    /// Throws the current take away and starts a new one with the same settings.
+    func restart() async {
+        guard case .recording = state else { return }
+        await discardCurrentTake()
+        await start()
+    }
+
+    /// Stops recording and deletes the take.
+    func discard() async {
+        guard case .recording = state else { return }
+        await discardCurrentTake()
+    }
+
+    private func discardCurrentTake() async {
+        stopElapsedTimer()
+        state = .processing
+        _ = inputTracker.stop()
+        hasStartedInputTracking = false
+        await screenRecorder.cancelRecording()
+        cameraMicCapture.trackWriter.cancel()
+        teardownCaptureHelpers()
+        if let currentBundleURL {
+            try? FileManager.default.removeItem(at: currentBundleURL)
+        }
+        currentBundleURL = nil
+        isPaused = false
+        elapsedTime = 0
+        clickCount = 0
+        state = .idle
+    }
+
     /// Finalizes the current take. When `interruption` is set, capture stopped on its own
     /// (error, window closed, user stopped sharing); whatever was recorded is still saved.
     private func finishRecording(interruption: Error?) async {
@@ -294,6 +413,9 @@ final class RecordingSession: ObservableObject {
             let recordingResult: RecordingResult
             do {
                 recordingResult = try await screenRecorder.stopRecording()
+                if interruption == nil {
+                    playSound("Pop")
+                }
             } catch {
                 cameraMicCapture.trackWriter.cancel()
                 teardownCaptureHelpers()
@@ -313,6 +435,7 @@ final class RecordingSession: ObservableObject {
             var editSettings = ProjectEditSettings()
             editSettings.exportStyle.cursorSmoothingEnabled = preferences.cursorSmoothingEnabled
             editSettings.camera.position = preferences.cameraPosition
+            editSettings.camera.size = preferences.cameraSize
 
             let metadata = ProjectMetadata(
                 id: currentProjectID,
@@ -328,7 +451,8 @@ final class RecordingSession: ObservableObject {
                 captureHeight: recordingResult.captureSize.height,
                 captureTarget: preferences.captureTarget,
                 windowTitle: recordingResult.windowTitle,
-                appName: recordingResult.appName
+                appName: recordingResult.appName,
+                pausePoints: clock.pausePoints
             )
 
             let project = RecorderProject(
@@ -336,7 +460,8 @@ final class RecordingSession: ObservableObject {
                 clickEvents: trackingResult.clicks,
                 cursorEvents: trackingResult.cursor,
                 keyframes: keyframes,
-                editSettings: editSettings
+                editSettings: editSettings,
+                inputs: InputLog(keystrokes: trackingResult.keystrokes, cursorKinds: trackingResult.cursorKinds)
             )
 
             try ProjectStore.save(project)
@@ -425,6 +550,7 @@ final class RecordingSession: ObservableObject {
         _ = inputTracker.stop()
         hasStartedInputTracking = false
         pendingFirstFrameHostTime = nil
+        isPaused = false
         state = .idle
         elapsedTime = 0
         clickCount = 0
@@ -438,6 +564,12 @@ final class RecordingSession: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([project.exportURL])
     }
 
+    /// Only after the take is stopped or paused, so the sound isn't recorded.
+    private func playSound(_ name: String) {
+        guard soundsEnabled else { return }
+        NSSound(named: NSSound.Name(name))?.play()
+    }
+
     private func teardownCaptureHelpers() {
         presentationMode.exit()
         cameraBubble.hide()
@@ -449,17 +581,14 @@ final class RecordingSession: ObservableObject {
         guard case .recording = state, !hasStartedInputTracking else { return }
         hasStartedInputTracking = true
 
-        // Use the frame's own capture time rather than "now": the notification reaches the
-        // main thread some milliseconds later, which would make every zoom land late.
-        // CACurrentMediaTime() is on the same host clock.
-        let firstFrameSeconds = CMTimeGetSeconds(firstFrameHostTime)
-        recordingStartTime = firstFrameSeconds.isFinite && firstFrameSeconds > 0
-            ? firstFrameSeconds
-            : CACurrentMediaTime()
-        cameraMicCapture.trackWriter.setEpoch(firstFrameHostTime)
+        // The screen recorder already set the clock's t = 0 to the frame's own capture
+        // time (not "now": the notification reaches the main thread some milliseconds
+        // later, which would make every zoom land late). Event and camera timestamps are
+        // read from the same clock.
+        clock.setEpoch(firstFrameHostTime)
 
         inputTracker.configure(
-            startTime: recordingStartTime,
+            clock: clock,
             captureOrigin: screenRecorder.captureOrigin,
             captureSize: CGSize(
                 width: CGFloat(screenRecorder.captureWidth),
@@ -467,6 +596,7 @@ final class RecordingSession: ObservableObject {
             ),
             scaleFactor: screenRecorder.scaleFactor,
             trackCursor: preferences.cursorSmoothingEnabled,
+            trackKeystrokes: preferences.recordKeystrokes,
             trackedWindowID: screenRecorder.capturedWindowID
         )
 
@@ -485,10 +615,14 @@ final class RecordingSession: ObservableObject {
         stopElapsedTimer()
         elapsedTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.recordingStartTime > 0 else { return }
-                self.elapsedTime = CACurrentMediaTime() - self.recordingStartTime
+                self?.updateElapsedTime()
             }
         }
+    }
+
+    private func updateElapsedTime() {
+        guard clock.hasEpoch else { return }
+        elapsedTime = CMTimeGetSeconds(clock.activeDuration())
     }
 
     private func stopElapsedTimer() {

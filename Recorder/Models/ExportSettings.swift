@@ -263,6 +263,7 @@ struct ProjectEditSettings: Codable, Equatable {
 enum CaptureTargetKind: String, Codable, CaseIterable, Identifiable {
     case display
     case window
+    case area
 
     var id: String { rawValue }
 
@@ -270,7 +271,13 @@ enum CaptureTargetKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .display: return "Full Display"
         case .window: return "Window"
+        case .area: return "Area"
         }
+    }
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = CaptureTargetKind(rawValue: raw) ?? .display
     }
 }
 
@@ -334,9 +341,23 @@ struct RecordingPreferences: Codable, Equatable {
     var cameraEnabled: Bool = false
     var selectedCameraID: String?
     var cameraPosition: CameraBubblePosition = .bottomRight
+    var cameraSize: CameraBubbleSize = .medium
     var cameraBackground: CameraBackgroundMode = .none
+    /// The area recorded last in `.area` mode, offered again by the selector.
+    var lastArea: CaptureArea?
+    var areaPreset: AreaPreset = .free
+    /// Capture frame rate (30 or 60).
+    var frameRate: Int = 60
+    /// Leave Finder's desktop icons out of display and area recordings.
+    var hideDesktopIcons = false
+    /// Leave notification banners out of display and area recordings.
+    var hideNotifications = true
+    /// Record key presses for the keystroke overlay (needs Input Monitoring).
+    var recordKeystrokes = false
 
     static let `default` = RecordingPreferences()
+
+    static let frameRateChoices = [30, 60]
 }
 
 // Decoding is tolerant so preferences saved by an older build still load after new
@@ -355,7 +376,14 @@ extension RecordingPreferences {
         case cameraEnabled
         case selectedCameraID
         case cameraPosition
+        case cameraSize
         case cameraBackground
+        case lastArea
+        case areaPreset
+        case frameRate
+        case hideDesktopIcons
+        case hideNotifications
+        case recordKeystrokes
     }
 
     init(from decoder: Decoder) throws {
@@ -377,8 +405,17 @@ extension RecordingPreferences {
         selectedCameraID = try container.decodeIfPresent(String.self, forKey: .selectedCameraID)
         cameraPosition = try container.decodeIfPresent(CameraBubblePosition.self, forKey: .cameraPosition)
             ?? defaults.cameraPosition
-        cameraBackground = try container.decodeIfPresent(CameraBackgroundMode.self, forKey: .cameraBackground)
+        cameraSize = (try? container.decodeIfPresent(CameraBubbleSize.self, forKey: .cameraSize)) ?? defaults.cameraSize
+        cameraBackground = (try? container.decodeIfPresent(CameraBackgroundMode.self, forKey: .cameraBackground))
             ?? defaults.cameraBackground
+        lastArea = try? container.decodeIfPresent(CaptureArea.self, forKey: .lastArea)
+        areaPreset = try container.decodeIfPresent(AreaPreset.self, forKey: .areaPreset) ?? defaults.areaPreset
+        let savedFrameRate = try container.decodeIfPresent(Int.self, forKey: .frameRate) ?? defaults.frameRate
+        frameRate = Self.frameRateChoices.contains(savedFrameRate) ? savedFrameRate : defaults.frameRate
+        hideDesktopIcons = try container.decodeIfPresent(Bool.self, forKey: .hideDesktopIcons) ?? defaults.hideDesktopIcons
+        hideNotifications = try container.decodeIfPresent(Bool.self, forKey: .hideNotifications)
+            ?? defaults.hideNotifications
+        recordKeystrokes = try container.decodeIfPresent(Bool.self, forKey: .recordKeystrokes) ?? defaults.recordKeystrokes
     }
 
     private static let defaultsKey = "recordingPreferences"

@@ -51,7 +51,7 @@ struct AreaCaptureGeometryTests {
             CGRect(x: 2000, y: 10, width: 200, height: 200), displaySize: display, scale: 2
         ) == nil)
         #expect(CaptureGeometry.areaSourceRect(
-            CGRect(x: .nan, y: 10, width: 200, height: 200), displaySize: display, scale: 2
+            CGRect(x: CGFloat.nan, y: 10, width: 200, height: 200), displaySize: display, scale: 2
         ) == nil)
     }
 
@@ -166,5 +166,43 @@ struct AreaSelectionTests {
     @Test func unknownPresetsDecodeAsFreeform() throws {
         let decoded = try JSONDecoder().decode([AreaPreset].self, from: Data(#"["square","ultrawide"]"#.utf8))
         #expect(decoded == [.square, .free])
+    }
+}
+
+@Suite("Capture exclusion")
+struct CaptureExclusionTests {
+    private let windows = [
+        CaptureExclusion.Window(windowID: 1, bundleID: CaptureExclusion.finderBundleID, layer: -2_147_483_603),
+        CaptureExclusion.Window(windowID: 2, bundleID: CaptureExclusion.finderBundleID, layer: 0),
+        CaptureExclusion.Window(windowID: 3, bundleID: "com.apple.Safari", layer: 0),
+        CaptureExclusion.Window(windowID: 4, bundleID: CaptureExclusion.notificationCenterBundleID, layer: 23)
+    ]
+
+    @Test func alwaysLeavesOutTheAppItself() {
+        let plan = CaptureExclusion.plan(ownBundleID: "app.test", windows: windows, hideDesktopIcons: false, hideNotifications: false)
+        #expect(plan.excludedBundleIDs == ["app.test"])
+        #expect(plan.exceptedWindowIDs.isEmpty)
+    }
+
+    @Test func hidesNotifications() {
+        let plan = CaptureExclusion.plan(ownBundleID: "app.test", windows: windows, hideDesktopIcons: false, hideNotifications: true)
+        #expect(plan.excludedBundleIDs == ["app.test", CaptureExclusion.notificationCenterBundleID])
+    }
+
+    @Test func hidesDesktopIconsButKeepsFinderWindows() {
+        let plan = CaptureExclusion.plan(ownBundleID: nil, windows: windows, hideDesktopIcons: true, hideNotifications: false)
+        #expect(plan.excludedBundleIDs == [CaptureExclusion.finderBundleID])
+        #expect(plan.exceptedWindowIDs == [2])
+    }
+}
+
+@Suite("Camera bubble snapping")
+struct CameraBubbleSnappingTests {
+    @Test func snapsToTheNearestCorner() {
+        let screen = CGRect(x: -1440, y: 0, width: 1440, height: 900)
+        #expect(CameraBubblePosition.nearest(to: CGPoint(x: -100, y: 100), in: screen) == .bottomRight)
+        #expect(CameraBubblePosition.nearest(to: CGPoint(x: -1300, y: 100), in: screen) == .bottomLeft)
+        #expect(CameraBubblePosition.nearest(to: CGPoint(x: -100, y: 800), in: screen) == .topRight)
+        #expect(CameraBubblePosition.nearest(to: CGPoint(x: -1300, y: 800), in: screen) == .topLeft)
     }
 }

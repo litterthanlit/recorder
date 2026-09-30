@@ -13,7 +13,10 @@ enum SettingsWindow {
             launchAtLogin: appState.launchAtLogin,
             permissions: appState.permissions
         )))
-        tabs.addTabViewItem(item("Recording", symbol: "record.circle", RecordingSettingsPane(session: appState.session)))
+        tabs.addTabViewItem(item("Recording", symbol: "record.circle", RecordingSettingsPane(
+            session: appState.session,
+            permissions: appState.permissions
+        )))
         tabs.addTabViewItem(item("Shortcuts", symbol: "command", ShortcutsSettingsPane(
             settings: appState.settingsStore,
             hotkeys: appState.hotkeys
@@ -139,6 +142,7 @@ struct PermissionStatusRow: View {
 
 struct RecordingSettingsPane: View {
     @ObservedObject var session: RecordingSession
+    @ObservedObject var permissions: PermissionsManager
 
     private static let countdownChoices = [0, 3, 5, 10]
 
@@ -153,8 +157,15 @@ struct RecordingSettingsPane: View {
                         Text("\(session.preferences.countdownSeconds) seconds").tag(session.preferences.countdownSeconds)
                     }
                 }
+                Picker("Frame rate", selection: $session.preferences.frameRate) {
+                    ForEach(RecordingPreferences.frameRateChoices, id: \.self) { fps in
+                        Text("\(fps) fps").tag(fps)
+                    }
+                }
             } header: {
-                Text("Start")
+                Text("Capture")
+            } footer: {
+                Text("60 fps keeps scrolling and cursor movement smooth; 30 fps makes smaller files.")
             }
 
             Section {
@@ -166,15 +177,32 @@ struct RecordingSettingsPane: View {
             }
 
             Section {
+                Toggle("Show keystrokes", isOn: $session.preferences.recordKeystrokes)
+                if session.preferences.recordKeystrokes && !permissions.hasInputMonitoringPermission {
+                    LabeledContent("Needs Input Monitoring access") {
+                        Button("Allow…") { permissions.requestInputMonitoringPermission() }
+                    }
+                    .font(DS.Typeface.footnote)
+                }
+            } header: {
+                Text("Keyboard")
+            } footer: {
+                Text("Records the keys you press so shortcuts can be shown on screen in the editor. Nothing is recorded in password fields.")
+            }
+
+            Section {
+                Toggle("Hide notifications", isOn: $session.preferences.hideNotifications)
+                Toggle("Hide desktop icons", isOn: $session.preferences.hideDesktopIcons)
                 Toggle("Hide menu bar and Dock", isOn: $session.preferences.hideChromeDuringRecording)
             } header: {
                 Text("Clean screen")
             } footer: {
-                Text("Full-display recordings leave out the menu bar, and the Dock hides while recording.")
+                Text("Notifications and desktop icons are left out of display and area recordings without changing your Mac's settings. Full-display recordings also leave out the menu bar, and the Dock hides while recording.")
             }
         }
         .formStyle(.grouped)
-        .frame(width: paneWidth, height: 420)
+        .frame(width: paneWidth, height: 620)
+        .onAppear { permissions.refresh() }
     }
 }
 

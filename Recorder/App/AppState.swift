@@ -11,6 +11,8 @@ final class AppState: ObservableObject {
     let settingsStore: SettingsStore
     let launchAtLogin = LaunchAtLogin()
     let hotkeys = RecordingHotkeysController()
+    let captureSelector = CaptureSelector()
+    private var recordingOverlays: RecordingOverlays?
 
     /// Set by the status item: open and close the menu bar panel.
     var showPanelHandler: (() -> Void)?
@@ -44,6 +46,14 @@ final class AppState: ObservableObject {
         hotkeys.bind(session: session, settings: settingsStore) { [weak self] action in
             self?.handleHotkey(action)
         }
+        recordingOverlays = RecordingOverlays(session: session, settings: settingsStore)
+        settingsStore.$settings
+            .map(\.playSounds)
+            .removeDuplicates()
+            .sink { [weak session] enabled in
+                session?.soundsEnabled = enabled
+            }
+            .store(in: &cancellables)
         editorPresenter.onClose = { [weak session] projectID in
             session?.releaseEditor(id: projectID)
         }
@@ -77,18 +87,61 @@ final class AppState: ObservableObject {
 
     // MARK: - Actions
 
-    /// Starts a take (from the panel, the status menu, or the record shortcut).
+    /// Starts a take right away with the last target (display, window or area): a
+    /// retake from the editor.
     func startRecording() {
         dismissPanel()
+        guard ensurePermissions() else { return }
+        Task { await session.start() }
+    }
+
+    /// Opens the selector to pick what to record, starting in `mode` (by default the kind
+    /// recorded last). The last area is offered again, so a retake is ⇧⌘R then ⏎.
+    func chooseAndRecord(mode: CaptureSelector.Mode? = nil) {
+        dismissPanel()
+        guard !session.isBusy, ensurePermissions() else { return }
+        let preferences = session.preferences
+        let initialMode = mode ?? {
+            switch preferences.captureTarget {
+            case .area: return .area
+            case .window: return .window
+            case .display: return .display
+            }
+        }()
+        captureSelector.begin(
+            mode: initialMode,
+            lastArea: preferences.lastArea,
+            preset: preferences.areaPreset
+        ) { [weak self] selection in
+            guard let self else { return }
+            self.session.preferences.areaPreset = self.captureSelector.preset
+            guard let selection else { return }
+            switch selection {
+            case let .area(area):
+                self.session.preferences.captureTarget = .area
+                self.session.preferences.lastArea = area
+            case let .window(windowID):
+                self.session.preferences.captureTarget = .window
+                self.session.preferences.selectedWindowID = windowID
+            case let .display(displayID):
+                self.session.preferences.captureTarget = .display
+                self.session.preferences.selectedDisplayID = displayID
+            }
+            Task { await self.session.start() }
+        }
+    }
+
+    /// Screen Recording and Accessibility; opens the setup guide when missing.
+    private func ensurePermissions() -> Bool {
         if !permissions.hasRequiredPermissions {
             // The cached status may be stale (just granted in System Settings).
             permissions.refresh()
             guard permissions.hasRequiredPermissions else {
                 showOnboarding()
-                return
+                return false
             }
         }
-        Task { await session.start() }
+        return true
     }
 
     /// Records a display (`nil`: the one chosen before, or the main display).
@@ -97,6 +150,12 @@ final class AppState: ObservableObject {
         if let displayID {
             session.preferences.selectedDisplayID = displayID
         }
+        startRecording()
+    }
+
+    func startRecording(area: CaptureArea) {
+        session.preferences.captureTarget = .area
+        session.preferences.lastArea = area
         startRecording()
     }
 
@@ -137,7 +196,11 @@ final class AppState: ObservableObject {
     private func handleHotkey(_ action: HotkeyAction) {
         switch action {
         case .record:
-            startRecording()
+            if captureSelector.isActive {
+                captureSelector.confirm()
+            } else {
+                chooseAndRecord()
+            }
         case .stop:
             switch session.state {
             case .countdown:
@@ -147,8 +210,10 @@ final class AppState: ObservableObject {
             default:
                 break
             }
-        case .pauseResume, .restart:
-            break
+        case .pauseResume:
+            session.togglePause()
+        case .restart:
+            Task { await session.restart() }
         }
     }
 

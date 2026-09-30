@@ -15,40 +15,31 @@ import Foundation
 final class CameraTrackWriter {
     private let queue = DispatchQueue(label: "com.recorder.camera-track-writer")
     private var outputURL: URL?
-    private var epoch: CMTime?
+    private var clock: RecordingClock?
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
     private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var lastFrameTime = CMTime.invalid
     private var isActive = false
 
-    /// Starts a new take. Frames are ignored until `setEpoch` is called.
-    func prepare(outputURL: URL) {
+    /// Starts a new take on `clock`. Frames are ignored until the screen recording's first
+    /// frame sets the clock's t = 0, and while the take is paused.
+    func prepare(outputURL: URL, clock: RecordingClock) {
         queue.async { [self] in
             resetWriter(cancelling: true)
             try? FileManager.default.removeItem(at: outputURL)
             self.outputURL = outputURL
-            epoch = nil
+            self.clock = clock
             isActive = true
-        }
-    }
-
-    /// Host time of the screen recording's first frame (its t = 0).
-    func setEpoch(_ hostTime: CMTime) {
-        queue.async { [self] in
-            if epoch == nil {
-                epoch = hostTime
-            }
         }
     }
 
     /// - Parameter hostTime: when the frame was captured, on the host clock.
     func append(_ pixelBuffer: CVPixelBuffer, hostTime: CMTime) {
         queue.async { [self] in
-            guard isActive, let epoch, let outputURL else { return }
-
-            let time = CMTimeSubtract(hostTime, epoch)
-            guard time.isValid, time >= .zero else { return }
+            guard isActive, let clock, let outputURL,
+                  let time = clock.recordingTime(forHost: hostTime)
+            else { return }
             if lastFrameTime.isValid, time <= lastFrameTime { return }
 
             if writer == nil {

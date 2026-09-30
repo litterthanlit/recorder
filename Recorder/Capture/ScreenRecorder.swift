@@ -16,8 +16,15 @@ protocol ScreenRecorderDelegate: AnyObject {
 struct ScreenRecorderOptions {
     var captureTarget: CaptureTargetKind = .display
     var windowID: UInt32?
-    /// Display to record in `.display` mode; `nil` means the main display.
+    /// Display to record in `.display` and `.area` mode; `nil` means the main display.
     var displayID: UInt32?
+    /// In `.area` mode, the part of the display to record (display points, top-left origin).
+    var area: CGRect?
+    /// The take's clock: the first frame sets its t = 0, and pauses come from it.
+    var clock = RecordingClock()
+    var frameRate: Int = 60
+    var hideDesktopIcons = false
+    var hideNotifications = false
     var showCursor: Bool = true
     /// Leave the menu bar out of display recordings. (Hiding it doesn't work: presentation
     /// options only apply while this app is frontmost, and it isn't while recording.)
@@ -28,7 +35,9 @@ struct ScreenRecorderOptions {
     var captureSystemAudio: Bool = false
 }
 
-final class ScreenRecorder: NSObject {
+/// Unchecked: capture and writer state is confined to `writerQueue`; the rest is set up
+/// before capture starts.
+final class ScreenRecorder: NSObject, @unchecked Sendable {
     weak var delegate: ScreenRecorderDelegate?
 
     private var stream: SCStream?
@@ -44,6 +53,14 @@ final class ScreenRecorder: NSObject {
     private var isRecording = false
     private var didNotifyFirstFrame = false
     private var didReportFailure = false
+    /// Presentation time of the last frame written (writer queue only); timestamps must
+    /// keep increasing, including across a pause.
+    private var lastAppendedTime = CMTime.invalid
+    /// The newest frame delivered while paused, written when the take resumes so the
+    /// video doesn't show the pre-pause screen until something changes.
+    private var pausedPixelBuffer: CVPixelBuffer?
+    private var filterRefreshTimer: Timer?
+    private var excludedFinderWindowIDs: Set<UInt32> = []
     /// Samples the writer wasn't ready for (writer queue only). Logged at stop: dropped
     /// audio shifts later narration earlier, so these should stay at zero.
     private var droppedVideoFrames = 0
@@ -90,10 +107,9 @@ final class ScreenRecorder: NSObject {
 
         let filter: SCContentFilter
         let displayScale: CGFloat
-        let excludedWindows = content.windows.filter { options.excludeWindowIDs.contains($0.windowID) }
 
         switch options.captureTarget {
-        case .display:
+        case .display, .area:
             let displayID = CaptureGeometry.resolvedDisplayID(
                 preferred: options.displayID,
                 available: content.displays.map(\.displayID),
@@ -102,26 +118,32 @@ final class ScreenRecorder: NSObject {
             guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
                 throw ScreenRecorderError.noDisplayAvailable
             }
-            // Leave this app's own windows (camera bubble, countdown, menu bar panel,
-            // editor) out of the recording. The camera is recorded separately and
-            // composited at export, so the live bubble must not be baked in too.
-            let ownApps = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
-            if ownApps.isEmpty {
-                filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
-            } else {
-                filter = SCContentFilter(display: display, excludingApplications: ownApps, exceptingWindows: [])
-            }
+            filter = makeDisplayFilter(display: display, content: content, options: options)
             // NSScreen.main is the screen with the key window, not necessarily this display.
             let screen = NSScreen.screen(forDisplayID: display.displayID)
             displayScale = screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
             windowTitle = nil
             appName = nil
             capturedWindowID = nil
-            // visibleFrame's top inset is the menu bar (0 when it auto-hides).
-            let menuBarHeight = options.cropsMenuBar
-                ? screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
-                : 0
-            configureCaptureGeometry(display: display, displayScale: displayScale, topInset: menuBarHeight)
+
+            let displaySize = CGSize(width: display.width, height: display.height)
+            let sourceRect: CGRect
+            if options.captureTarget == .area {
+                guard let area = options.area,
+                      let rect = CaptureGeometry.areaSourceRect(area, displaySize: displaySize, scale: displayScale)
+                else {
+                    throw ScreenRecorderError.areaNotAvailable
+                }
+                sourceRect = rect
+                appName = NSWorkspace.shared.frontmostApplication?.localizedName
+            } else {
+                // visibleFrame's top inset is the menu bar (0 when it auto-hides).
+                let menuBarHeight = options.cropsMenuBar
+                    ? screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
+                    : 0
+                sourceRect = CaptureGeometry.sourceRect(displaySize: displaySize, topInset: menuBarHeight)
+            }
+            configureCaptureGeometry(display: display, displayScale: displayScale, sourceRect: sourceRect)
 
         case .window:
             guard let windowID = options.windowID,
@@ -144,7 +166,7 @@ final class ScreenRecorder: NSObject {
         }
 
         scaleFactor = displayScale
-        fps = 60
+        fps = RecordingPreferences.frameRateChoices.contains(options.frameRate) ? options.frameRate : 60
 
         let configuration = SCStreamConfiguration()
         configuration.width = captureWidth
@@ -179,6 +201,8 @@ final class ScreenRecorder: NSObject {
         // returns, and it must not be dropped. These are read on the writer queue.
         writerQueue.sync {
             firstSampleTime = nil
+            lastAppendedTime = .invalid
+            pausedPixelBuffer = nil
             droppedVideoFrames = 0
             droppedAudioBuffers = 0
             lastWrittenTime = .zero
@@ -206,6 +230,122 @@ final class ScreenRecorder: NSObject {
 
         self.stream = stream
         sessionStartTime = CACurrentMediaTime()
+        startFilterRefreshIfNeeded(display: options.captureTarget == .window ? nil : filterDisplay)
+    }
+
+    // MARK: - Content filter
+
+    /// The display a display or area recording captures, for refreshing its filter.
+    private var filterDisplay: SCDisplay?
+
+    /// Leaves out this app's windows (camera bubble, countdown, HUD, panel, editor: the
+    /// camera is recorded separately and composited at export) and, on request,
+    /// notification banners and desktop icons.
+    private func makeDisplayFilter(display: SCDisplay, content: SCShareableContent, options: ScreenRecorderOptions) -> SCContentFilter {
+        filterDisplay = display
+        let plan = CaptureExclusion.plan(
+            ownBundleID: Bundle.main.bundleIdentifier,
+            windows: content.windows.map {
+                CaptureExclusion.Window(
+                    windowID: $0.windowID,
+                    bundleID: $0.owningApplication?.bundleIdentifier,
+                    layer: $0.windowLayer
+                )
+            },
+            hideDesktopIcons: options.hideDesktopIcons,
+            hideNotifications: options.hideNotifications
+        )
+        excludedFinderWindowIDs = plan.exceptedWindowIDs
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let excludedApps = content.applications.filter {
+            plan.excludedBundleIDs.contains($0.bundleIdentifier) || $0.processID == ownPID
+        }
+        if excludedApps.isEmpty {
+            let excludedWindows = content.windows.filter { options.excludeWindowIDs.contains($0.windowID) }
+            return SCContentFilter(display: display, excludingWindows: excludedWindows)
+        }
+        let exceptedWindows = content.windows.filter { plan.exceptedWindowIDs.contains($0.windowID) }
+        return SCContentFilter(display: display, excludingApplications: excludedApps, exceptingWindows: exceptedWindows)
+    }
+
+    /// With desktop icons hidden, all of Finder is left out except the windows open when
+    /// the take started. Check now and then for new Finder windows so they're recorded.
+    private func startFilterRefreshIfNeeded(display: SCDisplay?) {
+        filterRefreshTimer?.invalidate()
+        filterRefreshTimer = nil
+        guard options.hideDesktopIcons, display != nil else { return }
+        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+            Task { await self?.refreshFilterIfFinderWindowsChanged() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        filterRefreshTimer = timer
+    }
+
+    private func refreshFilterIfFinderWindowsChanged() async {
+        guard let stream, let display = filterDisplay,
+              let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        else { return }
+        let finderWindows = Set(content.windows
+            .filter { $0.owningApplication?.bundleIdentifier == CaptureExclusion.finderBundleID && $0.windowLayer == 0 }
+            .map(\.windowID))
+        guard finderWindows != excludedFinderWindowIDs else { return }
+        let filter = makeDisplayFilter(display: display, content: content, options: options)
+        do {
+            try await stream.updateContentFilter(filter)
+        } catch {
+            Log.capture.error("Updating the capture filter failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Pause
+
+    /// Stops writing samples; the clock leaves the paused time out of the recording.
+    func pause() {
+        writerQueue.async { [self] in
+            guard isRecording else { return }
+            options.clock.pause()
+            pausedPixelBuffer = nil
+        }
+    }
+
+    func resume() {
+        writerQueue.async { [self] in
+            guard isRecording, options.clock.isPaused else { return }
+            let host = RecordingClock.now
+            options.clock.resume(at: host)
+            // The screen may have changed while paused without changing since, in which
+            // case no new frame comes: show the newest one from the resume point on.
+            guard let buffer = pausedPixelBuffer ?? lastWrittenPixelBuffer,
+                  let time = options.clock.recordingTime(forHost: host)
+            else { return }
+            pausedPixelBuffer = nil
+            appendVideoFrame(buffer, at: time)
+        }
+    }
+
+    /// Stops capture and throws the take away (restart, discard).
+    func cancelRecording() async {
+        filterRefreshTimer?.invalidate()
+        filterRefreshTimer = nil
+        let wasRecording = writerQueue.sync {
+            let wasRecording = isRecording
+            isRecording = false
+            return wasRecording
+        }
+        guard wasRecording else { return }
+        if let stream {
+            try? await stream.stopCapture()
+        }
+        stream = nil
+        writerQueue.sync {
+            assetWriter?.cancelWriting()
+            assetWriter = nil
+            lastWrittenPixelBuffer = nil
+            pausedPixelBuffer = nil
+            if let outputURL {
+                try? FileManager.default.removeItem(at: outputURL)
+            }
+        }
     }
 
     /// - Parameter hostTime: the buffer's capture time on the host clock.
@@ -220,6 +360,8 @@ final class ScreenRecorder: NSObject {
     /// writer is always finished so whatever was recorded stays playable.
     func stopRecording() async throws -> RecordingResult {
         let stopHostTime = CMClockGetTime(CMClockGetHostTimeClock())
+        filterRefreshTimer?.invalidate()
+        filterRefreshTimer = nil
         let wasRecording = writerQueue.sync {
             let wasRecording = isRecording
             isRecording = false
@@ -247,7 +389,7 @@ final class ScreenRecorder: NSObject {
 
                 guard let writer = self.assetWriter,
                       writer.status == .writing,
-                      let firstSampleTime = self.firstSampleTime
+                      self.firstSampleTime != nil
                 else {
                     let failedWriter = self.assetWriter
                     failedWriter?.cancelWriting()
@@ -258,13 +400,11 @@ final class ScreenRecorder: NSObject {
 
                 // ScreenCaptureKit only delivers frames when the screen changes, so a still
                 // ending has no frames. Repeat the last frame at the stop time to keep it.
-                let stopTime = CMTimeSubtract(stopHostTime, firstSampleTime)
-                if stopTime > self.lastWrittenTime,
-                   let lastBuffer = self.lastWrittenPixelBuffer,
-                   let writerInput = self.writerInput,
-                   writerInput.isReadyForMoreMediaData,
-                   self.pixelBufferAdaptor?.append(lastBuffer, withPresentationTime: stopTime) == true {
-                    self.lastWrittenTime = stopTime
+                // Stopping while paused ends where the pause began.
+                let stopTime = self.options.clock.activeDuration(atHost: stopHostTime)
+                if stopTime > self.lastWrittenTime, let lastBuffer = self.lastWrittenPixelBuffer {
+                    self.appendVideoFrame(lastBuffer, at: stopTime)
+                    self.lastWrittenTime = CMTimeMaximum(self.lastWrittenTime, stopTime)
                 }
 
                 if self.droppedVideoFrames > 0 || self.droppedAudioBuffers > 0 {
@@ -308,12 +448,11 @@ final class ScreenRecorder: NSObject {
         }
     }
 
-    private func configureCaptureGeometry(display: SCDisplay, displayScale: CGFloat, topInset: CGFloat) {
-        let sourceRect = CaptureGeometry.sourceRect(
-            displaySize: CGSize(width: display.width, height: display.height),
-            topInset: topInset
-        )
-        displaySourceRect = sourceRect.minY > 0 ? sourceRect : nil
+    /// - Parameter sourceRect: the part of the display recorded, in display points with a
+    ///   top-left origin (the whole display, without the menu bar, or an area).
+    private func configureCaptureGeometry(display: SCDisplay, displayScale: CGFloat, sourceRect: CGRect) {
+        let fullDisplay = CGRect(x: 0, y: 0, width: CGFloat(display.width), height: CGFloat(display.height))
+        displaySourceRect = sourceRect == fullDisplay ? nil : sourceRect
 
         // Global display space (top-left origin), the same space as CGEvent.location.
         // NSScreen.frame is bottom-left based and only matches for the main display.
@@ -429,38 +568,28 @@ final class ScreenRecorder: NSObject {
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
               Self.isCompleteFrame(sampleBuffer)
         else { return }
-        guard writerInput.isReadyForMoreMediaData else {
-            droppedVideoFrames += 1
-            return
-        }
 
         let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let isFirstFrame = firstSampleTime == nil
         if isFirstFrame {
             firstSampleTime = presentationTime
+            options.clock.setEpoch(presentationTime)
         }
 
-        let relativeTime = CMTimeSubtract(presentationTime, firstSampleTime ?? .zero)
-        let frameDuration = resolvedFrameDuration(for: sampleBuffer)
-
-        // The camera is recorded to its own track (CameraTrackWriter) and composited at
-        // render time, so screen frames are written untouched.
-        let bufferToWrite = pixelBuffer
-
-        let appended: Bool
-        if let adaptor = pixelBufferAdaptor {
-            appended = adaptor.append(bufferToWrite, withPresentationTime: relativeTime)
-        } else {
-            appended = false
+        guard let relativeTime = options.clock.recordingTime(forHost: presentationTime) else {
+            // Paused: nothing is written, but keep the newest frame for the resume.
+            pausedPixelBuffer = pixelBuffer
+            return
         }
-
-        if !appended {
-            reportFailure(assetWriter.error ?? ScreenRecorderError.writerFailed)
+        guard writerInput.isReadyForMoreMediaData else {
+            droppedVideoFrames += 1
             return
         }
 
-        lastWrittenTime = CMTimeAdd(relativeTime, frameDuration)
-        lastWrittenPixelBuffer = bufferToWrite
+        // The camera is recorded to its own track (CameraTrackWriter) and composited at
+        // render time, so screen frames are written untouched.
+        guard appendVideoFrame(pixelBuffer, at: relativeTime) else { return }
+        lastWrittenTime = CMTimeAdd(relativeTime, resolvedFrameDuration(for: sampleBuffer))
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -472,29 +601,88 @@ final class ScreenRecorder: NSObject {
         }
     }
 
+    /// Writes one frame at `time` on the recording's timeline. Frames at or before the
+    /// last one written are skipped (timestamps must increase). Writer queue only.
+    @discardableResult
+    private func appendVideoFrame(_ pixelBuffer: CVPixelBuffer, at time: CMTime) -> Bool {
+        if lastAppendedTime.isValid, time <= lastAppendedTime {
+            return false
+        }
+        guard let adaptor = pixelBufferAdaptor,
+              let writerInput,
+              writerInput.isReadyForMoreMediaData,
+              let assetWriter
+        else { return false }
+        guard adaptor.append(pixelBuffer, withPresentationTime: time) else {
+            reportFailure(assetWriter.error ?? ScreenRecorderError.writerFailed)
+            return false
+        }
+        lastAppendedTime = time
+        lastWrittenPixelBuffer = pixelBuffer
+        if time > lastWrittenTime {
+            lastWrittenTime = time
+        }
+        return true
+    }
+
     /// Called on the writer queue with a mic or system audio buffer.
     private func writeAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer, hostTime: CMTime, to audioWriterInput: AVAssetWriterInput) {
         guard isRecording,
               let assetWriter,
               assetWriter.status == .writing,
-              let firstSampleTime
+              firstSampleTime != nil
         else { return }
+
+        // Place audio on the video's timeline (t = 0 is the first video frame, paused time
+        // left out) rather than starting at the mic's own first sample, which shifted
+        // narration by however long the mic took to start. Audio from before t = 0 or
+        // while paused is dropped; a buffer that straddles a pause edge is trimmed.
+        guard let kept = keptAudio(sampleBuffer, hostTime: hostTime),
+              let recordingTime = options.clock.recordingTime(forHost: kept.hostTime)
+        else { return }
+        let buffer = kept.buffer
         guard audioWriterInput.isReadyForMoreMediaData else {
             droppedAudioBuffers += 1
             return
         }
 
-        // Place audio on the video's timeline (t = 0 is the first video frame) rather than
-        // starting at the mic's own first sample, which shifted narration by however long
-        // the mic took to start. Buffers captured before t = 0 are dropped.
-        let recordingTime = MediaTiming.recordingTime(hostTime: hostTime, firstVideoFrameHostTime: firstSampleTime)
-        guard recordingTime.isValid, recordingTime >= .zero else { return }
-
-        let offset = CMTimeSubtract(recordingTime, CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-        guard let retimed = sampleBuffer.retimed(by: offset) else { return }
+        let offset = CMTimeSubtract(recordingTime, CMSampleBufferGetPresentationTimeStamp(buffer))
+        guard let retimed = buffer.retimed(by: offset) else { return }
         if !audioWriterInput.append(retimed) {
             reportFailure(assetWriter.error ?? ScreenRecorderError.writerFailed)
         }
+    }
+
+    /// The part of an audio buffer to record, with its capture time on the host clock.
+    private func keptAudio(_ sampleBuffer: CMSampleBuffer, hostTime: CMTime) -> (buffer: CMSampleBuffer, hostTime: CMTime)? {
+        let duration = CMSampleBufferGetDuration(sampleBuffer)
+        guard duration.isValid, duration > .zero else {
+            // No duration to trim by: all or nothing.
+            return options.clock.recordingTime(forHost: hostTime) == nil ? nil : (sampleBuffer, hostTime)
+        }
+        guard let kept = options.clock.keptRange(bufferStart: hostTime, duration: duration) else { return nil }
+        let endHostTime = CMTimeAdd(hostTime, duration)
+        if kept.start == hostTime, kept.end == endHostTime {
+            return (sampleBuffer, hostTime)
+        }
+
+        let sampleCount = CMSampleBufferGetNumSamples(sampleBuffer)
+        guard sampleCount > 1 else { return nil }
+        let secondsPerSample = CMTimeGetSeconds(duration) / Double(sampleCount)
+        let first = Int((CMTimeGetSeconds(CMTimeSubtract(kept.start, hostTime)) / secondsPerSample).rounded())
+        let count = Int((CMTimeGetSeconds(kept.duration) / secondsPerSample).rounded())
+        guard first >= 0, count > 0, first + count <= sampleCount else { return nil }
+
+        var trimmed: CMSampleBuffer?
+        let status = CMSampleBufferCopySampleBufferForRange(
+            allocator: kCFAllocatorDefault,
+            sampleBuffer: sampleBuffer,
+            sampleRange: CFRange(location: first, length: count),
+            sampleBufferOut: &trimmed
+        )
+        guard status == OSStatus(noErr), let trimmed else { return nil }
+        let trimmedHostTime = CMTimeAdd(hostTime, CMTime(seconds: Double(first) * secondsPerSample, preferredTimescale: 1_000_000_000))
+        return (trimmed, trimmedHostTime)
     }
 
     /// Reports a capture failure once per recording (appends keep failing after the first).
@@ -578,6 +766,7 @@ enum ScreenRecorderError: LocalizedError {
     case writerFailed
     case alreadyRecording
     case noFramesCaptured
+    case areaNotAvailable
 
     var errorDescription: String? {
         switch self {
@@ -593,6 +782,8 @@ enum ScreenRecorderError: LocalizedError {
             return "A recording is already in progress."
         case .noFramesCaptured:
             return "No frames were captured, so nothing was saved."
+        case .areaNotAvailable:
+            return "The selected area isn't on a connected display. Select it again."
         }
     }
 }
