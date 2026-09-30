@@ -50,6 +50,19 @@
 		B20000000000000000000029 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002D /* Log.swift */; };
 		B2000000000000000000002A /* Brand.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002E /* Brand.swift */; };
 		B2000000000000000000002B /* LibraryMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002F /* LibraryMigration.swift */; };
+		B2000000000000000000002C /* KeyNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000030 /* KeyNames.swift */; };
+		B2000000000000000000002D /* Hotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000031 /* Hotkeys.swift */; };
+		B2000000000000000000002E /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000032 /* AppSettings.swift */; };
+		B2000000000000000000002F /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000033 /* AppState.swift */; };
+		B20000000000000000000030 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000034 /* AppDelegate.swift */; };
+		B20000000000000000000031 /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000035 /* StatusItemController.swift */; };
+		B20000000000000000000032 /* ActivationPolicyController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000036 /* ActivationPolicyController.swift */; };
+		B20000000000000000000033 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000037 /* SettingsStore.swift */; };
+		B20000000000000000000034 /* WindowPresenters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000038 /* WindowPresenters.swift */; };
+		B20000000000000000000035 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000039 /* SettingsView.swift */; };
+		B20000000000000000000036 /* ShortcutRecorderField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003A /* ShortcutRecorderField.swift */; };
+		B20000000000000000000037 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003B /* DesignSystem.swift */; };
+		B20000000000000000000038 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003C /* OnboardingView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -100,6 +113,19 @@
 		A2000000000000000000002D /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
 		A2000000000000000000002E /* Brand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Brand.swift; sourceTree = "<group>"; };
 		A2000000000000000000002F /* LibraryMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryMigration.swift; sourceTree = "<group>"; };
+		A20000000000000000000030 /* KeyNames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyNames.swift; sourceTree = "<group>"; };
+		A20000000000000000000031 /* Hotkeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hotkeys.swift; sourceTree = "<group>"; };
+		A20000000000000000000032 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		A20000000000000000000033 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		A20000000000000000000034 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A20000000000000000000035 /* StatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemController.swift; sourceTree = "<group>"; };
+		A20000000000000000000036 /* ActivationPolicyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivationPolicyController.swift; sourceTree = "<group>"; };
+		A20000000000000000000037 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000038 /* WindowPresenters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowPresenters.swift; sourceTree = "<group>"; };
+		A20000000000000000000039 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A2000000000000000000003A /* ShortcutRecorderField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderField.swift; sourceTree = "<group>"; };
+		A2000000000000000000003B /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
+		A2000000000000000000003C /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -148,6 +174,12 @@
 				A20000000000000000000003 /* NSScreen+DisplayID.swift */,
 				A2000000000000000000001C /* RecordingHotkeys.swift */,
 				A20000000000000000000028 /* ProjectLibrary.swift */,
+				A20000000000000000000033 /* AppState.swift */,
+				A20000000000000000000034 /* AppDelegate.swift */,
+				A20000000000000000000035 /* StatusItemController.swift */,
+				A20000000000000000000036 /* ActivationPolicyController.swift */,
+				A20000000000000000000037 /* SettingsStore.swift */,
+				A20000000000000000000038 /* WindowPresenters.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -212,6 +244,9 @@
 				A2000000000000000000001B /* CountdownOverlay.swift */,
 				A20000000000000000000020 /* CameraBubbleOverlay.swift */,
 				A20000000000000000000029 /* RecentProjectsView.swift */,
+				C2000000000000000000000E /* Settings */,
+				C2000000000000000000000F /* Design */,
+				A2000000000000000000003C /* OnboardingView.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -234,6 +269,9 @@
 				A2000000000000000000002D /* Log.swift */,
 				A2000000000000000000002E /* Brand.swift */,
 				A2000000000000000000002F /* LibraryMigration.swift */,
+				A20000000000000000000030 /* KeyNames.swift */,
+				A20000000000000000000031 /* Hotkeys.swift */,
+				A20000000000000000000032 /* AppSettings.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -244,6 +282,23 @@
 				A20000000000000000000011 /* Trace.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C2000000000000000000000E /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000039 /* SettingsView.swift */,
+				A2000000000000000000003A /* ShortcutRecorderField.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		C2000000000000000000000F /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000003B /* DesignSystem.swift */,
+			);
+			path = Design;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -310,6 +365,19 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000038 /* OnboardingView.swift in Sources */,
+				B20000000000000000000037 /* DesignSystem.swift in Sources */,
+				B20000000000000000000036 /* ShortcutRecorderField.swift in Sources */,
+				B20000000000000000000035 /* SettingsView.swift in Sources */,
+				B20000000000000000000034 /* WindowPresenters.swift in Sources */,
+				B20000000000000000000033 /* SettingsStore.swift in Sources */,
+				B20000000000000000000032 /* ActivationPolicyController.swift in Sources */,
+				B20000000000000000000031 /* StatusItemController.swift in Sources */,
+				B20000000000000000000030 /* AppDelegate.swift in Sources */,
+				B2000000000000000000002F /* AppState.swift in Sources */,
+				B2000000000000000000002E /* AppSettings.swift in Sources */,
+				B2000000000000000000002D /* Hotkeys.swift in Sources */,
+				B2000000000000000000002C /* KeyNames.swift in Sources */,
 				B2000000000000000000002B /* LibraryMigration.swift in Sources */,
 				B2000000000000000000002A /* Brand.swift in Sources */,
 				B20000000000000000000029 /* Log.swift in Sources */,
@@ -400,6 +468,7 @@
 			baseConfigurationReference = A2000000000000000000002A /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -421,6 +490,7 @@
 			baseConfigurationReference = A2000000000000000000002A /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;

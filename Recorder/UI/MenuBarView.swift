@@ -1,12 +1,29 @@
 import SwiftUI
 
 struct MenuBarView: View {
+    let appState: AppState
     @ObservedObject var session: RecordingSession
     @ObservedObject var permissions: PermissionsManager
     @ObservedObject var library: ProjectLibrary
-    var onOpenEditor: (RecorderProject) -> Void
-    var onOpenProject: (ProjectSummary) -> Void
-    var onTrashProject: (ProjectSummary) -> Void
+
+    init(appState: AppState) {
+        self.appState = appState
+        session = appState.session
+        permissions = appState.permissions
+        library = appState.library
+    }
+
+    private func onOpenEditor(_ project: RecorderProject) {
+        appState.presentEditor(for: project)
+    }
+
+    private func onOpenProject(_ summary: ProjectSummary) {
+        appState.openProject(summary)
+    }
+
+    private func onTrashProject(_ summary: ProjectSummary) {
+        appState.moveToTrash(summary)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -333,7 +350,7 @@ struct MenuBarView: View {
         switch session.state {
         case .idle, .failed:
             Button {
-                Task { await session.start() }
+                appState.startRecording()
             } label: {
                 Label("Record", systemImage: "record.circle")
                     .frame(maxWidth: .infinity)
