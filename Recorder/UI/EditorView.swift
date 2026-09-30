@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct EditorView: View {
     @ObservedObject var editor: ProjectEditor
@@ -18,6 +19,7 @@ struct EditorView: View {
             .padding(20)
         }
         .frame(minWidth: 960, minHeight: 760)
+        .background(SpacebarPlaybackMonitor { editor.togglePlayback() })
     }
 
     private var header: some View {
@@ -253,8 +255,13 @@ struct EditorView: View {
         case .exported:
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Label("Export complete", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                    Label(
+                        editor.savedExportURL.map { "Saved as \($0.lastPathComponent)" } ?? "Export complete",
+                        systemImage: "checkmark.circle.fill"
+                    )
+                    .foregroundStyle(.green)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                     Spacer()
                     Button("Show in Finder") {
                         editor.revealExportInFinder()
@@ -276,12 +283,87 @@ struct EditorView: View {
 
     private func exportButton(title: String) -> some View {
         Button {
-            Task { await editor.export() }
+            guard let destination = ExportSavePanel.chooseDestination(
+                suggestedName: ExportNaming.defaultFileName(recordedAt: editor.project.metadata.createdAt)
+            ) else { return }
+            Task { await editor.export(to: destination) }
         } label: {
             Label(title, systemImage: "square.and.arrow.up")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
+    }
+}
+
+/// Asks where to save an exported video, starting in the folder used last time (Movies at
+/// first).
+@MainActor
+enum ExportSavePanel {
+    private static let lastDirectoryKey = "lastExportDirectory"
+
+    static func chooseDestination(suggestedName: String) -> URL? {
+        let panel = NSSavePanel()
+        panel.title = "Export Video"
+        panel.prompt = "Export"
+        panel.nameFieldStringValue = suggestedName
+        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.directoryURL = UserDefaults.standard.url(forKey: lastDirectoryKey)
+            ?? FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
+
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        UserDefaults.standard.set(url.deletingLastPathComponent(), forKey: lastDirectoryKey)
+        return url
+    }
+}
+
+/// Space plays and pauses the preview, like QuickTime. Watches key presses in the editor
+/// window only, and leaves Space alone while a text field (the watermark) is being edited.
+/// A keyboard shortcut on the play button would take Space away from text fields too.
+private struct SpacebarPlaybackMonitor: NSViewRepresentable {
+    let onSpace: () -> Void
+
+    func makeNSView(context: Context) -> MonitorView {
+        let view = MonitorView()
+        view.onSpace = onSpace
+        return view
+    }
+
+    func updateNSView(_ nsView: MonitorView, context: Context) {
+        nsView.onSpace = onSpace
+    }
+
+    final class MonitorView: NSView {
+        var onSpace: (() -> Void)?
+        private var monitor: Any?
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      let window = self.window,
+                      event.window === window,
+                      event.keyCode == 49,  // Space
+                      event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+                      !event.isARepeat,
+                      !(window.firstResponder is NSText)
+                else { return event }
+                self.onSpace?()
+                return nil
+            }
+        }
     }
 }

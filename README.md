@@ -11,6 +11,7 @@ Native macOS screen recorder with **automatic zoom on clicks** — built for Scr
 - Auto-generated zoom keyframes with smooth ease-in/out camera motion
 - **Zoom presets** — Subtle, Demo, Punch (+ per-keyframe scale)
 - **Timeline editor** — drag zoom blocks or their edges, trim in/out handles; ⌥←/⌥→ nudge the selected zoom (⇧ for 1 s); VoiceOver labels and adjustments
+- **Space** plays / pauses the preview; **Export MP4** asks where to save and suggests a dated name ("Recorder 2026-09-30 at 14.32.mp4"), remembering the folder
 - **Undo / redo** — ⌘Z / ⇧⌘Z for every edit (a whole drag or slider move is one step); ⌘⌫ deletes the selected zoom
 - **Recent projects** — the menu bar panel lists your latest recordings with thumbnails; open one to keep editing or re-export, or move it to the Trash
 - **Manual zoom** — draw a region on the preview to add a zoom at the playhead

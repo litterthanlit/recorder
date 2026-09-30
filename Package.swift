@@ -24,6 +24,7 @@ let package = Package(
                 "Zoom",
                 "Editor/ZoomKeyframeEditor.swift",
                 "Editor/EditHistory.swift",
+                "Editor/ExportNaming.swift",
                 "Composition"
             ]
         ),

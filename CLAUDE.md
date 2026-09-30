@@ -15,15 +15,15 @@ Core Image. See README.md for features and DEMO.md for the recording workflow it
   has not been exercised on a real Mac since the September 2026 audit; say so rather than
   claiming it works.
 - Testable logic belongs in the SwiftPM target `RecorderCore` (Package.swift `sources`:
-  `Zoom/`, `Composition/`, `Editor/ZoomKeyframeEditor.swift`, `Editor/EditHistory.swift`).
+  `Zoom/`, `Composition/`, `Editor/ZoomKeyframeEditor.swift`, `Editor/EditHistory.swift`, `Editor/ExportNaming.swift`).
   Tests use Swift Testing in `RecorderTests/RecorderTests.swift`.
 
 ## Conventions and gotchas
 
 - The Xcode project is edited by hand. A new source file needs a PBXBuildFile, a
   PBXFileReference, a group child, and a Sources build-phase entry, using the sequential
-  IDs (`A2…` file references, last used `A2000000000000000000002C`; `B2…` build files, last
-  used `B20000000000000000000028`). Add it to Package.swift too if it belongs in
+  IDs (`A2…` file references, last used `A2000000000000000000002D`; `B2…` build files, last
+  used `B20000000000000000000029`). Add it to Package.swift too if it belongs in
   `RecorderCore`.
 - Coordinates: click and cursor positions, zoom centers, and crop rects use a bottom-left
   origin (Core Image space), in source pixels or normalized 0–1. SwiftUI is top-left; map

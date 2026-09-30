@@ -876,3 +876,32 @@ struct WindowHitTestTests {
         #expect(abs(before.y - after.y) < 1e-9)
     }
 }
+
+@Suite("ExportNaming")
+struct ExportNamingTests {
+    private let utc = TimeZone(identifier: "UTC")!
+
+    @Test func namesTheFileAfterTheRecordingTime() {
+        // 2026-09-30 14:32:09 UTC
+        let date = Date(timeIntervalSince1970: 1_790_778_729)
+        #expect(ExportNaming.defaultFileName(recordedAt: date, timeZone: utc) == "Recorder 2026-09-30 at 14.32.mp4")
+    }
+
+    @Test func padsSingleDigits() {
+        // 2027-01-05 03:07 UTC
+        let date = Date(timeIntervalSince1970: 1_799_118_420)
+        #expect(ExportNaming.defaultFileName(recordedAt: date, timeZone: utc) == "Recorder 2027-01-05 at 03.07.mp4")
+    }
+
+    @Test func usesTheGivenTimeZone() {
+        let date = Date(timeIntervalSince1970: 1_790_778_729)
+        let tokyo = TimeZone(identifier: "Asia/Tokyo")!
+        #expect(ExportNaming.defaultFileName(recordedAt: date, timeZone: tokyo) == "Recorder 2026-09-30 at 23.32.mp4")
+    }
+
+    @Test func hasNoColonsOrSlashes() {
+        let name = ExportNaming.defaultFileName(recordedAt: Date())
+        #expect(!name.contains(":"))
+        #expect(!name.contains("/"))
+    }
+}

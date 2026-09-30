@@ -10,6 +10,7 @@
 		B20000000000000000000026 /* RecentProjectsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000029 /* RecentProjectsView.swift */; };
 		B20000000000000000000025 /* ProjectLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000028 /* ProjectLibrary.swift */; };
 		B20000000000000000000024 /* EditHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* EditHistory.swift */; };
+		B20000000000000000000029 /* ExportNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002D /* ExportNaming.swift */; };
 		B20000000000000000000001 /* RecorderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* RecorderApp.swift */; };
 		B20000000000000000000002 /* PermissionsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* PermissionsManager.swift */; };
 		B20000000000000000000003 /* NSScreen+DisplayID.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* NSScreen+DisplayID.swift */; };
@@ -54,6 +55,7 @@
 		A20000000000000000000029 /* RecentProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentProjectsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000028 /* ProjectLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectLibrary.swift; sourceTree = "<group>"; };
 		A20000000000000000000027 /* EditHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditHistory.swift; sourceTree = "<group>"; };
+		A2000000000000000000002D /* ExportNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportNaming.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* RecorderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* PermissionsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsManager.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* NSScreen+DisplayID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSScreen+DisplayID.swift"; sourceTree = "<group>"; };
@@ -216,6 +218,7 @@
 				A20000000000000000000014 /* ZoomKeyframeEditor.swift */,
 				A20000000000000000000015 /* ProjectEditor.swift */,
 				A20000000000000000000027 /* EditHistory.swift */,
+				A2000000000000000000002D /* ExportNaming.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -325,6 +328,7 @@
 				B20000000000000000000011 /* ZoomKeyframeEditor.swift in Sources */,
 				B20000000000000000000012 /* ProjectEditor.swift in Sources */,
 				B20000000000000000000024 /* EditHistory.swift in Sources */,
+				B20000000000000000000029 /* ExportNaming.swift in Sources */,
 				B20000000000000000000013 /* EditorView.swift in Sources */,
 				B20000000000000000000014 /* TimelineView.swift in Sources */,
 				B20000000000000000000015 /* EditorPreviewView.swift in Sources */,

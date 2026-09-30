@@ -32,6 +32,9 @@ final class ProjectEditor: ObservableObject {
     @Published private(set) var canRedo = false
     @Published private(set) var undoActionName: String?
     @Published private(set) var redoActionName: String?
+    /// Where the last export was saved (a copy of the project's export.mp4), if the user
+    /// picked a location.
+    @Published private(set) var savedExportURL: URL?
 
     let player = AVPlayer()
     /// Plays the separate camera track in lockstep with `player` so the preview can
@@ -423,7 +426,9 @@ final class ProjectEditor: ObservableObject {
         return false
     }
 
-    func export() async {
+    /// Renders the project's export.mp4 (kept in the project, for Recent and re-export) and,
+    /// when `destination` is given, saves a copy there.
+    func export(to destination: URL? = nil) async {
         guard !isExporting else { return }
         state = .exporting(progress: 0)
         exportProgress = 0
@@ -463,6 +468,19 @@ final class ProjectEditor: ObservableObject {
                     self.state = .exporting(progress: progress)
                 }
             }
+            if let destination {
+                let source = project.exportURL
+                // Off the main thread: a long 4K take can be hundreds of MB.
+                try await Task.detached(priority: .userInitiated) {
+                    let fileManager = FileManager.default
+                    if fileManager.fileExists(atPath: destination.path) {
+                        // The save panel already asked before replacing it.
+                        try fileManager.removeItem(at: destination)
+                    }
+                    try fileManager.copyItem(at: source, to: destination)
+                }.value
+                savedExportURL = destination
+            }
             state = .exported
         } catch {
             state = .failed(error.localizedDescription)
@@ -470,7 +488,7 @@ final class ProjectEditor: ObservableObject {
     }
 
     func revealExportInFinder() {
-        NSWorkspace.shared.activateFileViewerSelecting([project.exportURL])
+        NSWorkspace.shared.activateFileViewerSelecting([savedExportURL ?? project.exportURL])
     }
 
     private func persist() {
