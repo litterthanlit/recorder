@@ -82,7 +82,8 @@ struct EditTimelineTests {
 
     @Test func spansAcrossASplitStayOnePiece() {
         var edit = EditTimeline(sourceDuration: 10)
-        #expect(edit.split(atOutput: 5))
+        let result1 = edit.split(atOutput: 5)
+        #expect(result1)
         let spans = edit.outputSpans(forSource: TimeSpan(start: 3, end: 7))
         #expect(spans.count == 1)
         #expect(isClose(spans[0].start, 3) && isClose(spans[0].end, 7))
@@ -125,7 +126,8 @@ struct EditTimelineTests {
 
     @Test func splitMakesTwoSegmentsAtThePlayhead() {
         var edit = EditTimeline(sourceDuration: 10)
-        #expect(edit.split(atOutput: 4))
+        let result2 = edit.split(atOutput: 4)
+        #expect(result2)
         #expect(edit.segments.count == 2)
         #expect(isClose(edit.segments[0].source.end, 4))
         #expect(isClose(edit.segments[1].source.start, 4))
@@ -134,9 +136,12 @@ struct EditTimelineTests {
 
     @Test func splitAtAnEdgeIsRefused() {
         var edit = EditTimeline(sourceDuration: 10)
-        #expect(!edit.split(atOutput: 0))
-        #expect(!edit.split(atOutput: 10))
-        #expect(!edit.split(atOutput: 0.01))
+        let result3 = edit.split(atOutput: 0)
+        #expect(!result3)
+        let result4 = edit.split(atOutput: 10)
+        #expect(!result4)
+        let result5 = edit.split(atOutput: 0.01)
+        #expect(!result5)
         #expect(edit.segments.count == 1)
     }
 
@@ -145,12 +150,15 @@ struct EditTimelineTests {
         edit.split(atOutput: 3)
         edit.split(atOutput: 6)
         let middle = edit.segments[1].id
-        #expect(edit.deleteSegment(id: middle))
+        let result6 = edit.deleteSegment(id: middle)
+        #expect(result6)
         #expect(isClose(edit.outputDuration, 7))
         #expect(isClose(edit.sourceTime(forOutput: 3), 6))
 
-        #expect(edit.deleteSegment(id: edit.segments[0].id))
-        #expect(!edit.deleteSegment(id: edit.segments[0].id))
+        let result7 = edit.deleteSegment(id: edit.segments[0].id)
+        #expect(result7)
+        let result8 = edit.deleteSegment(id: edit.segments[0].id)
+        #expect(!result8)
         #expect(edit.segments.count == 1)
     }
 
@@ -191,13 +199,15 @@ struct EditTimelineTests {
     @Test func excludingARangeCutsAcrossSegments() {
         var edit = EditTimeline(sourceDuration: 10)
         edit.split(atOutput: 5)
-        #expect(edit.excludeSource(TimeSpan(start: 3, end: 7)))
+        let result9 = edit.excludeSource(TimeSpan(start: 3, end: 7))
+        #expect(result9)
         #expect(edit.segments.count == 2)
         #expect(isClose(edit.outputDuration, 6))
         #expect(edit.outputTime(forSource: 4) == nil)
 
         var whole = EditTimeline(sourceDuration: 10)
-        #expect(!whole.excludeSource(TimeSpan(start: -1, end: 11)))
+        let result10 = whole.excludeSource(TimeSpan(start: -1, end: 11))
+        #expect(!result10)
         #expect(isClose(whole.outputDuration, 10))
     }
 

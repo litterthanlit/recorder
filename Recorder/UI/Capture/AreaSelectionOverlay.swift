@@ -604,23 +604,9 @@ struct CaptureSelectorToolbar: View {
         HStack(spacing: DS.Spacing.xs) {
             HStack(spacing: 2) {
                 ForEach(CaptureSelector.Mode.allCases) { mode in
-                    Button {
+                    ModeButton(mode: mode, isSelected: selector.mode == mode) {
                         selector.setMode(mode)
-                    } label: {
-                        Label(mode.label, systemImage: mode.icon)
-                            .labelStyle(.titleAndIcon)
-                            .font(DS.Typeface.footnote.weight(.medium))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .foregroundStyle(selector.mode == mode ? Color.white : Color.white.opacity(0.75))
-                            .background(
-                                RoundedRectangle(cornerRadius: DS.Radius.small, style: .continuous)
-                                    .fill(selector.mode == mode ? DS.Palette.accent : Color.clear)
-                            )
-                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selector.mode == mode ? .isSelected : [])
                 }
             }
             .padding(3)
@@ -687,5 +673,28 @@ struct CaptureSelectorToolbar: View {
         )
         .environment(\.colorScheme, .dark)
         .fixedSize()
+    }
+}
+
+private struct ModeButton: View {
+    let mode: CaptureSelector.Mode
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        let foreground: Color = isSelected ? .white : Color.white.opacity(0.75)
+        let fill: Color = isSelected ? DS.Palette.accent : .clear
+        return Button(action: action) {
+            Label(mode.label, systemImage: mode.icon)
+                .labelStyle(.titleAndIcon)
+                .font(DS.Typeface.footnote.weight(.medium))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .foregroundStyle(foreground)
+                .background(RoundedRectangle(cornerRadius: DS.Radius.small, style: .continuous).fill(fill))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
