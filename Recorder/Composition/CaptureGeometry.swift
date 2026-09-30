@@ -36,6 +36,45 @@ enum CaptureGeometry {
         return CGRect(x: 0, y: inset, width: displaySize.width, height: displaySize.height - inset)
     }
 
+    /// The area to record on a display, as `SCStreamConfiguration.sourceRect` takes it
+    /// (display points, top-left origin), or `nil` if too little of it is on the display.
+    ///
+    /// The rect is clipped to the display and shrunk to whole pixels with an
+    /// even pixel width and height, so the capture size matches `pixelSize` exactly and
+    /// the encoder never pads it.
+    static func areaSourceRect(
+        _ rect: CGRect,
+        displaySize: CGSize,
+        scale: CGFloat,
+        minimumPoints: CGFloat = 32
+    ) -> CGRect? {
+        let bounds = CGRect(origin: .zero, size: displaySize)
+        let standardized = rect.standardized
+        guard standardized.minX.isFinite, standardized.minY.isFinite,
+              standardized.width.isFinite, standardized.height.isFinite
+        else { return nil }
+        let clipped = standardized.intersection(bounds)
+        guard !clipped.isNull, !clipped.isEmpty else { return nil }
+
+        let pixelsPerPoint = scale.isFinite && scale > 0 ? scale : 1
+        let left = Int((clipped.minX * pixelsPerPoint).rounded(.up))
+        let top = Int((clipped.minY * pixelsPerPoint).rounded(.up))
+        var width = Int((clipped.maxX * pixelsPerPoint).rounded(.down)) - left
+        var height = Int((clipped.maxY * pixelsPerPoint).rounded(.down)) - top
+        width -= width % 2
+        height -= height % 2
+        guard width > 0, height > 0 else { return nil }
+
+        let result = CGRect(
+            x: CGFloat(left) / pixelsPerPoint,
+            y: CGFloat(top) / pixelsPerPoint,
+            width: CGFloat(width) / pixelsPerPoint,
+            height: CGFloat(height) / pixelsPerPoint
+        )
+        guard result.width >= minimumPoints, result.height >= minimumPoints else { return nil }
+        return result
+    }
+
     /// The display to record: the preferred one if it's still connected, else the main
     /// display, else any. `nil` only when there are no displays.
     static func resolvedDisplayID(preferred: UInt32?, available: [UInt32], main: UInt32) -> UInt32? {
@@ -59,6 +98,8 @@ struct WindowSnapshot: Equatable {
     let layer: Int
     /// In global display points, top-left origin.
     let bounds: CGRect
+    /// The owning process.
+    var ownerPID: Int32 = 0
 }
 
 enum WindowHitTest {
@@ -70,6 +111,15 @@ enum WindowHitTest {
         guard !windows.isEmpty else { return true }
         let hit = windows.first { $0.layer == 0 && $0.bounds.contains(point) }
         return hit?.windowID == windowID
+    }
+
+    /// The ordinary window under `point` (front to back), skipping this app's own windows.
+    static func frontmostWindow(
+        at point: CGPoint,
+        frontToBack windows: [WindowSnapshot],
+        excludingOwner ownPID: Int32
+    ) -> WindowSnapshot? {
+        windows.first { $0.layer == 0 && $0.ownerPID != ownPID && $0.bounds.contains(point) }
     }
 }
 

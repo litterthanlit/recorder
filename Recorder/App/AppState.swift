@@ -80,9 +80,10 @@ final class AppState: ObservableObject {
     /// Starts a take (from the panel, the status menu, or the record shortcut).
     func startRecording() {
         dismissPanel()
-        guard permissions.hasRequiredPermissions else {
+        if !permissions.hasRequiredPermissions {
+            // The cached status may be stale (just granted in System Settings).
             permissions.refresh()
-            if !permissions.hasRequiredPermissions {
+            guard permissions.hasRequiredPermissions else {
                 showOnboarding()
                 return
             }
