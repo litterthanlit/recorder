@@ -29,7 +29,6 @@
 		B20000000000000000000028 /* OverlayLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002C /* OverlayLayout.swift */; };
 		B20000000000000000000021 /* CompositorPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* CompositorPreviewView.swift */; };
 		B2000000000000000000000D /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* MenuBarView.swift */; };
-		B2000000000000000000000E /* PreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* PreviewView.swift */; };
 		B2000000000000000000000F /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* Project.swift */; };
 		B20000000000000000000011 /* ZoomKeyframeEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* ZoomKeyframeEditor.swift */; };
 		B20000000000000000000012 /* ProjectEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* ProjectEditor.swift */; };
@@ -89,7 +88,6 @@
 		A2000000000000000000002C /* OverlayLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayLayout.swift; sourceTree = "<group>"; };
 		A20000000000000000000024 /* CompositorPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositorPreviewView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000D /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
-		A2000000000000000000000E /* PreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000F /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
 		A20000000000000000000011 /* Trace.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Trace.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000010 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -236,7 +234,6 @@
 			isa = PBXGroup;
 			children = (
 				A2000000000000000000000D /* MenuBarView.swift */,
-				A2000000000000000000000E /* PreviewView.swift */,
 				A20000000000000000000016 /* EditorView.swift */,
 				A20000000000000000000017 /* TimelineView.swift */,
 				A20000000000000000000018 /* EditorPreviewView.swift */,
@@ -400,7 +397,6 @@
 				B20000000000000000000028 /* OverlayLayout.swift in Sources */,
 				B20000000000000000000021 /* CompositorPreviewView.swift in Sources */,
 				B2000000000000000000000D /* MenuBarView.swift in Sources */,
-				B2000000000000000000000E /* PreviewView.swift in Sources */,
 				B2000000000000000000000F /* Project.swift in Sources */,
 				B20000000000000000000011 /* ZoomKeyframeEditor.swift in Sources */,
 				B20000000000000000000012 /* ProjectEditor.swift in Sources */,

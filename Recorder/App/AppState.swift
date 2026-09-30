@@ -90,6 +90,21 @@ final class AppState: ObservableObject {
         Task { await session.start() }
     }
 
+    /// Records a display (`nil`: the one chosen before, or the main display).
+    func startRecording(displayID: UInt32?) {
+        session.preferences.captureTarget = .display
+        if let displayID {
+            session.preferences.selectedDisplayID = displayID
+        }
+        startRecording()
+    }
+
+    func startRecording(windowID: UInt32) {
+        session.preferences.captureTarget = .window
+        session.preferences.selectedWindowID = windowID
+        startRecording()
+    }
+
     func showPanel() {
         showPanelHandler?()
     }

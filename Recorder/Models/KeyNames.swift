@@ -15,7 +15,7 @@ enum KeyNames {
     /// Keys that type text (letters, digits, punctuation, space), as opposed to
     /// navigation and editing keys.
     static func isCharacterKey(_ keyCode: UInt32) -> Bool {
-        characterKeys.contains(keyCode) || keyCode == Code.space
+        characterKeys[keyCode] != nil || keyCode == Code.space
     }
 
     enum Code {

@@ -10,20 +10,19 @@ struct RecentProjectsView: View {
     @ObservedObject var library: ProjectLibrary
     var onOpen: (ProjectSummary) -> Void
     var onTrash: (ProjectSummary) -> Void
+    var onShowAll: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Recent")
-                    .font(.subheadline.weight(.medium))
+                SectionHeader("Recent")
                 Spacer()
-                Button("Show All") {
-                    library.revealProjectsFolder()
-                }
-                .buttonStyle(.link)
-                .font(.caption)
-                .help("Open the Recorder folder in Finder")
+                Button("Show All", action: onShowAll)
+                    .buttonStyle(.link)
+                    .font(DS.Typeface.caption)
+                    .help("Open the library")
             }
+            .padding(.horizontal, 6)
 
             if library.recentProjects.isEmpty {
                 Text("Recordings you make will show up here.")
