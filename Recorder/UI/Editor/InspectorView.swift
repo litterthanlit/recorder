@@ -57,6 +57,8 @@ struct InspectorView: View {
                     .padding(DS.Spacing.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // A control wider than the column would otherwise draw over the canvas.
+            .clipped()
         }
         .frame(width: Self.width)
         .background(DS.Palette.surface)
@@ -192,7 +194,9 @@ struct LooksSection: View {
                         .contextMenu { menu(for: preset) }
                     }
                 }
-                .padding(.vertical, 2)
+                // Room for the default look's star, which sits over the chip's corner.
+                .padding(.vertical, DS.Spacing.xxs)
+                .padding(.trailing, DS.Spacing.xxs)
             }
 
             HStack(spacing: DS.Spacing.xs) {
@@ -218,7 +222,7 @@ struct LooksSection: View {
                         Toggle(preset.name, isOn: defaultBinding(preset.id))
                     }
                 } label: {
-                    Text("New takes: \(looks.library.defaultPreset?.name ?? "Default")")
+                    Text("New takes: \(defaultLookName)")
                         .font(DS.Typeface.footnote)
                 }
                 .menuStyle(.borderlessButton)
@@ -226,6 +230,12 @@ struct LooksSection: View {
                 .help("The look new recordings start with")
             }
         }
+    }
+
+    /// Shortened so a long saved name can't push the menu past the column.
+    private var defaultLookName: String {
+        let name = looks.library.defaultPreset?.name ?? "Default"
+        return name.count > 16 ? "\(name.prefix(15))…" : name
     }
 
     private func defaultBinding(_ id: UUID?) -> Binding<Bool> {
@@ -288,14 +298,20 @@ private struct LookChip: View {
         .accessibilityHint("Applies this look")
     }
 
-    /// The background with a small window on it, showing the look's padding and corners.
+    /// The background with a small window on it, showing the look's padding, corners and
+    /// shadow. The padding is exaggerated: at true scale the window covered nearly the whole
+    /// chip, and every look read as a white tile.
     private var thumbnail: some View {
-        let inset: CGFloat = preset.style.backgroundEnabled ? max(3, 36 * preset.style.paddingRatio) : 0
-        let corner: CGFloat = preset.style.backgroundEnabled ? min(6, preset.style.cornerRadius / 4) : 0
+        let style = preset.style
+        let inset: CGFloat = style.backgroundEnabled ? 6 + 40 * style.paddingRatio : 0
+        let corner: CGFloat = style.backgroundEnabled ? min(5, style.cornerRadius / 4) : 0
+        let window = RoundedRectangle(cornerRadius: corner, style: .continuous)
         return ZStack {
-            BackgroundSwatch(style: preset.style.background)
-            RoundedRectangle(cornerRadius: corner, style: .continuous)
-                .fill(Color.white.opacity(0.92))
+            BackgroundSwatch(style: style.background)
+            window
+                .fill(Color.white.opacity(0.94))
+                .overlay(window.strokeBorder(Color.black.opacity(0.1), lineWidth: 0.5))
+                .shadow(color: .black.opacity(style.shadowEnabled && style.backgroundEnabled ? 0.28 : 0), radius: 2, y: 1)
                 .padding(inset)
         }
         .frame(width: 64, height: 40)
