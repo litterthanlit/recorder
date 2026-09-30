@@ -9,14 +9,19 @@ import SwiftUI
 struct CompositorPreviewView: NSViewRepresentable {
     @ObservedObject var editor: ProjectEditor
 
+    /// While a zoom is being aimed the preview shows the whole recording.
+    private var keyframes: [ZoomKeyframe] {
+        editor.isEditingZoomFocus ? [] : editor.keyframes
+    }
+
     func makeNSView(context: Context) -> CompositorPreviewHost {
         let host = CompositorPreviewHost(player: editor.player, cameraPlayer: editor.cameraPlayer)
-        host.apply(keyframes: editor.keyframes, settings: editor.renderSettings)
+        host.apply(keyframes: keyframes, settings: editor.renderSettings, timeline: editor.playerTimeline ?? editor.timeline)
         return host
     }
 
     func updateNSView(_ nsView: CompositorPreviewHost, context: Context) {
-        nsView.apply(keyframes: editor.keyframes, settings: editor.renderSettings)
+        nsView.apply(keyframes: keyframes, settings: editor.renderSettings, timeline: editor.playerTimeline ?? editor.timeline)
     }
 }
 
@@ -35,16 +40,22 @@ final class CompositorPreviewHost: NSView {
     private var videoOutput: AVPlayerItemVideoOutput?
     private var cameraOutput: AVPlayerItemVideoOutput?
     private var itemStatusObserver: NSKeyValueObservation?
+    private var currentItemObserver: NSKeyValueObservation?
+    private var cameraItemObserver: NSKeyValueObservation?
     private var displayLink: CVDisplayLink?
     private var displayLinkTarget: DisplayLinkTarget?
 
     // Main thread only.
     private var appliedKeyframes: [ZoomKeyframe]?
     private var appliedSettings: CompositionRenderSettings?
+    private var appliedTimeline: EditTimeline?
 
     // Render queue only.
     private let renderQueue = DispatchQueue(label: "com.recorder.preview.render", qos: .userInteractive)
     private let renderer: CompositionRenderer
+    /// Maps the player's time (the edited video's) to the recording's, for zoom, cursor
+    /// and overlays.
+    private var renderTimeline: EditTimeline?
     private var lastPixelBuffer: CVPixelBuffer?
     private var lastCameraBuffer: CVPixelBuffer?
     private var lastRenderedSignature = 0
@@ -88,6 +99,13 @@ final class CompositorPreviewHost: NSView {
         wantsLayer = true
         attachVideoOutput()
         attachCameraOutput()
+        // The editor swaps in a new item whenever the edit changes.
+        currentItemObserver = player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.attachVideoOutput() }
+        }
+        cameraItemObserver = cameraPlayer?.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.attachCameraOutput() }
+        }
     }
 
     @available(*, unavailable)
@@ -134,13 +152,18 @@ final class CompositorPreviewHost: NSView {
 
     /// Called on every SwiftUI update of the editor, including every playhead tick, so
     /// it only touches the renderer when the keyframes or render settings changed.
-    func apply(keyframes: [ZoomKeyframe], settings: CompositionRenderSettings) {
-        guard keyframes != appliedKeyframes || settings != appliedSettings else { return }
+    func apply(keyframes: [ZoomKeyframe], settings: CompositionRenderSettings, timeline: EditTimeline) {
+        guard keyframes != appliedKeyframes || settings != appliedSettings || timeline != appliedTimeline else { return }
+        let rendererChanged = keyframes != appliedKeyframes || settings != appliedSettings
         appliedKeyframes = keyframes
         appliedSettings = settings
+        appliedTimeline = timeline
 
-        renderQueue.async { [renderer] in
-            renderer.update(keyframes: keyframes, settings: settings)
+        renderQueue.async { [weak self, renderer] in
+            if rendererChanged {
+                renderer.update(keyframes: keyframes, settings: settings)
+            }
+            self?.renderTimeline = timeline
         }
         requestRender()
     }
@@ -247,7 +270,7 @@ final class CompositorPreviewHost: NSView {
               let rendered = try? renderer.renderFrame(
                   pixelBuffer: screenBuffer,
                   cameraBuffer: lastCameraBuffer,
-                  at: seconds,
+                  at: renderTimeline?.sourceTime(forOutput: seconds) ?? seconds,
                   outputWidth: pixelWidth,
                   outputHeight: pixelHeight,
                   pool: pool
@@ -339,26 +362,19 @@ final class CompositorPreviewHost: NSView {
             )
         }
 
-        if #available(macOS 14.0, *) {
-            let videoRenderer = displayLayer.sampleBufferRenderer
-            if videoRenderer.status == .failed {
-                videoRenderer.flush()
-            }
-            videoRenderer.enqueue(sampleBuffer)
-        } else {
-            if displayLayer.status == .failed {
-                displayLayer.flush()
-            }
-            displayLayer.enqueue(sampleBuffer)
+        let videoRenderer = displayLayer.sampleBufferRenderer
+        if videoRenderer.status == .failed {
+            videoRenderer.flush()
         }
+        videoRenderer.enqueue(sampleBuffer)
     }
 
     // MARK: - Player outputs
 
     private func attachVideoOutput() {
         guard let item = player.currentItem else { return }
-        if let videoOutput {
-            item.remove(videoOutput)
+        if let videoOutput, item.outputs.contains(videoOutput) {
+            return
         }
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
@@ -374,6 +390,9 @@ final class CompositorPreviewHost: NSView {
 
     private func attachCameraOutput() {
         guard let item = cameraPlayer?.currentItem else { return }
+        if let cameraOutput, item.outputs.contains(cameraOutput) {
+            return
+        }
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
         ])

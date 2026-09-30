@@ -12,6 +12,11 @@ final class PermissionsManager: ObservableObject {
     @Published private(set) var hasAccessibilityPermission = false
     @Published private(set) var hasCameraPermission = false
     @Published private(set) var hasMicrophonePermission = false
+    /// Needed only to show keystrokes in recordings (listening to key presses).
+    @Published private(set) var hasInputMonitoringPermission = false
+    /// Screen Recording was requested in this run. macOS usually reports it as granted
+    /// only after the app restarts, so the setup guide offers to relaunch.
+    @Published private(set) var didRequestScreenRecording = false
 
     var hasRequiredPermissions: Bool {
         hasScreenRecordingPermission && hasAccessibilityPermission
@@ -26,13 +31,37 @@ final class PermissionsManager: ObservableObject {
         hasAccessibilityPermission = AXIsProcessTrusted()
         hasCameraPermission = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
         hasMicrophonePermission = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        hasInputMonitoringPermission = CGPreflightListenEventAccess()
     }
 
     func requestScreenRecordingPermission() {
         if !CGPreflightScreenCaptureAccess() {
+            didRequestScreenRecording = true
             _ = CGRequestScreenCaptureAccess()
         }
         refresh()
+    }
+
+    func requestInputMonitoringPermission() {
+        if !CGPreflightListenEventAccess() {
+            _ = CGRequestListenEventAccess()
+        }
+        refresh()
+    }
+
+    /// Quits and opens the app again, which is when a new Screen Recording permission
+    /// takes effect.
+    func relaunch() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 0.5; /usr/bin/open \"$0\"", Bundle.main.bundleURL.path]
+        do {
+            try process.run()
+        } catch {
+            Log.permissions.error("Relaunch failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        NSApp.terminate(nil)
     }
 
     func requestAccessibilityPermission() {
@@ -77,6 +106,10 @@ final class PermissionsManager: ObservableObject {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
                 NSWorkspace.shared.open(url)
             }
+        case .inputMonitoring:
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
+                NSWorkspace.shared.open(url)
+            }
         }
     }
 }
@@ -86,4 +119,5 @@ enum PermissionType {
     case accessibility
     case camera
     case microphone
+    case inputMonitoring
 }

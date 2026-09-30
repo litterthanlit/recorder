@@ -45,7 +45,10 @@ final class PresentationModeManager {
         guard let appleScript = NSAppleScript(source: script) else { return nil }
         var error: NSDictionary?
         let result = appleScript.executeAndReturnError(&error)
-        guard error == nil else { return nil }
+        if let error {
+            Log.capture.error("Reading the Dock setting failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
         return result.booleanValue
     }
 
@@ -59,6 +62,10 @@ final class PresentationModeManager {
         guard let appleScript = NSAppleScript(source: script) else { return false }
         var error: NSDictionary?
         appleScript.executeAndReturnError(&error)
-        return error == nil
+        if let error {
+            Log.capture.error("Changing the Dock setting failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
+        return true
     }
 }

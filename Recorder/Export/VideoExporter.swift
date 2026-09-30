@@ -7,24 +7,31 @@ import Foundation
 struct ExportConfiguration {
     let keyframes: [ZoomKeyframe]
     let outputSize: CGSize
-    let bitrate: Int
-    let trimStart: TimeInterval
-    let trimEnd: TimeInterval
-    let exportStyle: ExportStyle
-    let zoomPreset: ZoomPreset
-    let cursorEvents: [CursorEvent]
-    let clickEvents: [ClickEvent]
-    let drawCursor: Bool
+    /// The edit: which parts of the recording play, in order, at what speed.
+    let timeline: EditTimeline
+    /// What to draw (look, cursor, overlays). Its source size is replaced with the
+    /// recording's actual size.
+    let render: CompositionRenderSettings
     /// Output frame rate. The export runs on this fixed clock regardless of how often
     /// the (variable frame rate) source recording changed.
     let frameRate: Int
-    /// Separately recorded camera track, if any, and how to show it.
+    let options: ExportOptions
+    /// Separately recorded camera track, if any.
     let cameraURL: URL?
-    let camera: CameraOverlayStyle
-    /// Capture scale factor (source pixels per screen point), for sizing the cursor.
-    let sourcePixelsPerPoint: CGFloat
+    /// What each audio track holds, and their levels.
+    let audioTrackRoles: [AudioTrackRole]
+    let audio: AudioMixSettings
+
+    var bitrate: Int {
+        options.bitrate(size: outputSize, fps: frameRate)
+    }
 }
 
+/// Writes an export: composited frames from `ExportFrameSource` into a movie (H.264 or
+/// HEVC MP4, ProRes MOV) with the mixed audio, or into a GIF.
+///
+/// Cancelling the task stops it at the next frame; the partly written file is left for
+/// the caller to delete.
 final class VideoExporter {
     func export(
         sourceURL: URL,
@@ -32,77 +39,75 @@ final class VideoExporter {
         configuration: ExportConfiguration,
         progressHandler: @escaping (Double) -> Void
     ) async throws {
-        let asset = AVURLAsset(url: sourceURL)
-        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
-            throw VideoExporterError.missingVideoTrack
-        }
-        // Mic narration and system audio are separate tracks.
-        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-
-        let naturalSize = try await videoTrack.load(.naturalSize)
-        let preferredTransform = try await videoTrack.load(.preferredTransform)
-        let assetDuration = try await asset.load(.duration)
-        let fullDuration = CMTimeGetSeconds(assetDuration)
-
-        let trimStart = max(0, min(configuration.trimStart, fullDuration))
-        let trimEnd = max(trimStart, min(configuration.trimEnd, fullDuration))
-        let exportDuration = trimEnd - trimStart
-
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
+        let frames = try await ExportFrameSource(sourceURL: sourceURL, configuration: configuration)
+        defer { frames.cancel() }
 
-        let timeRange = CMTimeRange(
-            start: CMTime(seconds: trimStart, preferredTimescale: 600),
-            duration: CMTime(seconds: exportDuration, preferredTimescale: 600)
-        )
+        switch configuration.options.format {
+        case .gif:
+            try await GIFWriter.write(frames: frames, to: outputURL, frameRate: configuration.frameRate, progress: progressHandler)
+        case .mp4, .hevc, .prores:
+            try await writeMovie(
+                frames: frames,
+                sourceURL: sourceURL,
+                outputURL: outputURL,
+                configuration: configuration,
+                progressHandler: progressHandler
+            )
+        }
+    }
 
-        let reader = try AVAssetReader(asset: asset)
-        reader.timeRange = timeRange
+    private func writeMovie(
+        frames: ExportFrameSource,
+        sourceURL: URL,
+        outputURL: URL,
+        configuration: ExportConfiguration,
+        progressHandler: @escaping (Double) -> Void
+    ) async throws {
+        let format = configuration.options.format
+        let asset = AVURLAsset(url: sourceURL)
+        // Mic narration and system audio are separate tracks.
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
 
-        let readerOutput = AVAssetReaderTrackOutput(
-            track: videoTrack,
-            outputSettings: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-            ]
-        )
-        readerOutput.alwaysCopiesSampleData = false
-        reader.add(readerOutput)
-
-        // One track is copied as is. Several (mic + system audio) are mixed to PCM here
-        // and encoded to AAC by the writer, since an MP4 player plays only one.
-        let mixesAudio = audioTracks.count > 1
+        // Audio is read from a composition of the edit, which cuts it, time-stretches the
+        // sped-up parts (keeping pitch) and mixes mic and system audio at their levels.
+        var audioReader: AVAssetReader?
         var audioReaderOutput: AVAssetReaderOutput?
-        if mixesAudio {
-            let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: Self.mixedPCMSettings)
-            output.alwaysCopiesSampleData = false
-            if reader.canAdd(output) {
-                reader.add(output)
-                audioReaderOutput = output
-            }
-        } else if let audioTrack = audioTracks.first {
-            let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
-            output.alwaysCopiesSampleData = false
-            if reader.canAdd(output) {
-                reader.add(output)
-                audioReaderOutput = output
+        if !audioTracks.isEmpty {
+            let built = try await TimelineCompositionBuilder.build(
+                asset: asset,
+                timeline: frames.edit,
+                includeVideo: false,
+                audioRoles: configuration.audioTrackRoles,
+                audio: configuration.audio
+            )
+            if !built.audioTracks.isEmpty {
+                let compositionReader = try AVAssetReader(asset: built.composition)
+                let output = AVAssetReaderAudioMixOutput(audioTracks: built.audioTracks, audioSettings: Self.mixedPCMSettings)
+                output.audioMix = built.audioMix
+                output.audioTimePitchAlgorithm = .spectral
+                output.alwaysCopiesSampleData = false
+                if compositionReader.canAdd(output) {
+                    compositionReader.add(output)
+                    audioReader = compositionReader
+                    audioReaderOutput = output
+                }
             }
         }
 
-        let outputWidth = Int(configuration.outputSize.width)
-        let outputHeight = Int(configuration.outputSize.height)
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
-        let codec = VideoCodecChoice.forFrame(width: outputWidth, height: outputHeight)
+        let outputWidth = frames.outputWidth
+        let outputHeight = frames.outputHeight
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: format == .prores ? .mov : .mp4)
         let writerInput = AVAssetWriterInput(
             mediaType: .video,
-            outputSettings: codec.outputSettings(
+            outputSettings: Self.videoSettings(
+                format: format,
                 width: outputWidth,
                 height: outputHeight,
-                compression: [
-                    AVVideoAverageBitRateKey: configuration.bitrate,
-                    AVVideoExpectedSourceFrameRateKey: max(1, configuration.frameRate),
-                    AVVideoMaxKeyFrameIntervalKey: max(1, configuration.frameRate) * 2
-                ]
+                bitrate: configuration.bitrate,
+                frameRate: configuration.frameRate
             )
         )
         writerInput.expectsMediaDataInRealTime = false
@@ -123,10 +128,9 @@ final class VideoExporter {
 
         var audioWriterInput: AVAssetWriterInput?
         if audioReaderOutput != nil {
-            let input = AVAssetWriterInput(
-                mediaType: .audio,
-                outputSettings: mixesAudio ? Self.mixedAACSettings : nil
-            )
+            // ProRes movies carry uncompressed audio, like the editors they're made for.
+            let settings = format == .prores ? Self.mixedPCMSettings : Self.mixedAACSettings
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
             input.expectsMediaDataInRealTime = false
             if writer.canAdd(input) {
                 writer.add(input)
@@ -134,149 +138,128 @@ final class VideoExporter {
             }
         }
 
-        writer.startWriting()
+        guard writer.startWriting() else {
+            throw writer.error ?? VideoExporterError.writerSetupFailed
+        }
         writer.startSession(atSourceTime: .zero)
-
-        guard reader.startReading() else {
-            throw reader.error ?? VideoExporterError.readerFailed
+        if let audioReader, !audioReader.startReading() {
+            writer.cancelWriting()
+            throw audioReader.error ?? VideoExporterError.readerFailed
         }
 
-        let renderSize = naturalSize.applying(preferredTransform)
-        let sourceWidth = abs(renderSize.width)
-        let sourceHeight = abs(renderSize.height)
-
-        let compositor = CompositionRenderer(
-            keyframes: configuration.keyframes,
-            settings: CompositionRenderSettings(
-                exportStyle: configuration.exportStyle,
-                zoomPreset: configuration.zoomPreset,
-                cursorEvents: configuration.cursorEvents,
-                clickEvents: configuration.clickEvents,
-                sourceWidth: sourceWidth,
-                sourceHeight: sourceHeight,
-                drawCursor: configuration.drawCursor,
-                camera: configuration.camera,
-                sourcePixelsPerPoint: configuration.sourcePixelsPerPoint
-            )
-        )
-
-        var cameraFrames: CameraFrameSource?
-        if configuration.camera.isVisible {
-            cameraFrames = try await CameraFrameSource(url: configuration.cameraURL)
-        }
-
-        let trimStartTime = CMTime(seconds: trimStart, preferredTimescale: 600)
-        var lastVideoTime = CMTime.zero
-
-        // Each input must be marked finished as soon as its source runs dry. AVAssetWriter
-        // interleaves inputs and will otherwise hold one back forever waiting for the other.
-        var audioFinished = audioReaderOutput == nil || audioWriterInput == nil
-        func pumpAudio() throws {
-            guard !audioFinished, let audioReaderOutput, let audioWriterInput else { return }
-            while audioWriterInput.isReadyForMoreMediaData {
-                guard let audioSample = audioReaderOutput.copyNextSampleBuffer() else {
-                    audioWriterInput.markAsFinished()
-                    audioFinished = true
-                    return
+        do {
+            // Each input must be marked finished as soon as its source runs dry.
+            // AVAssetWriter interleaves inputs and will otherwise hold one back forever
+            // waiting for the other.
+            var audioFinished = audioReaderOutput == nil || audioWriterInput == nil
+            func pumpAudio() throws {
+                guard !audioFinished, let audioReaderOutput, let audioWriterInput else { return }
+                while audioWriterInput.isReadyForMoreMediaData {
+                    guard let audioSample = audioReaderOutput.copyNextSampleBuffer() else {
+                        audioWriterInput.markAsFinished()
+                        audioFinished = true
+                        return
+                    }
+                    // The composition is already on the output timeline.
+                    if !audioWriterInput.append(audioSample) {
+                        throw writer.error ?? VideoExporterError.writerSetupFailed
+                    }
                 }
-                try appendShiftedAudio(
-                    audioSample,
-                    to: audioWriterInput,
-                    trimStartTime: trimStartTime,
-                    writer: writer
-                )
             }
+
+            let outputTimescale = CMTimeScale(frames.frameRate)
+            var lastVideoTime = CMTime.zero
+            var frameIndex = 0
+            var lastReportedProgress = -1.0
+            let frameCount = frames.frameCount
+
+            while frameIndex < frameCount {
+                try Task.checkCancellation()
+                try pumpAudio()
+
+                guard writerInput.isReadyForMoreMediaData else {
+                    try await Task.sleep(nanoseconds: 2_000_000)
+                    continue
+                }
+
+                let processed = try frames.renderFrame(frameIndex, pool: adaptor.pixelBufferPool)
+                let presentationTime = CMTime(value: CMTimeValue(frameIndex), timescale: outputTimescale)
+                if !adaptor.append(processed, withPresentationTime: presentationTime) {
+                    throw writer.error ?? VideoExporterError.writerSetupFailed
+                }
+                lastVideoTime = presentationTime
+                frameIndex += 1
+
+                // Report whole percents at most, not every frame.
+                let progress = Double(frameIndex) / Double(max(frameCount, 1))
+                if progress - lastReportedProgress >= 0.01 || frameIndex == frameCount {
+                    lastReportedProgress = progress
+                    progressHandler(progress)
+                }
+            }
+
+            writerInput.markAsFinished()
+            frames.cancel()
+
+            while !audioFinished {
+                try Task.checkCancellation()
+                try pumpAudio()
+                if !audioFinished {
+                    try await Task.sleep(nanoseconds: 2_000_000)
+                }
+            }
+
+            if let audioReader, audioReader.status == .failed {
+                throw audioReader.error ?? VideoExporterError.readerFailed
+            }
+
+            // Keep a static tail: without this the file ends at the last source frame,
+            // which can be well before the end when the screen stopped changing.
+            writer.endSession(atSourceTime: CMTimeMaximum(
+                lastVideoTime,
+                CMTime(seconds: frames.edit.outputDuration, preferredTimescale: 600)
+            ))
+
+            try await finishWriting(writer)
+            progressHandler(1)
+        } catch {
+            audioReader?.cancelReading()
+            if writer.status == .writing {
+                writer.cancelWriting()
+            }
+            throw error
         }
+    }
 
-        let timeline = ConstantFrameRateTimeline(
-            frameRate: configuration.frameRate,
-            duration: exportDuration,
-            sourceStart: trimStart
-        )
-        let outputTimescale = CMTimeScale(timeline.frameRate)
-
-        func readNextSourceFrame() -> (buffer: CVPixelBuffer, time: TimeInterval)? {
-            while let sample = readerOutput.copyNextSampleBuffer() {
-                guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
-                return (buffer, CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)))
-            }
-            return nil
+    /// Video settings for `format`, tagged Rec. 709 so players show the colours the
+    /// preview does.
+    static func videoSettings(format: ExportFormat, width: Int, height: Int, bitrate: Int, frameRate: Int) -> [String: Any] {
+        let color: [String: Any] = [
+            AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+            AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+            AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
+        ]
+        let compression: [String: Any] = [
+            AVVideoAverageBitRateKey: bitrate,
+            AVVideoExpectedSourceFrameRateKey: max(1, frameRate),
+            AVVideoMaxKeyFrameIntervalKey: max(1, frameRate) * 2
+        ]
+        var settings: [String: Any]
+        switch format {
+        case .prores:
+            settings = [
+                AVVideoCodecKey: AVVideoCodecType.proRes422,
+                AVVideoWidthKey: width,
+                AVVideoHeightKey: height
+            ]
+        case .hevc:
+            settings = VideoCodecChoice.hevc.outputSettings(width: width, height: height, compression: compression)
+        case .mp4, .gif:
+            settings = VideoCodecChoice.forFrame(width: width, height: height)
+                .outputSettings(width: width, height: height, compression: compression)
         }
-
-        // Hold the most recent source frame at or before each output time; `pending` is
-        // the next source frame, read ahead to know when to switch.
-        var heldFrame: (buffer: CVPixelBuffer, time: TimeInterval)?
-        var pendingFrame = readNextSourceFrame()
-        var frameIndex = 0
-
-        while frameIndex < timeline.frameCount {
-            try Task.checkCancellation()
-            try pumpAudio()
-
-            guard writerInput.isReadyForMoreMediaData else {
-                try await Task.sleep(nanoseconds: 2_000_000)
-                continue
-            }
-
-            let sourceTime = timeline.sourceTime(forFrame: frameIndex)
-            // Before the first source frame, show it anyway rather than a blank frame.
-            while let pending = pendingFrame,
-                  heldFrame == nil
-                    || ConstantFrameRateTimeline.shouldAdvance(to: pending.time, forSourceTime: sourceTime) {
-                heldFrame = pending
-                pendingFrame = readNextSourceFrame()
-            }
-            guard let currentFrame = heldFrame else {
-                throw reader.error ?? VideoExporterError.missingVideoTrack
-            }
-
-            let processed = try compositor.renderFrame(
-                pixelBuffer: currentFrame.buffer,
-                cameraBuffer: cameraFrames?.frame(atSourceTime: sourceTime),
-                at: sourceTime,
-                outputWidth: outputWidth,
-                outputHeight: outputHeight,
-                pool: adaptor.pixelBufferPool
-            )
-
-            let presentationTime = CMTime(value: CMTimeValue(frameIndex), timescale: outputTimescale)
-            if !adaptor.append(processed, withPresentationTime: presentationTime) {
-                throw writer.error ?? VideoExporterError.writerSetupFailed
-            }
-            lastVideoTime = presentationTime
-            frameIndex += 1
-            progressHandler(Double(frameIndex) / Double(max(timeline.frameCount, 1)))
-        }
-
-        writerInput.markAsFinished()
-
-        // Anything left in the trimmed range is past the last output frame. Drain it so
-        // the reader can keep feeding the audio output.
-        while pendingFrame != nil {
-            pendingFrame = readNextSourceFrame()
-        }
-
-        while !audioFinished {
-            try Task.checkCancellation()
-            try pumpAudio()
-            if !audioFinished {
-                try await Task.sleep(nanoseconds: 2_000_000)
-            }
-        }
-
-        if reader.status == .failed {
-            throw reader.error ?? VideoExporterError.readerFailed
-        }
-
-        // Keep a static tail: without this the file ends at the last source frame,
-        // which can be well before the trim end when the screen stopped changing.
-        writer.endSession(atSourceTime: CMTimeMaximum(
-            lastVideoTime,
-            CMTime(seconds: exportDuration, preferredTimescale: 600)
-        ))
-
-        try await finishWriting(writer)
-        progressHandler(1)
+        settings[AVVideoColorPropertiesKey] = color
+        return settings
     }
 
     private static let mixedPCMSettings: [String: Any] = [
@@ -295,27 +278,6 @@ final class VideoExporter {
         AVNumberOfChannelsKey: 2,
         AVEncoderBitRateKey: 192_000
     ]
-
-    private func appendShiftedAudio(
-        _ audioSample: CMSampleBuffer,
-        to audioWriterInput: AVAssetWriterInput,
-        trimStartTime: CMTime,
-        writer: AVAssetWriter
-    ) throws {
-        // Skip any buffer that starts before the trim start (at most one buffer, a few
-        // tens of milliseconds, is lost). Moving it later instead would shift the
-        // audio out of sync with the video.
-        if CMSampleBufferGetPresentationTimeStamp(audioSample) < trimStartTime {
-            return
-        }
-
-        guard let shifted = audioSample.retimed(by: CMTimeMultiply(trimStartTime, multiplier: -1)) else {
-            return
-        }
-        if !audioWriterInput.append(shifted) {
-            throw writer.error ?? VideoExporterError.writerSetupFailed
-        }
-    }
 
     private func finishWriting(_ writer: AVAssetWriter) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -347,6 +309,118 @@ enum VideoExporterError: LocalizedError {
         case .bufferCreationFailed:
             return "Failed to create an export frame buffer."
         }
+    }
+}
+
+/// The export's frames, composited, on a fixed output clock over the edit.
+///
+/// The recording is read once, in order: segments are never reordered, so each output
+/// frame's source time is at or after the previous one's. Each output frame shows the
+/// latest source frame at or before its source time (ScreenCaptureKit only delivers
+/// frames when the screen changes).
+final class ExportFrameSource {
+    let edit: EditTimeline
+    let outputWidth: Int
+    let outputHeight: Int
+    let frameRate: Int
+
+    private let clock: ConstantFrameRateTimeline
+    private let reader: AVAssetReader
+    private let readerOutput: AVAssetReaderTrackOutput
+    private let compositor: CompositionRenderer
+    private var cameraFrames: CameraFrameSource?
+    private var heldFrame: (buffer: CVPixelBuffer, time: TimeInterval)?
+    private var pendingFrame: (buffer: CVPixelBuffer, time: TimeInterval)?
+
+    var frameCount: Int {
+        clock.frameCount
+    }
+
+    init(sourceURL: URL, configuration: ExportConfiguration) async throws {
+        let asset = AVURLAsset(url: sourceURL)
+        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+            throw VideoExporterError.missingVideoTrack
+        }
+        let naturalSize = try await videoTrack.load(.naturalSize)
+        let preferredTransform = try await videoTrack.load(.preferredTransform)
+        let assetDuration = try await asset.load(.duration)
+
+        let edit = configuration.timeline.normalized(sourceDuration: CMTimeGetSeconds(assetDuration))
+        self.edit = edit
+        outputWidth = Int(configuration.outputSize.width)
+        outputHeight = Int(configuration.outputSize.height)
+        frameRate = max(1, configuration.frameRate)
+        clock = ConstantFrameRateTimeline(frameRate: max(1, configuration.frameRate), duration: edit.outputDuration)
+
+        let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = CMTimeRange(
+            start: CMTime(seconds: edit.trimStart, preferredTimescale: 600),
+            end: CMTime(seconds: edit.trimEnd, preferredTimescale: 600)
+        )
+        let output = AVAssetReaderTrackOutput(
+            track: videoTrack,
+            outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        )
+        output.alwaysCopiesSampleData = false
+        reader.add(output)
+        self.reader = reader
+        readerOutput = output
+
+        let renderSize = naturalSize.applying(preferredTransform)
+        var renderSettings = configuration.render
+        renderSettings.sourceWidth = abs(renderSize.width)
+        renderSettings.sourceHeight = abs(renderSize.height)
+        compositor = CompositionRenderer(keyframes: configuration.keyframes, settings: renderSettings)
+
+        if renderSettings.camera.isVisible {
+            cameraFrames = try await CameraFrameSource(url: configuration.cameraURL)
+        }
+
+        guard reader.startReading() else {
+            throw reader.error ?? VideoExporterError.readerFailed
+        }
+        pendingFrame = readNextSourceFrame()
+    }
+
+    /// Renders output frame `index`. Call with increasing indexes.
+    /// - Parameter pool: output buffers come from it when given (a writer's pool).
+    func renderFrame(_ index: Int, pool: CVPixelBufferPool?) throws -> CVPixelBuffer {
+        let sourceTime = edit.sourceTime(forOutput: clock.outputTime(forFrame: index))
+        // Before the first source frame, show it anyway rather than a blank frame.
+        while let pending = pendingFrame,
+              heldFrame == nil || ConstantFrameRateTimeline.shouldAdvance(to: pending.time, forSourceTime: sourceTime) {
+            heldFrame = pending
+            pendingFrame = readNextSourceFrame()
+        }
+        guard let current = heldFrame else {
+            throw reader.error ?? VideoExporterError.missingVideoTrack
+        }
+        return try compositor.renderFrame(
+            pixelBuffer: current.buffer,
+            cameraBuffer: cameraFrames?.frame(atSourceTime: sourceTime),
+            at: sourceTime,
+            outputWidth: outputWidth,
+            outputHeight: outputHeight,
+            pool: pool
+        )
+    }
+
+    /// Stops reading the recording (safe to call more than once).
+    func cancel() {
+        if reader.status == .reading {
+            reader.cancelReading()
+        }
+        cameraFrames?.cancel()
+        heldFrame = nil
+        pendingFrame = nil
+    }
+
+    private func readNextSourceFrame() -> (buffer: CVPixelBuffer, time: TimeInterval)? {
+        while let sample = readerOutput.copyNextSampleBuffer() {
+            guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+            return (buffer, CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)))
+        }
+        return nil
     }
 }
 
@@ -384,6 +458,12 @@ private final class CameraFrameSource {
             pending = readNext()
         }
         return held?.buffer
+    }
+
+    func cancel() {
+        if reader.status == .reading {
+            reader.cancelReading()
+        }
     }
 
     private func readNext() -> (buffer: CVPixelBuffer, time: TimeInterval)? {

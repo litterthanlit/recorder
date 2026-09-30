@@ -21,7 +21,10 @@ jobs:
       - name: Unit tests (RecorderCore)
         run: swift test
 
+      # The remaining steps also run when the tests fail, so one push reports both
+      # test and app build errors.
       - name: Check signing configuration
+        if: ${{ !cancelled() }}
         run: |
           show_settings() {
             xcodebuild -project Recorder.xcodeproj -target Recorder -configuration Debug -showBuildSettings 2>/dev/null
@@ -64,6 +67,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.automation.apple-events' Recorder/Recorder.entitlements)" = true
 
       - name: Build app
+        if: ${{ !cancelled() }}
         run: |
           xcodebuild \
             -project Recorder.xcodeproj \

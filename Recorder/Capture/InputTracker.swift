@@ -1,12 +1,28 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
+
+/// Everything tracked during a take.
+struct InputTrackingResult {
+    var clicks: [ClickEvent] = []
+    var cursor: [CursorEvent] = []
+    var keystrokes: [KeystrokeEvent] = []
+    var cursorKinds: [CursorKindEvent] = []
+}
 
 final class InputTracker {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var startTime: TimeInterval = 0
+    /// Key presses have their own tap: it needs Input Monitoring, and if that's missing,
+    /// click tracking (and auto zoom) must still work.
+    private var keyTap: CFMachPort?
+    private var keyRunLoopSource: CFRunLoopSource?
+    private var trackKeystrokes = false
+    private var keystrokes: [KeystrokeEvent] = []
+    private let cursorKindSampler = CursorKindSampler()
+    private var clock: RecordingClock?
     private var captureOrigin: CGPoint = .zero
     private var captureSize: CGSize = .zero
     private var scaleFactor: CGFloat = 1
@@ -23,22 +39,26 @@ final class InputTracker {
 
     var onEvent: ((ClickEvent) -> Void)?
 
+    /// - Parameter clock: the take's clock; events before t = 0 or while paused are dropped.
     func configure(
-        startTime: TimeInterval,
+        clock: RecordingClock,
         captureOrigin: CGPoint,
         captureSize: CGSize,
         scaleFactor: CGFloat,
         trackCursor: Bool = true,
+        trackKeystrokes: Bool = false,
         trackedWindowID: UInt32? = nil
     ) {
-        self.startTime = startTime
+        self.clock = clock
         self.captureOrigin = captureOrigin
         self.captureSize = captureSize
         self.scaleFactor = scaleFactor
         self.trackCursor = trackCursor
+        self.trackKeystrokes = trackKeystrokes
         self.trackedWindowID = trackedWindowID
         events = []
         cursorEvents = []
+        keystrokes = []
         lastCursorSampleTime = 0
     }
 
@@ -77,6 +97,13 @@ final class InputTracker {
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
 
+        if trackCursor, let clock {
+            cursorKindSampler.start(clock: clock)
+        }
+        if trackKeystrokes {
+            startKeyTap()
+        }
+
         if trackedWindowID != nil {
             // The capture follows the window wherever it goes; follow it here too, or a
             // window moved mid-take maps every later click to the wrong spot. Same run
@@ -89,7 +116,7 @@ final class InputTracker {
         }
     }
 
-    func stop() -> (clicks: [ClickEvent], cursor: [CursorEvent]) {
+    func stop() -> InputTrackingResult {
         windowFrameTimer?.invalidate()
         windowFrameTimer = nil
         if let eventTap {
@@ -100,10 +127,75 @@ final class InputTracker {
         }
         eventTap = nil
         runLoopSource = nil
+        if let keyTap {
+            CGEvent.tapEnable(tap: keyTap, enable: false)
+        }
+        if let keyRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), keyRunLoopSource, .commonModes)
+        }
+        keyTap = nil
+        keyRunLoopSource = nil
+        let cursorKinds = cursorKindSampler.stop()
 
         lock.lock()
         defer { lock.unlock() }
-        return (events, cursorEvents)
+        return InputTrackingResult(clicks: events, cursor: cursorEvents, keystrokes: keystrokes, cursorKinds: cursorKinds)
+    }
+
+    private func startKeyTap() {
+        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        let callback: CGEventTapCallBack = { _, type, event, userInfo in
+            guard let userInfo else { return Unmanaged.passUnretained(event) }
+            let tracker = Unmanaged<InputTracker>.fromOpaque(userInfo).takeUnretainedValue()
+            tracker.handleKey(event: event, type: type)
+            return Unmanaged.passUnretained(event)
+        }
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: mask,
+            callback: callback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else {
+            Log.capture.warning("Keystrokes aren't recorded: the key tap needs Input Monitoring access")
+            return
+        }
+        keyTap = tap
+        keyRunLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), keyRunLoopSource, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    private func handleKey(event: CGEvent, type: CGEventType) {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let keyTap {
+                CGEvent.tapEnable(tap: keyTap, enable: true)
+            }
+            return
+        }
+        guard type == .keyDown,
+              // Holding a key down repeats it; show it once.
+              event.getIntegerValueField(.keyboardEventAutorepeat) == 0,
+              // A password field is focused: never record what's typed there.
+              !IsSecureEventInputEnabled(),
+              let timestamp = clock?.recordingSeconds(forHostSeconds: CACurrentMediaTime())
+        else { return }
+
+        let keyCode = UInt32(event.getIntegerValueField(.keyboardEventKeycode))
+        let modifiers = KeyCombo(
+            keyCode: UInt16(truncatingIfNeeded: keyCode),
+            cocoaFlags: UInt(event.flags.rawValue)
+        ).modifiers
+        var length = 0
+        var characters = [UniChar](repeating: 0, count: 8)
+        event.keyboardGetUnicodeString(maxStringLength: characters.count, actualStringLength: &length, unicodeString: &characters)
+        let typed = length > 0 ? String(utf16CodeUnits: characters, count: length) : nil
+
+        let keystroke = KeystrokeEvent(timestamp: timestamp, keyCode: keyCode, modifiers: modifiers, characters: typed)
+        lock.lock()
+        keystrokes.append(keystroke)
+        lock.unlock()
     }
 
     private func handle(event: CGEvent, type: CGEventType) {
@@ -117,7 +209,7 @@ final class InputTracker {
             return
         }
 
-        let timestamp = CACurrentMediaTime() - startTime
+        guard let timestamp = clock?.recordingSeconds(forHostSeconds: CACurrentMediaTime()) else { return }
         let global = event.location
         let isClick = type == .leftMouseDown || type == .rightMouseDown
         if isClick, let trackedWindowID {
@@ -145,8 +237,8 @@ final class InputTracker {
 
             onEvent?(click)
 
-        case .mouseMoved, .leftMouseDragged, .rightMouseDragged where trackCursor:
-            guard timestamp - lastCursorSampleTime >= cursorSampleInterval else { return }
+        case .mouseMoved, .leftMouseDragged, .rightMouseDragged:
+            guard trackCursor, timestamp - lastCursorSampleTime >= cursorSampleInterval else { return }
             lastCursorSampleTime = timestamp
             let cursor = CursorEvent(timestamp: timestamp, location: local)
 

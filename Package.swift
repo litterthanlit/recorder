@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "RecorderCore",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     products: [],
     targets: [
         .target(
@@ -15,7 +15,6 @@ let package = Package(
                 "Export",
                 "Editor/ProjectEditor.swift",
                 "UI",
-                "Models",
                 "Assets.xcassets",
                 "Info.plist",
                 "Recorder.entitlements"
@@ -24,7 +23,9 @@ let package = Package(
                 "Zoom",
                 "Editor/ZoomKeyframeEditor.swift",
                 "Editor/EditHistory.swift",
-                "Composition"
+                "Composition",
+                "Models",
+                "Timeline"
             ]
         ),
         .testTarget(

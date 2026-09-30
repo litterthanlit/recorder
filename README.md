@@ -1,142 +1,179 @@
-# Recorder
+# Trace
 
-Native macOS screen recorder with **automatic zoom on clicks** — built for Screen Studio–style Hypher launch demos.
+**Polished product demos, straight from your screen.** Trace is a native macOS menu bar
+recorder: pick an area, a window or a display, record, and get a video that already
+zooms in on every click, glides the cursor, and sits on a clean background. Then cut,
+speed up, annotate and export it in minutes.
 
-## Features
+> **Status.** Everything here is built and its logic unit-tested in CI (`swift test` plus
+> an Xcode build on macOS 15). Capture, preview and export have **not yet been run on a
+> real Mac** since the redesign. See the verification checklist in
+> [CLAUDE.md](CLAUDE.md#verify-on-a-mac) before relying on it.
 
-- Menu bar app — record a full display (pick which one when several are connected) or a single window. The app's own windows (panel, countdown, camera bubble) are left out of the recording
-- **3-2-1 countdown** before recording starts
-- **Global hotkeys** — ⌘⇧R start (also from the editor, for a retake), ⌘⇧. stop. Registered as system hotkeys, so they don't reach the app being recorded
-- Click tracking via Accessibility API (CGEventTap)
-- Auto-generated zoom keyframes with smooth ease-in/out camera motion
-- **Zoom presets** — Subtle, Demo, Punch (+ per-keyframe scale)
-- **Timeline editor** — drag zoom blocks or their edges, trim in/out handles; ⌥←/⌥→ nudge the selected zoom (⇧ for 1 s); VoiceOver labels and adjustments
-- **Undo / redo** — ⌘Z / ⇧⌘Z for every edit (a whole drag or slider move is one step); ⌘⌫ deletes the selected zoom
-- **Recent projects** — the menu bar panel lists your latest recordings with thumbnails; open one to keep editing or re-export, or move it to the Trash
-- **Manual zoom** — draw a region on the preview to add a zoom at the playhead
-- **WYSIWYG preview** — same compositor as export (zoom, padding, cursor, ripples)
-- **Spring camera** — optional overshoot / settle instead of cubic ease
-- **Click ripples** and optional cursor spotlight / click-scale
-- **1080p / 720p export** at high quality (~10 Mbps at 1080p60) for editing; size-cap the final assembly
-- **Runlyx-style background frame** — dark gradient, rounded corners, shadow
-- **Cursor smoothing** — tracked path, smoothed over time so it settles where the mouse stops and passes exactly through each click, composited on export and preview
-- Optional **hypher.app watermark** (moves to a free corner when the camera bubble is in the way)
-- Hide menu bar & dock during recording (the menu bar is cropped out of display recordings; the Dock is auto-hidden)
-- **Microphone** — optional narration with device picker
-- **System audio** — optional; recorded as its own track and mixed with the mic on export
-- 5K/6K displays are recorded (and exported at Source size) with HEVC, which H.264 can't encode at that size
-- **Camera bubble** — Screen Studio–style circular PiP (mirrored). Recorded as its own track and composited at render time, so it isn't zoomed with the screen, keeps moving while the screen is still, and can be hidden, resized, or moved to another corner in the editor
-- Offline export to MP4 with zoom applied, rendered at a constant frame rate so zooms, cursor, and ripples stay smooth even when the screen is still (the capture itself only gets frames when something changes)
-- Project bundles saved to `~/Movies/Recorder/<uuid>.recorder/`
+## What it does
 
-See [DEMO.md](DEMO.md) for the Hypher launch video rehearsal script.
+**Record**
+- Record an **area** (drag it, or pick 16:9, 4:3, 1:1, 9:16, 1280×720, 1920×1080), a
+  **window**, or a **display**. The last area is remembered, so a retake is ⇧⌘R then ⏎.
+- 3-2-1 countdown, a floating **HUD** with timer, **pause/resume**, restart and discard.
+- **Clean screen** without touching your settings: notifications and (optionally) desktop
+  icons are left out of the capture; full-display takes can hide the menu bar and Dock.
+- **Microphone**, **system audio** (its own track) and a **camera bubble** (its own
+  track, drag it to any corner while recording).
+- **Keystrokes** (optional, needs Input Monitoring) and the cursor's shape (arrow, I-beam,
+  pointing hand) are recorded for the overlays.
+- 30 or 60 fps; 5K/6K displays export with HEVC.
+
+**After recording**
+- A **Quick Access** card with Edit, Export, Copy (paste the video into Slack or Mail) and
+  Show in Finder; drag the card's file straight into any app. Or open the editor directly.
+- A **Library** of every take: search, sort, rename, open, reveal, move to Trash.
+
+**Edit**
+- **Canvas** at the video's final shape (16:9, 9:16, 1:1, 4:3, 4:5 or as recorded), with
+  the same renderer as the export, so what you see is what you get.
+- **Multi-track timeline**: clips with thumbnails, zooms, text, blur and the audio
+  waveform. **Split** (S), **delete** clips, **trim** clip edges, **speed up** any clip
+  (0.25–16×, pitch kept) or every idle stretch at once. Drags snap to the playhead and edges.
+- **Auto zoom** on every click (Subtle, Demo or Punch), with spring motion and optional
+  motion blur. Add zooms by dragging on the preview (Z) or along the zoom track, and aim
+  any zoom by dragging its focus frame.
+- **Text** (title, caption, callout), **blur/pixelate** boxes that follow zooms, and a
+  **keystroke** overlay for shortcuts or typing.
+- **Look**: 12 wallpapers, gradients, colours or your own picture; padding, corners and
+  shadow; cursor size and idle hiding; click ripples and spotlight; camera shape, size
+  and border; watermark. Save looks and choose one for every new recording.
+- Undo and redo for everything; a whole drag is one step.
+
+**Export**
+- **MP4** (H.264), **HEVC**, **ProRes 422** (MOV, uncompressed audio) or **GIF**; Web,
+  High or Studio quality; 24/30/60 fps; 720p to 4K or source size.
+- To `~/Movies/Trace/Exports` (or any folder, or ask every time), with name templates,
+  never overwriting. Cancel any time; nothing half-written is left behind.
+- Copy, Share, Show in Finder, or drag the file out when it's done.
+
+## Keyboard
+
+Global (Settings › Shortcuts to change them):
+
+| Keys | Action |
+|------|--------|
+| ⇧⌘R | Record (opens the selector with your last choice) |
+| ⇧⌘. | Stop |
+| ⇧⌘, | Pause or resume (while recording) |
+
+In the selector: ⏎ records, Space switches Area/Window, arrows nudge the area (⇧ for 10 px), Esc cancels.
+
+In the editor:
+
+| Keys | Action |
+|------|--------|
+| Space | Play or pause |
+| ← → | Previous or next frame (⇧ for a second) |
+| ⌘← ⌘→ | Start or end |
+| S or ⌘B | Split at the playhead |
+| ⌫ | Delete the selection |
+| Z | Add a zoom (drag over the preview) |
+| T / B | Add text / a blur box at the playhead |
+| ⌥← ⌥→ | Nudge the selection (⇧ for a second) |
+| ⌘+ ⌘− ⌘0 | Zoom the timeline, fit it |
+| ⌘Z ⇧⌘Z | Undo, redo |
+| ⌘E | Export |
+| Esc | Clear the selection, leave a mode |
 
 ## Requirements
 
-- macOS 13.0+
-- Xcode 16+
-- Permissions:
-  - **Screen Recording** — capture display
-  - **Accessibility** — track mouse clicks for auto zoom
-  - **Camera** — optional talking-head bubble
-  - **Microphone** — optional narration
-  - **Automation (System Events)** — only for "Hide menu bar & dock"; asked once, before the countdown
+- macOS 14 or later; Xcode 16 to build.
+- Permissions (the onboarding window walks through them):
+  - **Screen Recording** (required)
+  - **Accessibility**, to follow clicks for auto zoom (required)
+  - **Microphone**, **Camera**, **Input Monitoring** (for keystrokes), optional
+  - **Automation (System Events)**, only for hiding the Dock
 
-## Build & Run
+## Build and run
 
 ```bash
-open Recorder.xcodeproj
-```
-
-Select the **Recorder** scheme and run (⌘R). The app appears in the menu bar.
-
-Or from the command line:
-
-```bash
+open Recorder.xcodeproj    # run the Recorder scheme (⌘R); Trace appears in the menu bar
 xcodebuild -project Recorder.xcodeproj -scheme Recorder -configuration Debug build
 ```
 
+The target, module and bundle ID (`app.hypher.recorder`) keep their original names so
+permissions and existing projects carry over; the app itself is called Trace.
+
 ### Signing (so permissions stick between builds)
 
-macOS remembers Screen Recording, Accessibility, Camera, and Microphone access per code
-signature. Out of the box the app is signed ad hoc ("Sign to Run Locally"), which produces a
-different signature on every build, so macOS asks for those permissions again after each
-rebuild. Sign with your Apple Development certificate once and they persist:
+macOS remembers Screen Recording, Accessibility, Camera and Microphone access per code
+signature. Ad hoc builds get a new signature every time, so macOS asks again after each
+rebuild. Sign with your Apple Development certificate once:
 
 ```bash
-scripts/configure-signing.sh             # uses the team of the Apple Development certificate in your keychain
+scripts/configure-signing.sh             # the team of the Apple Development certificate in your keychain
 scripts/configure-signing.sh ABCDE12345  # or pass your Team ID
 ```
 
-This writes `Config/Local.xcconfig` (git-ignored, see `Config/Local.xcconfig.example`);
-signing settings live in `Config/Signing.xcconfig`. Then, one time only: remove the old
-"Recorder" rows under **System Settings → Privacy & Security → Screen Recording** and
-**Accessibility**, build and run, and grant them again.
-
-- The bundle identifier is `app.hypher.recorder`. To use your own, add
-  `PRODUCT_BUNDLE_IDENTIFIER = com.example.recorder` to `Config/Local.xcconfig`.
-- Check which identity a build used:
-  `codesign -dv --verbose=2 path/to/Recorder.app 2>&1 | grep -E "Authority|TeamIdentifier"`
-- Sharing builds with other Macs needs a Developer ID certificate and notarization: see [Distribution](#distribution).
-
+This writes the git-ignored `Config/Local.xcconfig`; shared settings are in
+`Config/Signing.xcconfig`. After switching, remove the old rows under System Settings ›
+Privacy & Security › Screen Recording and Accessibility, run, and grant them again. To use
+your own bundle ID, add `PRODUCT_BUNDLE_IDENTIFIER = com.example.trace` to `Local.xcconfig`.
 
 ### Distribution
 
-`scripts/release.sh` builds Release signed with your **Developer ID Application**
-certificate (hardened runtime, secure timestamp), notarizes it, staples the ticket, and
-leaves `build/release/Recorder.zip`. One-time setup: create the certificate (Xcode >
-Settings > Accounts > Manage Certificates) and store notarization credentials:
+`scripts/release.sh` builds Release with your **Developer ID Application** certificate
+(hardened runtime, secure timestamp), notarizes, staples, and leaves
+`build/release/Trace.zip`:
 
 ```sh
 xcrun notarytool store-credentials recorder-notary --apple-id you@example.com --team-id ABCDE12345
-scripts/release.sh            # team from Config/Local.xcconfig, or pass it: scripts/release.sh ABCDE12345
+scripts/release.sh
 ```
 
-## Usage
+## Where things live
 
-1. Open the menu bar app and grant Screen Recording + Accessibility permissions.
-2. Optionally enable **Microphone** / **Camera** and pick devices.
-3. Click **Record** — perform actions on screen (clicks drive auto zoom).
-4. Click **Stop** — the editor window opens automatically.
-5. Drag zoom blocks on the timeline to adjust timing, or click **Add Manual Zoom** and draw a region on the preview.
-6. Toggle spring camera, click ripples, and cursor FX — the preview matches export.
-7. Click **Export MP4** when ready, then preview or reveal in Finder.
-8. Reopen any earlier take from **Recent** in the menu bar panel (right-click or ⋯ for Show in Finder / Move to Trash).
+| Path | What |
+|------|------|
+| `~/Movies/Trace/<uuid>.recorder/` | One bundle per recording (older builds' `~/Movies/Recorder` is moved here on first launch) |
+| `~/Movies/Trace/Exports/` | Default export folder |
+| `~/Library/Application Support/Trace/styles.json` | Saved looks and the default for new recordings |
 
-## Project bundle
+Inside a bundle:
 
-Each recording saves:
-
-| File | Description |
-|------|-------------|
-| `video.mov` | Raw screen capture |
-| `events.json` | Click event log |
-| `keyframes.json` | Generated zoom keyframes |
-| `meta.json` | Capture metadata (size, fps, duration) |
-| `cursor.json` | Cursor path (for the smoothed cursor) |
-| `camera.mov` | Camera track, aligned to `video.mov` (only when the camera was on) |
-| `settings.json` | Editor settings (trim, presets, style) |
-| `export.mp4` | Final video with zoom applied |
+| File | What |
+|------|------|
+| `video.mov` | The screen capture (mic and system audio as separate tracks) |
+| `camera.mov` | Camera track, aligned to the video (when the camera was on) |
+| `meta.json` | Size, fps, duration, capture target, name, pause points |
+| `events.json`, `cursor.json` | Clicks and the cursor path |
+| `inputs.json` | Key presses and cursor shapes |
+| `keyframes.json` | Zooms |
+| `settings.json` | The edit and the look (versioned; newer files are never overwritten by older builds) |
+| `exports.json` | Where the latest export went |
+| `background-*.png` | A picture used as the background |
 
 ## Tests
-
-Zoom engine unit tests (Swift Testing):
 
 ```bash
 swift test
 ```
 
-CI (`.github/workflows/ci.yml`) runs these tests and builds the app on a macOS runner for every push.
+The `RecorderCore` package holds everything that doesn't need a screen: the edit timeline
+and time mapping, pause handling, canvas and overlay layout, area selection, zoom
+generation and focus, hotkeys and editor shortcuts, keystroke labels and pills, looks and
+presets, export options and naming, GIF timing, project storage and migrations. CI
+(`.github/workflows/ci.yml`) runs the tests and builds the app on every push.
 
-## Architecture
+## How it fits together
 
 ```
-Capture (ScreenCaptureKit + CGEventTap)
-  → AutoZoomGenerator (clicks → keyframes)
-  → CompositionRenderer (preview + export)
-  → MP4 export
+ScreenCaptureKit + CGEventTap ──► project bundle (source time)
+                                        │
+            EditTimeline (cuts, speed) ─┤  source time ⇄ output time
+                                        ▼
+      CompositionRenderer ── preview (AVPlayer + display link)
+                          └─ export (fixed-rate clock) ──► MP4 / HEVC / ProRes / GIF
 ```
 
-## Deferred
+Everything recorded (clicks, cursor, keys, zooms, text, blur, camera) is in **source
+time**, the recording's own clock. The edit maps **output time** (what you watch) back to
+it, so cutting or speeding up never moves an overlay off the moment it belongs to.
 
-Vertical export, in-app multi-scene stitching (composition model is in place).
+See [DEMO.md](DEMO.md) for a step-by-step guide to recording a product demo.

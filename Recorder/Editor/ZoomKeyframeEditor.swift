@@ -163,6 +163,73 @@ enum ZoomKeyframeEditor {
         )
     }
 
+    /// Inverse of `sourceRect(forSelection:contentFrame:visibleCrop:)`: where a normalized
+    /// source rect (bottom-left origin) appears in the view (top-left origin), given what
+    /// part of the source is on screen. Parts outside the visible crop fall outside
+    /// `contentFrame`.
+    static func viewRect(forSource rect: CGRect, contentFrame: CGRect, visibleCrop: NormalizedRect) -> CGRect {
+        guard visibleCrop.width > 0, visibleCrop.height > 0 else { return .zero }
+        let localMinX = (rect.minX - visibleCrop.x) / visibleCrop.width
+        let localMaxX = (rect.maxX - visibleCrop.x) / visibleCrop.width
+        let localMinY = (rect.minY - visibleCrop.y) / visibleCrop.height
+        let localMaxY = (rect.maxY - visibleCrop.y) / visibleCrop.height
+        return CGRect(
+            x: contentFrame.minX + localMinX * contentFrame.width,
+            y: contentFrame.maxY - localMaxY * contentFrame.height,
+            width: (localMaxX - localMinX) * contentFrame.width,
+            height: (localMaxY - localMinY) * contentFrame.height
+        )
+    }
+
+    /// Where a box drawn over the view (top-left origin) lies in normalized source space
+    /// (bottom-left origin), without clipping it to the video, for dragging boxes that
+    /// may stick out. The inverse of `viewRect(forSource:contentFrame:visibleCrop:)`.
+    static func unclippedSourceRect(forView rect: CGRect, contentFrame: CGRect, visibleCrop: NormalizedRect) -> CGRect {
+        guard contentFrame.width > 0, contentFrame.height > 0 else { return .zero }
+        return CGRect(
+            x: visibleCrop.x + (rect.minX - contentFrame.minX) / contentFrame.width * visibleCrop.width,
+            y: visibleCrop.y + (contentFrame.maxY - rect.maxY) / contentFrame.height * visibleCrop.height,
+            width: rect.width / contentFrame.width * visibleCrop.width,
+            height: rect.height / contentFrame.height * visibleCrop.height
+        )
+    }
+
+    /// Scales a zoom can be given by editing its focus.
+    static let focusScaleRange: ClosedRange<CGFloat> = 1.1...4
+
+    /// The part of the recording a zoom shows at its peak (normalized, bottom-left
+    /// origin), matching the interpolator's crop.
+    static func focusRect(for keyframe: ZoomKeyframe) -> CGRect {
+        let side = 1 / max(keyframe.scale, 1)
+        return CGRect(
+            x: min(max(keyframe.centerX - side / 2, 0), 1 - side),
+            y: min(max(keyframe.centerY - side / 2, 0), 1 - side),
+            width: side,
+            height: side
+        )
+    }
+
+    /// The zoom pointed at `center` (normalized), kept so its focus stays inside the frame.
+    static func keyframe(_ keyframe: ZoomKeyframe, movingFocusTo center: CGPoint) -> ZoomKeyframe {
+        var updated = keyframe
+        let half = 1 / max(keyframe.scale, 1) / 2
+        updated.center = CGPoint(
+            x: min(max(center.x, half), 1 - half),
+            y: min(max(center.y, half), 1 - half)
+        )
+        return updated
+    }
+
+    /// The zoom showing `rect` (normalized): its centre, and the scale that fits the
+    /// rect's longer side, within `focusScaleRange`.
+    static func keyframe(_ keyframe: ZoomKeyframe, focusingOn rect: CGRect) -> ZoomKeyframe {
+        var updated = keyframe
+        let side = max(rect.width, rect.height)
+        let scale = side > 0 ? 1 / side : focusScaleRange.upperBound
+        updated.scale = min(max(scale, focusScaleRange.lowerBound), focusScaleRange.upperBound)
+        return Self.keyframe(updated, movingFocusTo: CGPoint(x: rect.midX, y: rect.midY))
+    }
+
     static func clampNormalizedRect(_ rect: CGRect) -> CGRect {
         let width = max(0.08, min(1, rect.width))
         let height = max(0.08, min(1, rect.height))

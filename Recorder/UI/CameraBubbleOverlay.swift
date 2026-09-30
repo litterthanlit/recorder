@@ -10,12 +10,22 @@ final class CameraBubbleOverlay {
     private var previewHost: NSView?
     private var processedLayer: CALayer?
 
+    /// Called with the corner the bubble was dragged to.
+    var onPositionChange: ((CameraBubblePosition) -> Void)?
+    private var size: CameraBubbleSize = .medium
+
     var windowID: UInt32? {
         guard let panel else { return nil }
         return UInt32(panel.windowNumber)
     }
 
-    func show(previewLayer: AVCaptureVideoPreviewLayer, position: CameraBubblePosition, on screen: NSScreen? = nil) {
+    func show(
+        previewLayer: AVCaptureVideoPreviewLayer,
+        position: CameraBubblePosition,
+        size: CameraBubbleSize,
+        on screen: NSScreen? = nil
+    ) {
+        self.size = size
         let host = makePanel(position: position, on: screen)
         previewLayer.frame = host.bounds
         previewLayer.cornerRadius = host.bounds.width / 2
@@ -25,7 +35,8 @@ final class CameraBubbleOverlay {
     }
 
     /// Shows a bubble that displays processed camera frames (virtual backgrounds).
-    func showProcessedPreview(position: CameraBubblePosition, on screen: NSScreen? = nil) {
+    func showProcessedPreview(position: CameraBubblePosition, size: CameraBubbleSize, on screen: NSScreen? = nil) {
+        self.size = size
         let host = makePanel(position: position, on: screen)
         let layer = CALayer()
         layer.frame = host.bounds
@@ -56,7 +67,7 @@ final class CameraBubbleOverlay {
 
         let screen = preferredScreen ?? NSScreen.main ?? NSScreen.screens[0]
         let screenFrame = screen.visibleFrame
-        let diameter: CGFloat = 168
+        let diameter = size.livePoints
         let padding: CGFloat = 28
         let origin = bubbleOrigin(
             in: screenFrame,
@@ -75,11 +86,22 @@ final class CameraBubbleOverlay {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isMovableByWindowBackground = false
 
-        let host = NSView(frame: CGRect(origin: .zero, size: CGSize(width: diameter, height: diameter)))
+        // Drag the bubble anywhere; it snaps to the nearest corner when let go.
+        let host = BubbleDragView(frame: CGRect(origin: .zero, size: CGSize(width: diameter, height: diameter)))
+        host.onDrop = { [weak self, weak panel] in
+            guard let self, let panel else { return }
+            let center = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
+            let position = CameraBubblePosition.nearest(to: center, in: screenFrame)
+            let origin = self.bubbleOrigin(in: screenFrame, diameter: diameter, padding: padding, position: position)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.22
+                panel.animator().setFrameOrigin(origin)
+            }
+            self.onPositionChange?(position)
+        }
         host.wantsLayer = true
         host.layer?.cornerRadius = diameter / 2
         host.layer?.masksToBounds = true
@@ -126,14 +148,46 @@ final class CameraBubbleOverlay {
     }
 }
 
+/// The bubble's content view: moves its window with the pointer and reports the drop.
+private final class BubbleDragView: NSView {
+    var onDrop: (() -> Void)?
+    private var grabOffset: CGPoint?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        let mouse = NSEvent.mouseLocation
+        grabOffset = CGPoint(x: mouse.x - window.frame.minX, y: mouse.y - window.frame.minY)
+        NSCursor.closedHand.push()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let window, let grabOffset else { return }
+        let mouse = NSEvent.mouseLocation
+        window.setFrameOrigin(CGPoint(x: mouse.x - grabOffset.x, y: mouse.y - grabOffset.y))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard grabOffset != nil else { return }
+        grabOffset = nil
+        NSCursor.pop()
+        onDrop?()
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .openHand)
+    }
+}
+
 /// Turns processed camera frames into small preview images for the on-screen bubble.
 ///
 /// Runs on the camera queue, not the main thread (which also services the click-tracking
 /// event tap), and scales the frame down to bubble size before reading it back. While a
 /// frame is still waiting to be shown, new ones are skipped rather than queued.
 final class CameraPreviewRenderer: @unchecked Sendable {
-    /// The on-screen bubble is 168 pt, so 2x that is plenty.
-    static let maxPixelSize: CGFloat = 336
+    /// The largest on-screen bubble is 240 pt, so 2x that is plenty.
+    static let maxPixelSize: CGFloat = 480
 
     private let context = CIContext(options: [.cacheIntermediates: false])
     private let lock = NSLock()

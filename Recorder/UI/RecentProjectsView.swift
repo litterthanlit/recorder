@@ -10,20 +10,19 @@ struct RecentProjectsView: View {
     @ObservedObject var library: ProjectLibrary
     var onOpen: (ProjectSummary) -> Void
     var onTrash: (ProjectSummary) -> Void
+    var onShowAll: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Recent")
-                    .font(.subheadline.weight(.medium))
+                SectionHeader("Recent")
                 Spacer()
-                Button("Show All") {
-                    library.revealProjectsFolder()
-                }
-                .buttonStyle(.link)
-                .font(.caption)
-                .help("Open the Recorder folder in Finder")
+                Button("Show All", action: onShowAll)
+                    .buttonStyle(.link)
+                    .font(DS.Typeface.caption)
+                    .help("Open the library")
             }
+            .padding(.horizontal, 6)
 
             if library.recentProjects.isEmpty {
                 Text("Recordings you make will show up here.")
@@ -83,7 +82,7 @@ private struct RecentProjectRow: View {
 
                     Spacer(minLength: 4)
 
-                    Text(Self.formattedDuration(project.duration))
+                    Text(RecentProjectsView.formattedDuration(project.duration))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -153,7 +152,7 @@ private struct RecentProjectRow: View {
     private var accessibilityDescription: String {
         var parts = [
             project.title,
-            "\(Self.formattedDuration(project.duration)) long",
+            "\(RecentProjectsView.formattedDuration(project.duration)) long",
             "recorded \(project.createdAt.formatted(.relative(presentation: .named)))"
         ]
         if project.hasExport {
@@ -162,6 +161,10 @@ private struct RecentProjectRow: View {
         return parts.joined(separator: ", ")
     }
 
+}
+
+extension RecentProjectsView {
+    /// "m:ss", for recording lengths on cards and rows.
     static func formattedDuration(_ duration: TimeInterval) -> String {
         let totalSeconds = max(0, Int(duration.rounded()))
         return String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)

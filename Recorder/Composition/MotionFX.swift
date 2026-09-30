@@ -169,3 +169,44 @@ enum CursorClickScale {
         }
     }
 }
+
+/// How the picture moves between two frames while the camera zooms or pans, for
+/// motion blur.
+struct CameraMotion {
+    /// How far the picture shifts, in output pixels (Core Image space, y up).
+    var pan: CGVector
+    /// Relative change in magnification (0.02 is 2% closer, negative zooms out).
+    var zoom: CGFloat
+    /// The point that stays put while zooming, 0–1 across the content (y up); `nil`
+    /// when the magnification doesn't change.
+    var zoomAnchor: CGPoint?
+
+    /// The change from the crop at the previous frame to the crop now, for content drawn
+    /// in `contentSize`.
+    static func between(_ previous: NormalizedRect, _ current: NormalizedRect, contentSize: CGSize) -> CameraMotion {
+        guard current.width > 0, current.height > 0, previous.width > 0, previous.height > 0 else {
+            return CameraMotion(pan: CGVector(dx: 0, dy: 0), zoom: 0, zoomAnchor: nil)
+        }
+        let previousCenter = CGPoint(x: previous.x + previous.width / 2, y: previous.y + previous.height / 2)
+        let currentCenter = CGPoint(x: current.x + current.width / 2, y: current.y + current.height / 2)
+        // Moving the crop right slides the picture left.
+        let pan = CGVector(
+            dx: -(currentCenter.x - previousCenter.x) / current.width * contentSize.width,
+            dy: -(currentCenter.y - previousCenter.y) / current.height * contentSize.height
+        )
+        let zoom = previous.width / current.width - 1
+
+        // The source point shown at the same place in both crops:
+        // (p - a.x) / a.width == (p - b.x) / b.width.
+        var anchor: CGPoint?
+        if abs(current.width - previous.width) > 1e-6, abs(current.height - previous.height) > 1e-6 {
+            let fixedX = (previous.x * current.width - current.x * previous.width) / (current.width - previous.width)
+            let fixedY = (previous.y * current.height - current.y * previous.height) / (current.height - previous.height)
+            anchor = CGPoint(
+                x: min(max((fixedX - current.x) / current.width, 0), 1),
+                y: min(max((fixedY - current.y) / current.height, 0), 1)
+            )
+        }
+        return CameraMotion(pan: pan, zoom: zoom, zoomAnchor: anchor)
+    }
+}
