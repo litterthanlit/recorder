@@ -607,8 +607,7 @@ final class CompositionRenderer {
     }
 
     private func textPlate(text: String, style: TextOverlay.Style, scale: Double, unit: CGFloat, maxWidth: CGFloat) -> CIImage {
-        let clampedScale = CGFloat(min(max(scale, 0.3), 4))
-        let key = "\(style.rawValue)|\(Int(clampedScale * 100))|\(Int(unit * 1000))|\(Int(maxWidth))|\(text)"
+        let key = "\(style.rawValue)|\(Int(scale * 100))|\(Int(unit * 1000))|\(Int(maxWidth))|\(text)"
         if let cached = textCache[key] {
             return cached
         }
@@ -616,44 +615,9 @@ final class CompositionRenderer {
             textCache.removeAll()
         }
 
-        let fontSize = max(6, style.baseFontSize * clampedScale * unit)
-        let weight: NSFont.Weight
-        let padding: CGSize
-        switch style {
-        case .title:
-            weight = .bold
-            padding = CGSize(width: 20 * unit, height: 14 * unit)
-        case .caption:
-            weight = .medium
-            padding = CGSize(width: fontSize * 0.7, height: fontSize * 0.38)
-        case .callout:
-            weight = .semibold
-            padding = CGSize(width: fontSize * 0.8, height: fontSize * 0.42)
-        }
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        paragraph.lineBreakMode = .byWordWrapping
-        var attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: weight),
-            .foregroundColor: NSColor.white,
-            .paragraphStyle: paragraph
-        ]
-        if style == .title {
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.45)
-            shadow.shadowBlurRadius = 12 * unit
-            shadow.shadowOffset = NSSize(width: 0, height: -2 * unit)
-            attributes[.shadow] = shadow
-        }
-        let string = NSAttributedString(string: text, attributes: attributes)
-        let bounds = string.boundingRect(
-            with: CGSize(width: max(maxWidth - padding.width * 2, fontSize), height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        let textSize = CGSize(width: bounds.width.rounded(.up) + 2, height: bounds.height.rounded(.up) + 2)
-        let size = CGSize(width: textSize.width + padding.width * 2, height: textSize.height + padding.height * 2)
-
+        let layout = TextPlateLayout.layout(text: text, style: style, scale: scale, unit: unit, maxWidth: maxWidth)
+        let size = layout.size
+        let fontSize = layout.fontSize
         let plate = renderBitmap(size: size) { context in
             let plateRect = CGRect(origin: .zero, size: size)
             switch style {
@@ -674,7 +638,12 @@ final class CompositionRenderer {
                 context.addPath(Self.roundedPath(plateRect, radius: min(size.height / 2, fontSize * 0.9)))
                 context.fillPath()
             }
-            string.draw(in: CGRect(x: padding.width, y: padding.height, width: textSize.width, height: textSize.height))
+            layout.string.draw(in: CGRect(
+                x: layout.padding.width,
+                y: layout.padding.height,
+                width: layout.textSize.width,
+                height: layout.textSize.height
+            ))
         }
         textCache[key] = plate
         return plate

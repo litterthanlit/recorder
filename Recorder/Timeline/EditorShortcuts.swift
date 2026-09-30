@@ -20,6 +20,8 @@ enum EditorCommand: Equatable {
     /// Move the selected zoom, text or blur in time.
     case nudgeSelection(TimeInterval)
     case clearSelection
+    case undo
+    case redo
 }
 
 /// The editor's single-key shortcuts, kept in one table so the key handler and the help
@@ -74,6 +76,7 @@ enum EditorShortcuts {
             }
         case command:
             switch key {
+            case "z": return .undo
             case "b": return .split
             case "e": return .export
             case "=", "+": return .timelineZoomIn
@@ -82,6 +85,9 @@ enum EditorShortcuts {
             default: return nil
             }
         case command | shift:
+            if key == "z" {
+                return .redo
+            }
             // ⌘+ on layouts where + needs Shift.
             return key == "=" || key == "+" ? .timelineZoomIn : nil
         default:
@@ -101,6 +107,7 @@ enum EditorShortcuts {
         ("B", "Add a blur"),
         ("⌥← ⌥→", "Nudge the selection"),
         ("⌘+ ⌘−", "Zoom the timeline"),
+        ("⌘Z ⇧⌘Z", "Undo or redo"),
         ("⌘E", "Export")
     ]
 

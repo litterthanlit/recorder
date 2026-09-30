@@ -582,7 +582,9 @@ final class ProjectEditor: ObservableObject {
     }
 
     func setSpeed(_ speed: Double, forSegment id: UUID) {
-        editTimeline("Change Speed") { $0.setSpeed(speed, forSegment: id) }
+        editTimeline("Change Speed", coalescingKey: AnyHashable("speed-\(id)"), continuous: true) {
+            $0.setSpeed(speed, forSegment: id)
+        }
     }
 
     /// Moves a segment's edges (source time), e.g. dragging a clip's end on the timeline.
@@ -687,16 +689,23 @@ final class ProjectEditor: ObservableObject {
 
     /// A binding to one edit setting whose changes can be undone.
     /// - Parameter coalesce: merge rapid changes (typing) into one undo step.
+    /// - Parameter continuous: for sliders: changes fold into the interactive edit a
+    ///   slider starts with `beginInteractiveEdit`, and otherwise coalesce.
     func settingBinding<Value: Equatable>(
         _ keyPath: WritableKeyPath<ProjectEditSettings, Value>,
         actionName: String,
-        coalesce: Bool = false
+        coalesce: Bool = false,
+        continuous: Bool = false
     ) -> Binding<Value> {
         Binding(
             get: { self.editSettings[keyPath: keyPath] },
             set: { newValue in
                 guard self.editSettings[keyPath: keyPath] != newValue else { return }
-                self.performEdit(actionName, coalescingKey: coalesce ? AnyHashable(keyPath) : nil) {
+                self.performEdit(
+                    actionName,
+                    coalescingKey: coalesce || continuous ? AnyHashable(keyPath) : nil,
+                    continuous: continuous
+                ) {
                     self.editSettings[keyPath: keyPath] = newValue
                 }
             }

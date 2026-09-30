@@ -39,8 +39,8 @@ struct EditorShortcutTests {
         #expect(run(0x18, command | shift, "+") == .timelineZoomIn)
         #expect(run(0x1B, command, "-") == .timelineZoomOut)
         #expect(run(0x1D, command, "0") == .timelineZoomToFit)
-        // Undo belongs to the menu.
-        #expect(run(0x06, command, "z") == nil)
+        #expect(run(0x06, command, "z") == .undo)
+        #expect(run(0x06, command | shift, "Z") == .redo)
     }
 
     @Test func deletingAndEscaping() {
@@ -91,6 +91,9 @@ struct TimelineGeometryTests {
         #expect(Timecode.precise(65.37) == "1:05.3")
         #expect(Timecode.short(59.6) == "1:00")
         #expect(Timecode.spoken(65.5) == "1 minute 5.5 seconds")
+        #expect(Timecode.speed(2) == "2×")
+        #expect(Timecode.speed(1.5) == "1.5×")
+        #expect(Timecode.speed(0.25) == "0.25×")
     }
 
     @Test func snappingPrefersTheClosestCandidate() {
@@ -164,5 +167,10 @@ struct ZoomFocusTests {
         let source = try #require(ZoomKeyframeEditor.sourceRect(forSelection: selection, contentFrame: content, visibleCrop: crop))
         let back = ZoomKeyframeEditor.viewRect(forSource: source, contentFrame: content, visibleCrop: crop)
         #expect(isClose(back, selection))
+        // Unlike a selection, a dragged box may stick out of the video.
+        let outside = CGRect(x: 0, y: 0, width: 100, height: 50)
+        let unclipped = ZoomKeyframeEditor.unclippedSourceRect(forView: outside, contentFrame: content, visibleCrop: crop)
+        #expect(isClose(ZoomKeyframeEditor.viewRect(forSource: unclipped, contentFrame: content, visibleCrop: crop), outside))
+        #expect(unclipped.minX < crop.x)
     }
 }

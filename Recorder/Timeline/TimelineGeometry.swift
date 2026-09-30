@@ -122,6 +122,11 @@ enum Timecode {
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
+    /// "2×", "1.5×", "0.25×".
+    static func speed(_ speed: Double) -> String {
+        speed == speed.rounded() ? "\(Int(speed))×" : String(format: "%.3g×", speed)
+    }
+
     /// "1 minute 5.3 seconds", for VoiceOver.
     static func spoken(_ time: TimeInterval) -> String {
         let clamped = max(0, time)

@@ -52,6 +52,7 @@ enum DS {
         static let textTrack = Color(nsColor: .systemTeal)
         static let blurTrack = Color(nsColor: .systemPink)
         static let audioTrack = Color(nsColor: .systemGreen)
+        static let playhead = Color(nsColor: .systemYellow)
     }
 
     /// Springs that settle quickly; with Reduce Motion they become a short fade.

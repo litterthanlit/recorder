@@ -1,140 +1,78 @@
 import SwiftUI
 
+/// The editor's canvas: the video at its export shape on a quiet well, with the tools
+/// for aiming zooms and placing text and blur on top.
 struct EditorPreviewView: View {
     @ObservedObject var editor: ProjectEditor
 
-    @State private var dragStart: CGPoint?
-    @State private var dragCurrent: CGPoint?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Preview")
-                    .font(.headline)
-                Spacer()
-                if editor.isManualZoomMode {
-                    Text("Drag to select zoom area")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-
-            GeometryReader { geometry in
-                ZStack {
-                    CompositorPreviewView(editor: editor)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                    if editor.isManualZoomMode {
-                        manualSelectionOverlay(contentFrame: contentFrame(in: geometry.size))
-                    }
-                }
-            }
-            .aspectRatio(editor.exportOutputSize.width / max(editor.exportOutputSize.height, 1), contentMode: .fit)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 360)
-
-            playbackControls
-        }
+    private var aspect: CGFloat {
+        let size = editor.exportOutputSize
+        return size.width / max(size.height, 1)
     }
 
-    /// Where the compositor draws the video inside the preview, in view coordinates.
-    private func contentFrame(in size: CGSize) -> CGRect {
-        let style = editor.editSettings.exportStyle
-        let aspect = CGFloat(editor.project.metadata.width) / CGFloat(max(editor.project.metadata.height, 1))
-        return CanvasLayout.contentFrame(
-            canvas: size,
-            contentAspect: aspect,
-            paddingRatio: style.backgroundEnabled ? style.paddingRatio : 0
-        )
+    var body: some View {
+        GeometryReader { geometry in
+            let canvas = Self.fittedSize(aspect: aspect, in: geometry.size, margin: DS.Spacing.lg)
+            ZStack {
+                CompositorPreviewView(editor: editor)
+                    .frame(width: canvas.width, height: canvas.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                    .shadow(color: .black.opacity(0.28), radius: 18, y: 6)
+                    .accessibilityLabel("Preview")
+                CanvasOverlay(editor: editor, playback: editor.playback, canvasSize: canvas)
+                    .frame(width: canvas.width, height: canvas.height)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .background(DS.Palette.canvas)
+        .overlay(alignment: .top) {
+            modeBanner
+                .padding(.top, DS.Spacing.xs)
+        }
     }
 
     @ViewBuilder
-    private func manualSelectionOverlay(contentFrame: CGRect) -> some View {
-        ZStack(alignment: .topLeading) {
-            Color.black.opacity(0.001)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 2)
-                        .onChanged { value in
-                            if dragStart == nil {
-                                dragStart = value.startLocation
-                            }
-                            dragCurrent = value.location
-                        }
-                        .onEnded { value in
-                            let selection = pixelRect(from: dragStart ?? value.startLocation, to: value.location)
-                            dragStart = nil
-                            dragCurrent = nil
-                            guard selection.width > 8, selection.height > 8,
-                                  let sourceRect = ZoomKeyframeEditor.sourceRect(
-                                      forSelection: selection,
-                                      contentFrame: contentFrame,
-                                      // The preview may already be zoomed; map through what is on screen.
-                                      visibleCrop: editor.interpolator.cropRect(at: editor.playheadSourceTime)
-                                  )
-                            else { return }
-                            editor.addManualZoom(from: sourceRect)
-                        }
-                )
-
-            Rectangle()
-                .strokeBorder(Color.white.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                .frame(width: contentFrame.width, height: contentFrame.height)
-                .offset(x: contentFrame.minX, y: contentFrame.minY)
-                .allowsHitTesting(false)
-
-            if let selectionRect = currentSelectionRect()?.intersection(contentFrame), !selectionRect.isNull {
-                Rectangle()
-                    .strokeBorder(Color.orange, lineWidth: 2)
-                    .background(Color.orange.opacity(0.15))
-                    .frame(width: selectionRect.width, height: selectionRect.height)
-                    .offset(x: selectionRect.minX, y: selectionRect.minY)
-                    .allowsHitTesting(false)
+    private var modeBanner: some View {
+        if editor.isManualZoomMode {
+            CanvasBanner(text: "Drag over the area to zoom into", actionTitle: "Cancel") {
+                editor.isManualZoomMode = false
+            }
+        } else if editor.isEditingZoomFocus {
+            CanvasBanner(text: "Drag the frame to aim the zoom, or a corner to resize it", actionTitle: "Done") {
+                editor.isEditingZoomFocus = false
             }
         }
     }
 
-    private var playbackControls: some View {
-        HStack(spacing: 12) {
-            Button {
-                editor.togglePlayback()
-            } label: {
-                Image(systemName: editor.isPlaying ? "pause.fill" : "play.fill")
-            }
-            .buttonStyle(.bordered)
+    /// The largest size of `aspect` that fits `size` with `margin` all round.
+    static func fittedSize(aspect: CGFloat, in size: CGSize, margin: CGFloat) -> CGSize {
+        let available = CGSize(width: max(size.width - margin * 2, 10), height: max(size.height - margin * 2, 10))
+        let safeAspect = aspect > 0 ? aspect : 16.0 / 9.0
+        let width = min(available.width, available.height * safeAspect)
+        return CGSize(width: width, height: width / safeAspect)
+    }
+}
 
-            Slider(
-                value: Binding(
-                    get: { editor.playheadTime },
-                    set: { editor.seek(to: $0) }
-                ),
-                in: 0...max(editor.outputDuration, 0.01)
-            )
+/// A floating hint over the canvas with one action (Cancel, Done).
+private struct CanvasBanner: View {
+    let text: String
+    let actionTitle: String
+    let action: () -> Void
 
-            Text(formatTime(editor.playheadTime))
-                .font(.caption.monospacedDigit())
-                .frame(width: 44, alignment: .trailing)
+    var body: some View {
+        HStack(spacing: DS.Spacing.sm) {
+            Text(text)
+                .font(DS.Typeface.footnote.weight(.medium))
+            Button(actionTitle, action: action)
+                .buttonStyle(PrimaryButtonStyle())
+                .controlSize(.small)
+                .keyboardShortcut(.cancelAction)
         }
-    }
-
-    private func currentSelectionRect() -> CGRect? {
-        guard let dragStart, let dragCurrent else { return nil }
-        return pixelRect(from: dragStart, to: dragCurrent)
-    }
-
-    private func pixelRect(from start: CGPoint, to end: CGPoint) -> CGRect {
-        CGRect(
-            x: min(start.x, end.x),
-            y: min(start.y, end.y),
-            width: abs(end.x - start.x),
-            height: abs(end.y - start.y)
-        )
-    }
-
-    private func formatTime(_ time: TimeInterval) -> String {
-        let totalSeconds = Int(time.rounded(.down))
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        return String(format: "%01d:%02d", minutes, seconds)
+        .padding(.leading, DS.Spacing.sm)
+        .padding(.trailing, 4)
+        .padding(.vertical, 4)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
     }
 }

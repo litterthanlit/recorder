@@ -288,8 +288,17 @@ final class AppState: ObservableObject {
         dismissPanel()
         session.openEditor(for: project)
         guard let editor = session.editor(for: project.metadata.id) else { return }
-        editorPresenter.present(editor: editor) { [weak self] exported in
-            self?.session.markExported(exported)
-        }
+        let projectID = project.metadata.id
+        editorPresenter.present(
+            editor: editor,
+            onExported: { [weak self] exported in
+                self?.session.markExported(exported)
+            },
+            onRetake: { [weak self] in
+                guard let self else { return }
+                self.editorPresenter.close(projectID: projectID)
+                self.chooseAndRecord()
+            }
+        )
     }
 }

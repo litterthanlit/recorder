@@ -181,6 +181,19 @@ enum ZoomKeyframeEditor {
         )
     }
 
+    /// Where a box drawn over the view (top-left origin) lies in normalized source space
+    /// (bottom-left origin), without clipping it to the video, for dragging boxes that
+    /// may stick out. The inverse of `viewRect(forSource:contentFrame:visibleCrop:)`.
+    static func unclippedSourceRect(forView rect: CGRect, contentFrame: CGRect, visibleCrop: NormalizedRect) -> CGRect {
+        guard contentFrame.width > 0, contentFrame.height > 0 else { return .zero }
+        return CGRect(
+            x: visibleCrop.x + (rect.minX - contentFrame.minX) / contentFrame.width * visibleCrop.width,
+            y: visibleCrop.y + (contentFrame.maxY - rect.maxY) / contentFrame.height * visibleCrop.height,
+            width: rect.width / contentFrame.width * visibleCrop.width,
+            height: rect.height / contentFrame.height * visibleCrop.height
+        )
+    }
+
     /// Scales a zoom can be given by editing its focus.
     static let focusScaleRange: ClosedRange<CGFloat> = 1.1...4
 

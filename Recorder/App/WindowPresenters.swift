@@ -59,6 +59,7 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
 final class EditorPresenter: NSObject, NSWindowDelegate {
     private var windowController: NSWindowController?
     private var presentedEditor: ProjectEditor?
+    private var toolbarController: EditorToolbarController?
     /// Called with the project ID after its editor window closes.
     var onClose: ((UUID) -> Void)?
 
@@ -78,37 +79,57 @@ final class EditorPresenter: NSObject, NSWindowDelegate {
         editor.pausePlayback()
         editor.flushAutosave()
         // Takes the preview out of the window, which stops its display link, and drops
-        // the view's reference to the editor.
+        // the views' references to the editor (the toolbar's too).
         windowController?.window?.contentViewController = nil
+        windowController?.window?.toolbar = nil
+        toolbarController = nil
         onClose?(editor.project.metadata.id)
     }
 
-    func present(editor: ProjectEditor, onExported: @escaping (RecorderProject) -> Void) {
+    /// - Parameter onRetake: closes the editor and records again; `nil` hides Retake.
+    func present(
+        editor: ProjectEditor,
+        onExported: @escaping (RecorderProject) -> Void,
+        onRetake: (@MainActor () -> Void)? = nil
+    ) {
         presentedEditor = editor
-        let rootView = EditorView(editor: editor)
+        let actions = EditorActions(
+            export: { [weak editor] in
+                guard let editor else { return }
+                Task { await editor.export() }
+            },
+            retake: onRetake
+        )
+        let rootView = EditorView(editor: editor, actions: actions)
             .onChange(of: editor.state) { _, newState in
                 if case .exported = newState {
                     onExported(editor.project)
                 }
             }
+        let toolbarController = EditorToolbarController(editor: editor, actions: actions)
+        self.toolbarController = toolbarController
 
-        if let window = windowController?.window {
+        let window: NSWindow
+        if let existing = windowController?.window {
+            window = existing
             window.contentViewController = NSHostingController(rootView: rootView)
-            window.makeKeyAndOrderFront(nil)
         } else {
-            let hosting = NSHostingController(rootView: rootView)
-            let window = NSWindow(contentViewController: hosting)
-            window.title = "Edit Recording"
-            window.setContentSize(NSSize(width: 1100, height: 860))
+            window = NSWindow(contentViewController: NSHostingController(rootView: rootView))
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.toolbarStyle = .unified
+            window.titleVisibility = .hidden
             window.identifier = ActivationPolicyController.identifier("editor")
             window.isReleasedWhenClosed = false
             window.delegate = self
+            window.setContentSize(NSSize(width: 1280, height: 840))
             window.center()
-            let controller = NSWindowController(window: window)
-            controller.showWindow(nil)
-            windowController = controller
+            window.setFrameAutosaveName("TraceEditorWindow")
+            windowController = NSWindowController(window: window)
         }
+        window.title = editor.displayName
+        window.toolbar = toolbarController.makeToolbar()
+        windowController?.showWindow(nil)
+        window.makeKeyAndOrderFront(nil)
 
         NSApp.activate()
     }

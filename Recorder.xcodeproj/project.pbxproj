@@ -85,6 +85,16 @@
 		B2000000000000000000004D /* EditorShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000051 /* EditorShortcuts.swift */; };
 		B2000000000000000000004E /* TimelineGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000052 /* TimelineGeometry.swift */; };
 		B2000000000000000000004F /* Waveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000053 /* Waveform.swift */; };
+		B20000000000000000000050 /* InspectorControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000054 /* InspectorControls.swift */; };
+		B20000000000000000000051 /* InspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000055 /* InspectorView.swift */; };
+		B20000000000000000000052 /* InspectorPanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000056 /* InspectorPanels.swift */; };
+		B20000000000000000000053 /* SelectionInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000057 /* SelectionInspector.swift */; };
+		B20000000000000000000054 /* EditorToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000058 /* EditorToolbar.swift */; };
+		B20000000000000000000055 /* CanvasOverlays.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000059 /* CanvasOverlays.swift */; };
+		B20000000000000000000056 /* TransportBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005A /* TransportBar.swift */; };
+		B20000000000000000000057 /* TimelineTracks.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005B /* TimelineTracks.swift */; };
+		B20000000000000000000058 /* TimelineMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005C /* TimelineMedia.swift */; };
+		B20000000000000000000059 /* TextPlateLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005D /* TextPlateLayout.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -170,6 +180,16 @@
 		A20000000000000000000051 /* EditorShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorShortcuts.swift; sourceTree = "<group>"; };
 		A20000000000000000000052 /* TimelineGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineGeometry.swift; sourceTree = "<group>"; };
 		A20000000000000000000053 /* Waveform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Waveform.swift; sourceTree = "<group>"; };
+		A20000000000000000000054 /* InspectorControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorControls.swift; sourceTree = "<group>"; };
+		A20000000000000000000055 /* InspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorView.swift; sourceTree = "<group>"; };
+		A20000000000000000000056 /* InspectorPanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorPanels.swift; sourceTree = "<group>"; };
+		A20000000000000000000057 /* SelectionInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionInspector.swift; sourceTree = "<group>"; };
+		A20000000000000000000058 /* EditorToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorToolbar.swift; sourceTree = "<group>"; };
+		A20000000000000000000059 /* CanvasOverlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasOverlays.swift; sourceTree = "<group>"; };
+		A2000000000000000000005A /* TransportBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportBar.swift; sourceTree = "<group>"; };
+		A2000000000000000000005B /* TimelineTracks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineTracks.swift; sourceTree = "<group>"; };
+		A2000000000000000000005C /* TimelineMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineMedia.swift; sourceTree = "<group>"; };
+		A2000000000000000000005D /* TextPlateLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextPlateLayout.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -284,6 +304,7 @@
 				A20000000000000000000048 /* TimelineCompositionBuilder.swift */,
 				A2000000000000000000004A /* ExportService.swift */,
 				A20000000000000000000050 /* SystemCursorImages.swift */,
+				A2000000000000000000005D /* TextPlateLayout.swift */,
 			);
 			path = Export;
 			sourceTree = "<group>";
@@ -304,6 +325,8 @@
 				A2000000000000000000003C /* OnboardingView.swift */,
 				C20000000000000000000010 /* Capture */,
 				C20000000000000000000012 /* Library */,
+				C20000000000000000000013 /* Editor */,
+				C20000000000000000000014 /* Timeline */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -391,6 +414,29 @@
 			path = Library;
 			sourceTree = "<group>";
 		};
+		C20000000000000000000013 /* Editor */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000054 /* InspectorControls.swift */,
+				A20000000000000000000055 /* InspectorView.swift */,
+				A20000000000000000000056 /* InspectorPanels.swift */,
+				A20000000000000000000057 /* SelectionInspector.swift */,
+				A20000000000000000000058 /* EditorToolbar.swift */,
+				A20000000000000000000059 /* CanvasOverlays.swift */,
+				A2000000000000000000005A /* TransportBar.swift */,
+			);
+			path = Editor;
+			sourceTree = "<group>";
+		};
+		C20000000000000000000014 /* Timeline */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000005B /* TimelineTracks.swift */,
+				A2000000000000000000005C /* TimelineMedia.swift */,
+			);
+			path = Timeline;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -455,6 +501,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000059 /* TextPlateLayout.swift in Sources */,
+				B20000000000000000000058 /* TimelineMedia.swift in Sources */,
+				B20000000000000000000057 /* TimelineTracks.swift in Sources */,
+				B20000000000000000000056 /* TransportBar.swift in Sources */,
+				B20000000000000000000055 /* CanvasOverlays.swift in Sources */,
+				B20000000000000000000054 /* EditorToolbar.swift in Sources */,
+				B20000000000000000000053 /* SelectionInspector.swift in Sources */,
+				B20000000000000000000052 /* InspectorPanels.swift in Sources */,
+				B20000000000000000000051 /* InspectorView.swift in Sources */,
+				B20000000000000000000050 /* InspectorControls.swift in Sources */,
 				B2000000000000000000004F /* Waveform.swift in Sources */,
 				B2000000000000000000004E /* TimelineGeometry.swift in Sources */,
 				B2000000000000000000004D /* EditorShortcuts.swift in Sources */,
