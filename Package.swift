@@ -15,7 +15,6 @@ let package = Package(
                 "Export",
                 "Editor/ProjectEditor.swift",
                 "UI",
-                "Models",
                 "Assets.xcassets",
                 "Info.plist",
                 "Recorder.entitlements"
@@ -24,7 +23,8 @@ let package = Package(
                 "Zoom",
                 "Editor/ZoomKeyframeEditor.swift",
                 "Editor/EditHistory.swift",
-                "Composition"
+                "Composition",
+                "Models"
             ]
         ),
         .testTarget(

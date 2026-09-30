@@ -82,7 +82,7 @@ struct RecorderProject: Codable, Equatable {
     static let bundleExtension = "recorder"
 
     var bundleURL: URL {
-        ProjectStore.projectsDirectory.appendingPathComponent("\(metadata.id.uuidString).\(Self.bundleExtension)")
+        ProjectStore.bundleURL(for: metadata.id)
     }
 
     var videoURL: URL {
@@ -90,23 +90,23 @@ struct RecorderProject: Codable, Equatable {
     }
 
     var eventsURL: URL {
-        bundleURL.appendingPathComponent("events.json")
+        bundleURL.appendingPathComponent(File.events)
     }
 
     var cursorURL: URL {
-        bundleURL.appendingPathComponent("cursor.json")
+        bundleURL.appendingPathComponent(File.cursor)
     }
 
     var keyframesURL: URL {
-        bundleURL.appendingPathComponent("keyframes.json")
+        bundleURL.appendingPathComponent(File.keyframes)
     }
 
     var metaURL: URL {
-        bundleURL.appendingPathComponent("meta.json")
+        bundleURL.appendingPathComponent(File.meta)
     }
 
     var settingsURL: URL {
-        bundleURL.appendingPathComponent("settings.json")
+        bundleURL.appendingPathComponent(File.settings)
     }
 
     var exportURL: URL {
@@ -155,6 +155,11 @@ enum ProjectStore {
         return movies.appendingPathComponent("Recorder", isDirectory: true)
     }
 
+    /// Where the project with this ID lives in `root` (the library by default).
+    static func bundleURL(for id: UUID, in root: URL = projectsDirectory) -> URL {
+        root.appendingPathComponent("\(id.uuidString).\(RecorderProject.bundleExtension)", isDirectory: true)
+    }
+
     static func ensureProjectsDirectory() throws {
         try FileManager.default.createDirectory(at: projectsDirectory, withIntermediateDirectories: true)
     }
@@ -163,25 +168,45 @@ enum ProjectStore {
     /// leaves the previous version of a file rather than a truncated one.
     static func save(_ project: RecorderProject) throws {
         try ensureProjectsDirectory()
-        try FileManager.default.createDirectory(at: project.bundleURL, withIntermediateDirectories: true)
+        try save(project, to: project.bundleURL)
+    }
+
+    /// Writes every file of `project` into `bundleURL`, creating it if needed.
+    static func save(_ project: RecorderProject, to bundleURL: URL) throws {
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
         let encoder = makeEncoder()
-        try encoder.encode(project.metadata).write(to: project.metaURL, options: .atomic)
-        try encoder.encode(project.clickEvents).write(to: project.eventsURL, options: .atomic)
-        try encoder.encode(project.cursorEvents).write(to: project.cursorURL, options: .atomic)
-        try saveEdits(project, encoder: encoder)
+        try encoder.encode(project.metadata).write(to: bundleURL.appendingPathComponent(File.meta), options: .atomic)
+        try encoder.encode(project.clickEvents).write(to: bundleURL.appendingPathComponent(File.events), options: .atomic)
+        try encoder.encode(project.cursorEvents).write(to: bundleURL.appendingPathComponent(File.cursor), options: .atomic)
+        try saveEdits(project, to: bundleURL, encoder: encoder)
     }
 
     /// Writes only what the editor changes (zoom keyframes and edit settings). Metadata,
     /// clicks, and the cursor path are fixed after recording, and the cursor path is by
     /// far the largest file.
     static func saveEdits(_ project: RecorderProject) throws {
-        try saveEdits(project, encoder: makeEncoder())
+        try saveEdits(project, to: project.bundleURL, encoder: makeEncoder())
     }
 
-    private static func saveEdits(_ project: RecorderProject, encoder: JSONEncoder) throws {
-        try encoder.encode(project.keyframes).write(to: project.keyframesURL, options: .atomic)
-        try encoder.encode(project.editSettings).write(to: project.settingsURL, options: .atomic)
+    static func saveEdits(_ project: RecorderProject, to bundleURL: URL) throws {
+        try saveEdits(project, to: bundleURL, encoder: makeEncoder())
+    }
+
+    private static func saveEdits(_ project: RecorderProject, to bundleURL: URL, encoder: JSONEncoder) throws {
+        try encoder.encode(project.keyframes).write(to: bundleURL.appendingPathComponent(File.keyframes), options: .atomic)
+        try encoder.encode(project.editSettings).write(to: bundleURL.appendingPathComponent(File.settings), options: .atomic)
+    }
+
+    /// File names inside a project bundle.
+    enum File {
+        static let video = "video.mov"
+        static let meta = "meta.json"
+        static let events = "events.json"
+        static let cursor = "cursor.json"
+        static let keyframes = "keyframes.json"
+        static let settings = "settings.json"
+        static let export = "export.mp4"
     }
 
     private static func makeEncoder() -> JSONEncoder {
@@ -192,31 +217,31 @@ enum ProjectStore {
     }
 
     static func loadMetadata(from bundleURL: URL) throws -> ProjectMetadata {
-        let data = try Data(contentsOf: bundleURL.appendingPathComponent("meta.json"))
+        let data = try Data(contentsOf: bundleURL.appendingPathComponent(File.meta))
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(ProjectMetadata.self, from: data)
     }
 
     static func loadEvents(from bundleURL: URL) throws -> [ClickEvent] {
-        let data = try Data(contentsOf: bundleURL.appendingPathComponent("events.json"))
+        let data = try Data(contentsOf: bundleURL.appendingPathComponent(File.events))
         return try JSONDecoder().decode([ClickEvent].self, from: data)
     }
 
     static func loadCursorEvents(from bundleURL: URL) throws -> [CursorEvent] {
-        let url = bundleURL.appendingPathComponent("cursor.json")
+        let url = bundleURL.appendingPathComponent(File.cursor)
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode([CursorEvent].self, from: data)
     }
 
     static func loadKeyframes(from bundleURL: URL) throws -> [ZoomKeyframe] {
-        let data = try Data(contentsOf: bundleURL.appendingPathComponent("keyframes.json"))
+        let data = try Data(contentsOf: bundleURL.appendingPathComponent(File.keyframes))
         return try JSONDecoder().decode([ZoomKeyframe].self, from: data)
     }
 
     static func loadEditSettings(from bundleURL: URL) throws -> ProjectEditSettings {
-        let url = bundleURL.appendingPathComponent("settings.json")
+        let url = bundleURL.appendingPathComponent(File.settings)
         guard FileManager.default.fileExists(atPath: url.path) else {
             return ProjectEditSettings()
         }
@@ -291,10 +316,10 @@ struct ProjectSummary: Identifiable, Equatable {
 
 extension ProjectStore {
     /// Projects in the library, newest first. Bundles that can't be read are skipped.
-    static func listProjects(limit: Int? = nil) -> [ProjectSummary] {
+    static func listProjects(in root: URL = projectsDirectory, limit: Int? = nil) -> [ProjectSummary] {
         let fileManager = FileManager.default
         guard let urls = try? fileManager.contentsOfDirectory(
-            at: projectsDirectory,
+            at: root,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         ) else {
@@ -305,7 +330,7 @@ extension ProjectStore {
             .filter { $0.pathExtension == RecorderProject.bundleExtension }
             .compactMap { url -> ProjectSummary? in
                 guard let metadata = try? loadMetadata(from: url) else { return nil }
-                let hasExport = fileManager.fileExists(atPath: url.appendingPathComponent("export.mp4").path)
+                let hasExport = fileManager.fileExists(atPath: url.appendingPathComponent(File.export).path)
                 return ProjectSummary(metadata: metadata, bundleURL: url, hasExport: hasExport)
             }
             .sorted { $0.createdAt > $1.createdAt }

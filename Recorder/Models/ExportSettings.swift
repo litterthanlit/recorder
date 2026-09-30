@@ -296,6 +296,29 @@ struct CaptureWindowInfo: Codable, Equatable, Identifiable {
     }
 }
 
+/// Background treatment for the live camera (applied at record time).
+enum CameraBackgroundMode: String, Codable, CaseIterable, Identifiable {
+    case none
+    case white
+    case studio
+    case blur
+    case gradient
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .none: return "None"
+        case .white: return "White"
+        case .studio: return "Studio"
+        case .blur: return "Blur"
+        case .gradient: return "Gradient"
+        }
+    }
+
+    var requiresProcessing: Bool { self != .none }
+}
+
 struct RecordingPreferences: Codable, Equatable {
     var countdownSeconds: Int = 3
     var captureTarget: CaptureTargetKind = .display
