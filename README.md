@@ -33,7 +33,7 @@ See [DEMO.md](DEMO.md) for the Hypher launch video rehearsal script.
 
 ## Requirements
 
-- macOS 13.0+
+- macOS 14.0+
 - Xcode 16+
 - Permissions:
   - **Screen Recording** — capture display

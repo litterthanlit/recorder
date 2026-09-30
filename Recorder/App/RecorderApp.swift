@@ -94,7 +94,7 @@ final class EditorPresenter {
     func present(editor: ProjectEditor, onExported: @escaping (RecorderProject) -> Void) {
         presentedProjectID = editor.project.metadata.id
         let rootView = EditorView(editor: editor)
-            .onChange(of: editor.state) { newState in
+            .onChange(of: editor.state) { _, newState in
                 if case .exported = newState {
                     onExported(editor.project)
                 }
@@ -116,7 +116,7 @@ final class EditorPresenter {
             windowController = controller
         }
 
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
     }
 }
 

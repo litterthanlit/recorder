@@ -64,7 +64,7 @@ struct MenuBarView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .onChange(of: session.preferences.captureTarget) { _ in
+            .onChange(of: session.preferences.captureTarget) {
                 Task { await session.refreshWindows() }
             }
 

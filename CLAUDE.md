@@ -1,6 +1,6 @@
 # Recorder: notes for coding agents
 
-Native macOS (13+) menu bar screen recorder with auto-zoom on clicks, a timeline editor,
+Native macOS (14+) menu bar screen recorder with auto-zoom on clicks, a timeline editor,
 and MP4 export. Swift 5 language mode, SwiftUI + AppKit, ScreenCaptureKit, AVFoundation,
 Core Image. See README.md for features and DEMO.md for the recording workflow it serves.
 

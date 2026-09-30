@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "RecorderCore",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     products: [],
     targets: [
         .target(

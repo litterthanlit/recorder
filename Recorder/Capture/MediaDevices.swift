@@ -30,10 +30,7 @@ enum CameraBackgroundMode: String, Codable, CaseIterable, Identifiable {
 
 enum MediaDevices {
     static func cameras() -> [MediaDeviceInfo] {
-        var deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera]
-        if #available(macOS 14.0, *) {
-            deviceTypes.append(contentsOf: [.external, .continuityCamera])
-        }
+        let deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .external, .continuityCamera]
         return AVCaptureDevice.DiscoverySession(
             deviceTypes: deviceTypes,
             mediaType: .video,
@@ -42,10 +39,7 @@ enum MediaDevices {
     }
 
     static func microphones() -> [MediaDeviceInfo] {
-        var deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInMicrophone]
-        if #available(macOS 14.0, *) {
-            deviceTypes.append(.external)
-        }
+        let deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInMicrophone, .external]
         return AVCaptureDevice.DiscoverySession(
             deviceTypes: deviceTypes,
             mediaType: .audio,

@@ -339,18 +339,11 @@ final class CompositorPreviewHost: NSView {
             )
         }
 
-        if #available(macOS 14.0, *) {
-            let videoRenderer = displayLayer.sampleBufferRenderer
-            if videoRenderer.status == .failed {
-                videoRenderer.flush()
-            }
-            videoRenderer.enqueue(sampleBuffer)
-        } else {
-            if displayLayer.status == .failed {
-                displayLayer.flush()
-            }
-            displayLayer.enqueue(sampleBuffer)
+        let videoRenderer = displayLayer.sampleBufferRenderer
+        if videoRenderer.status == .failed {
+            videoRenderer.flush()
         }
+        videoRenderer.enqueue(sampleBuffer)
     }
 
     // MARK: - Player outputs
