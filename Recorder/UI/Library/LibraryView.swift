@@ -86,8 +86,9 @@ struct LibraryView: View {
 
     private var countLabel: String {
         let count = library.allProjects.count
-        let total = library.allProjects.reduce(0) { $0 + $1.duration }
-        return "\(count) recording\(count == 1 ? "" : "s") · \(RecentProjectsView.formattedDuration(total)) in all"
+        let total = library.allProjects.reduce(0.0) { $0 + $1.duration }
+        let noun = count == 1 ? "recording" : "recordings"
+        return "\(count) \(noun) · \(RecentProjectsView.formattedDuration(total)) in all"
     }
 
     private var grid: some View {
@@ -159,52 +160,8 @@ private struct LibraryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-            ZStack(alignment: .bottomTrailing) {
-                ZStack {
-                    Color.primary.opacity(0.06)
-                    if let thumbnail {
-                        Image(nsImage: thumbnail)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } else {
-                        Image(systemName: "play.rectangle")
-                            .font(.system(size: 24))
-                            .foregroundStyle(DS.Palette.tertiaryText)
-                    }
-                }
-                .aspectRatio(16 / 10, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.medium, style: .continuous))
-
-                Text(RecentProjectsView.formattedDuration(project.duration))
-                    .font(DS.Typeface.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.black.opacity(0.65)))
-                    .padding(DS.Spacing.xs)
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.Radius.medium, style: .continuous)
-                    .strokeBorder(isHovering ? DS.Palette.accent : Color.primary.opacity(0.08), lineWidth: isHovering ? 2 : 1)
-            )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(project.displayName)
-                    .font(DS.Typeface.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                HStack(spacing: 4) {
-                    Text(project.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
-                    if project.hasExport {
-                        Text("·")
-                        Label("Exported", systemImage: "checkmark.circle.fill")
-                            .labelStyle(.titleAndIcon)
-                            .foregroundStyle(DS.Palette.success)
-                    }
-                }
-                .font(DS.Typeface.caption)
-                .foregroundStyle(DS.Palette.secondaryText)
-            }
+            preview
+            details
         }
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
@@ -213,9 +170,74 @@ private struct LibraryCard: View {
             thumbnail = await library.thumbnail(for: project)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(project.displayName), \(RecentProjectsView.formattedDuration(project.duration))\(project.hasExport ? ", exported" : "")")
+        .accessibilityLabel(accessibilityText)
         .accessibilityAction(named: Text("Open")) { onOpen() }
         .accessibilityAddTraits(.isButton)
+    }
+
+    private var durationText: String {
+        RecentProjectsView.formattedDuration(project.duration)
+    }
+
+    private var accessibilityText: String {
+        let exported = project.hasExport ? ", exported" : ""
+        return "\(project.displayName), \(durationText)\(exported)"
+    }
+
+    private var preview: some View {
+        let borderColor: Color = isHovering ? DS.Palette.accent : Color.primary.opacity(0.08)
+        let borderWidth: CGFloat = isHovering ? 2 : 1
+        return ZStack(alignment: .bottomTrailing) {
+            thumbnailView
+            Text(durationText)
+                .font(DS.Typeface.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.black.opacity(0.65)))
+                .padding(DS.Spacing.xs)
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.medium, style: .continuous)
+                .strokeBorder(borderColor, lineWidth: borderWidth)
+        )
+    }
+
+    private var thumbnailView: some View {
+        ZStack {
+            Color.primary.opacity(0.06)
+            if let thumbnail {
+                Image(nsImage: thumbnail)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Image(systemName: "play.rectangle")
+                    .font(.system(size: 24))
+                    .foregroundStyle(DS.Palette.tertiaryText)
+            }
+        }
+        .aspectRatio(16 / 10, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.medium, style: .continuous))
+    }
+
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(project.displayName)
+                .font(DS.Typeface.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            HStack(spacing: 4) {
+                Text(project.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
+                if project.hasExport {
+                    Text("·")
+                    Label("Exported", systemImage: "checkmark.circle.fill")
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(DS.Palette.success)
+                }
+            }
+            .font(DS.Typeface.caption)
+            .foregroundStyle(DS.Palette.secondaryText)
+        }
     }
 }
 

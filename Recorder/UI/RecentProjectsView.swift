@@ -82,7 +82,7 @@ private struct RecentProjectRow: View {
 
                     Spacer(minLength: 4)
 
-                    Text(Self.formattedDuration(project.duration))
+                    Text(RecentProjectsView.formattedDuration(project.duration))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -152,7 +152,7 @@ private struct RecentProjectRow: View {
     private var accessibilityDescription: String {
         var parts = [
             project.title,
-            "\(Self.formattedDuration(project.duration)) long",
+            "\(RecentProjectsView.formattedDuration(project.duration)) long",
             "recorded \(project.createdAt.formatted(.relative(presentation: .named)))"
         ]
         if project.hasExport {
@@ -161,6 +161,10 @@ private struct RecentProjectRow: View {
         return parts.joined(separator: ", ")
     }
 
+}
+
+extension RecentProjectsView {
+    /// "m:ss", for recording lengths on cards and rows.
     static func formattedDuration(_ duration: TimeInterval) -> String {
         let totalSeconds = max(0, Int(duration.rounded()))
         return String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)

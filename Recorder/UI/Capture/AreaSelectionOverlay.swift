@@ -602,48 +602,72 @@ struct CaptureSelectorToolbar: View {
 
     var body: some View {
         HStack(spacing: DS.Spacing.xs) {
-            HStack(spacing: 2) {
-                ForEach(CaptureSelector.Mode.allCases) { mode in
-                    ModeButton(mode: mode, isSelected: selector.mode == mode) {
-                        selector.setMode(mode)
-                    }
-                }
-            }
-            .padding(3)
-            .background(RoundedRectangle(cornerRadius: DS.Radius.medium, style: .continuous).fill(Color.white.opacity(0.08)))
-
+            modePicker
             if selector.mode == .area {
-                Menu {
-                    Picker("Shape", selection: Binding(
-                        get: { selector.preset },
-                        set: { selector.applyPreset($0) }
-                    )) {
-                        ForEach(AreaPreset.allCases) { preset in
-                            Text(preset.label).tag(preset)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                } label: {
-                    Label(selector.preset.label, systemImage: "aspectratio")
-                        .font(DS.Typeface.footnote.weight(.medium))
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .foregroundStyle(.white)
-                .accessibilityLabel("Area shape, \(selector.preset.label)")
-
-                if let size = selector.selectionPixelSize {
-                    Text("\(Int(size.width)) × \(Int(size.height))")
-                        .font(DS.Typeface.timecode)
-                        .foregroundStyle(Color.white.opacity(0.7))
-                        .accessibilityLabel("\(Int(size.width)) by \(Int(size.height)) pixels")
-                }
+                areaControls
             }
-
             Divider()
                 .frame(height: 18)
                 .overlay(Color.white.opacity(0.2))
+            actions
+        }
+        .padding(DS.Spacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: DS.Radius.large, style: .continuous)
+                .fill(Color.black.opacity(0.78))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.Radius.large, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12))
+        )
+        .environment(\.colorScheme, .dark)
+        .fixedSize()
+    }
 
+    private var modePicker: some View {
+        HStack(spacing: 2) {
+            ForEach(CaptureSelector.Mode.allCases) { mode in
+                ModeButton(mode: mode, isSelected: selector.mode == mode) {
+                    selector.setMode(mode)
+                }
+            }
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: DS.Radius.medium, style: .continuous).fill(Color.white.opacity(0.08)))
+    }
+
+    private var presetBinding: Binding<AreaPreset> {
+        Binding(
+            get: { selector.preset },
+            set: { selector.applyPreset($0) }
+        )
+    }
+
+    @ViewBuilder
+    private var areaControls: some View {
+        Menu {
+            Picker("Shape", selection: presetBinding) {
+                ForEach(AreaPreset.allCases) { preset in
+                    Text(preset.label).tag(preset)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label(selector.preset.label, systemImage: "aspectratio")
+                .font(DS.Typeface.footnote.weight(.medium))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .foregroundStyle(.white)
+        .accessibilityLabel("Area shape, \(selector.preset.label)")
+
+        if let size = selector.selectionPixelSize {
+            SelectionSizeLabel(width: Int(size.width), height: Int(size.height))
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: DS.Spacing.xs) {
             Button("Cancel") { selector.cancel() }
                 .buttonStyle(.plain)
                 .font(DS.Typeface.footnote.weight(.medium))
@@ -662,17 +686,18 @@ struct CaptureSelectorToolbar: View {
             .disabled(selector.mode == .area && selector.selection == nil)
             .help("Record (⏎)")
         }
-        .padding(DS.Spacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: DS.Radius.large, style: .continuous)
-                .fill(Color.black.opacity(0.78))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.Radius.large, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12))
-        )
-        .environment(\.colorScheme, .dark)
-        .fixedSize()
+    }
+}
+
+private struct SelectionSizeLabel: View {
+    let width: Int
+    let height: Int
+
+    var body: some View {
+        Text("\(width) × \(height)")
+            .font(DS.Typeface.timecode)
+            .foregroundStyle(Color.white.opacity(0.7))
+            .accessibilityLabel("\(width) by \(height) pixels")
     }
 }
 
