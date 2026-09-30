@@ -11,13 +11,18 @@ struct ZoomKeyframe: Codable, Equatable, Identifiable {
     var startTime: TimeInterval
     var peakTime: TimeInterval
     var endTime: TimeInterval
-    let centerX: CGFloat
-    let centerY: CGFloat
+    var centerX: CGFloat
+    var centerY: CGFloat
     var scale: CGFloat
     let source: ZoomSource
 
+    /// Where the zoom points, normalized with a bottom-left origin.
     var center: CGPoint {
-        CGPoint(x: centerX, y: centerY)
+        get { CGPoint(x: centerX, y: centerY) }
+        set {
+            centerX = newValue.x
+            centerY = newValue.y
+        }
     }
 
     init(

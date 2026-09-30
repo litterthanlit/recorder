@@ -9,6 +9,22 @@ struct EditorSnapshot: Equatable {
     var editSettings: ProjectEditSettings
 }
 
+/// What's selected in the editor: one item on the timeline.
+enum EditorSelection: Equatable {
+    case clip(UUID)
+    case zoom(UUID)
+    case text(UUID)
+    case blur(UUID)
+}
+
+/// The playhead, published on its own so the ticks during playback (20 a second) only
+/// redraw the views that show it, not the whole editor. Main thread only.
+final class EditorPlayback: ObservableObject {
+    /// Output time: where the edited video is.
+    @Published var time: TimeInterval = 0
+    @Published var isPlaying = false
+}
+
 @MainActor
 final class ProjectEditor: ObservableObject {
     enum State: Equatable {
@@ -22,12 +38,12 @@ final class ProjectEditor: ObservableObject {
     /// Changed only through the editing methods below, so every change can be undone.
     @Published private(set) var keyframes: [ZoomKeyframe]
     @Published private(set) var editSettings: ProjectEditSettings
-    /// Output time: where the edited video is.
-    @Published var playheadTime: TimeInterval = 0
-    @Published var selectedKeyframeID: UUID?
-    @Published var selectedSegmentID: UUID?
+    @Published var selection: EditorSelection?
+    /// Dragging over the canvas picks the area for a new zoom.
     @Published var isManualZoomMode = false
-    @Published var isPlaying = false
+    /// The canvas shows the whole recording with the selected zoom's focus to drag.
+    @Published var isEditingZoomFocus = false
+    let playback = EditorPlayback()
     @Published private(set) var state: State = .editing
     @Published private(set) var exportProgress: Double = 0
     @Published private(set) var canUndo = false
@@ -60,8 +76,95 @@ final class ProjectEditor: ObservableObject {
         EditorSnapshot(keyframes: keyframes, editSettings: editSettings)
     }
 
+    /// Output time: where the edited video is.
+    var playheadTime: TimeInterval {
+        get { playback.time }
+        set { playback.time = newValue }
+    }
+
+    var isPlaying: Bool {
+        get { playback.isPlaying }
+        set { playback.isPlaying = newValue }
+    }
+
+    var selectedKeyframeID: UUID? {
+        get {
+            if case let .zoom(id)? = selection { return id }
+            return nil
+        }
+        set { setSelection(newValue.map { EditorSelection.zoom($0) }, clearing: selectedKeyframeID.map { EditorSelection.zoom($0) }) }
+    }
+
+    var selectedSegmentID: UUID? {
+        get {
+            if case let .clip(id)? = selection { return id }
+            return nil
+        }
+        set { setSelection(newValue.map { EditorSelection.clip($0) }, clearing: selectedSegmentID.map { EditorSelection.clip($0) }) }
+    }
+
+    var selectedTextID: UUID? {
+        if case let .text(id)? = selection { return id }
+        return nil
+    }
+
+    var selectedBlurID: UUID? {
+        if case let .blur(id)? = selection { return id }
+        return nil
+    }
+
+    var selectedKeyframe: ZoomKeyframe? {
+        selectedKeyframeID.flatMap { id in keyframes.first { $0.id == id } }
+    }
+
+    var selectedText: TextOverlay? {
+        selectedTextID.flatMap { id in editSettings.textOverlays.first { $0.id == id } }
+    }
+
+    var selectedBlur: BlurRegion? {
+        selectedBlurID.flatMap { id in editSettings.blurRegions.first { $0.id == id } }
+    }
+
+    var selectedSegment: EditSegment? {
+        selectedSegmentID.flatMap { id in timeline.segments.first { $0.id == id } }
+    }
+
+    /// Setting `nil` through one kind's ID only clears the selection if it was that kind.
+    private func setSelection(_ newValue: EditorSelection?, clearing current: EditorSelection?) {
+        if let newValue {
+            select(newValue)
+        } else if selection == current {
+            select(nil)
+        }
+    }
+
+    func select(_ newSelection: EditorSelection?) {
+        guard selection != newSelection else { return }
+        selection = newSelection
+        if case .zoom? = newSelection { return }
+        isEditingZoomFocus = false
+    }
+
     var duration: TimeInterval {
         project.metadata.duration
+    }
+
+    /// The recording's name, or its automatic title.
+    var displayName: String {
+        project.metadata.name ?? ProjectSummary.title(for: project.metadata)
+    }
+
+    /// Names the recording (an empty name goes back to the automatic title).
+    func rename(to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newName = trimmed.isEmpty ? nil : trimmed
+        guard newName != project.metadata.name else { return }
+        project.metadata.name = newName
+        do {
+            try ProjectStore.rename(bundleURL: project.bundleURL, to: trimmed)
+        } catch {
+            Log.editor.error("Rename failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// The edit (always set once the editor exists).
@@ -154,6 +257,192 @@ final class ProjectEditor: ObservableObject {
         selectedKeyframeID = id
     }
 
+    // MARK: - Selection
+
+    /// Deletes whatever is selected (a clip closes up the gap).
+    func deleteSelection() {
+        switch selection {
+        case let .clip(id)?: deleteSegment(id)
+        case .zoom?: deleteSelectedKeyframe()
+        case let .text(id)?: deleteText(id)
+        case let .blur(id)?: deleteBlur(id)
+        case nil: NSSound.beep()
+        }
+    }
+
+    /// Moves the selected zoom, text or blur by `delta` seconds.
+    func nudgeSelection(by delta: TimeInterval) {
+        switch selection {
+        case .zoom?:
+            moveSelectedKeyframe(by: delta)
+        case let .text(id)?:
+            updateText(id, actionName: "Move Text", coalesce: true) { $0.span = shifted($0.span, by: delta) }
+        case let .blur(id)?:
+            updateBlur(id, actionName: "Move Blur", coalesce: true) { $0.span = shifted($0.span, by: delta) }
+        case .clip?, nil:
+            NSSound.beep()
+        }
+    }
+
+    /// `span` moved by `delta`, kept inside the recording.
+    func shifted(_ span: TimeSpan, by delta: TimeInterval) -> TimeSpan {
+        let length = span.duration
+        let start = min(max(span.start + delta, 0), max(0, duration - length))
+        return TimeSpan(start: start, end: start + length)
+    }
+
+    // MARK: - Text and blur
+
+    /// Adds a caption at the playhead and selects it.
+    func addText() {
+        let start = playheadSourceTime
+        let end = min(duration, start + TextOverlay.defaultDuration)
+        guard end - start > 0.1 else {
+            NSSound.beep()
+            return
+        }
+        let overlay = TextOverlay(text: "Your text", span: TimeSpan(start: start, end: end))
+        performEdit("Add Text") {
+            editSettings.textOverlays.append(overlay)
+        }
+        select(.text(overlay.id))
+    }
+
+    /// Changes one text overlay as an undoable edit.
+    /// - Parameters:
+    ///   - coalesce: merge rapid changes (typing, nudging) into one undo step.
+    ///   - continuous: a live drag update inside `beginInteractiveEdit`.
+    func updateText(
+        _ id: UUID,
+        actionName: String = "Edit Text",
+        coalesce: Bool = false,
+        continuous: Bool = false,
+        _ change: (inout TextOverlay) -> Void
+    ) {
+        guard let index = editSettings.textOverlays.firstIndex(where: { $0.id == id }) else { return }
+        var updated = editSettings.textOverlays[index]
+        change(&updated)
+        updated.center = CGPoint(x: min(max(updated.center.x, 0), 1), y: min(max(updated.center.y, 0), 1))
+        guard updated != editSettings.textOverlays[index] else { return }
+        performEdit(actionName, coalescingKey: coalesce ? AnyHashable("text-\(id)-\(actionName)") : nil, continuous: continuous) {
+            if let current = editSettings.textOverlays.firstIndex(where: { $0.id == id }) {
+                editSettings.textOverlays[current] = updated
+            }
+        }
+    }
+
+    func deleteText(_ id: UUID) {
+        performEdit("Delete Text") {
+            editSettings.textOverlays.removeAll { $0.id == id }
+        }
+        if selectedTextID == id {
+            select(nil)
+        }
+    }
+
+    /// Adds a blur over the middle of the frame at the playhead and selects it, ready to
+    /// be moved over what should be hidden.
+    func addBlur() {
+        let start = playheadSourceTime
+        let end = min(duration, start + 3)
+        guard end - start > 0.1 else {
+            NSSound.beep()
+            return
+        }
+        let region = BlurRegion(
+            span: TimeSpan(start: start, end: end),
+            rect: CGRect(x: 0.35, y: 0.42, width: 0.3, height: 0.16)
+        )
+        performEdit("Add Blur") {
+            editSettings.blurRegions.append(region)
+        }
+        select(.blur(region.id))
+    }
+
+    func updateBlur(
+        _ id: UUID,
+        actionName: String = "Edit Blur",
+        coalesce: Bool = false,
+        continuous: Bool = false,
+        _ change: (inout BlurRegion) -> Void
+    ) {
+        guard let index = editSettings.blurRegions.firstIndex(where: { $0.id == id }) else { return }
+        var updated = editSettings.blurRegions[index]
+        change(&updated)
+        updated.rect = Self.clampedUnitRect(updated.rect)
+        guard updated != editSettings.blurRegions[index] else { return }
+        performEdit(actionName, coalescingKey: coalesce ? AnyHashable("blur-\(id)-\(actionName)") : nil, continuous: continuous) {
+            if let current = editSettings.blurRegions.firstIndex(where: { $0.id == id }) {
+                editSettings.blurRegions[current] = updated
+            }
+        }
+    }
+
+    func deleteBlur(_ id: UUID) {
+        performEdit("Delete Blur") {
+            editSettings.blurRegions.removeAll { $0.id == id }
+        }
+        if selectedBlurID == id {
+            select(nil)
+        }
+    }
+
+    /// `rect` kept inside 0–1 and at least 2% across.
+    static func clampedUnitRect(_ rect: CGRect) -> CGRect {
+        let width = min(max(rect.width, 0.02), 1)
+        let height = min(max(rect.height, 0.02), 1)
+        return CGRect(
+            x: min(max(rect.minX, 0), 1 - width),
+            y: min(max(rect.minY, 0), 1 - height),
+            width: width,
+            height: height
+        )
+    }
+
+    /// Sets a text or blur item's span (source time), e.g. from a timeline drag.
+    func setSpan(_ span: TimeSpan, for item: EditorSelection, continuous: Bool) {
+        let clamped = TimeSpan(
+            start: min(max(span.start, 0), duration),
+            end: min(max(span.end, 0), duration)
+        )
+        guard clamped.duration >= 0.1 else { return }
+        switch item {
+        case let .text(id):
+            updateText(id, actionName: "Move Text", continuous: continuous) { $0.span = clamped }
+        case let .blur(id):
+            updateBlur(id, actionName: "Move Blur", continuous: continuous) { $0.span = clamped }
+        case .clip, .zoom:
+            break
+        }
+    }
+
+    // MARK: - Look
+
+    /// Applies a saved or built-in look. Auto zooms follow its zoom preset.
+    func applyLook(_ preset: StylePreset) {
+        let zoomChanged = preset.zoomPreset != editSettings.zoomPreset
+        performEdit("Apply Look") {
+            preset.apply(to: &editSettings)
+            if zoomChanged {
+                regenerateAutoZooms(for: preset.zoomPreset)
+            }
+        }
+    }
+
+    /// Copies a picture into the project and uses it as the background.
+    func useBackgroundImage(at url: URL) {
+        do {
+            let name = try ProjectStore.importBackgroundImage(from: url, into: project.bundleURL)
+            performEdit("Background Image") {
+                editSettings.exportStyle.background.kind = .image
+                editSettings.exportStyle.background.imageFileName = name
+            }
+        } catch {
+            Log.editor.error("Couldn't use the background image: \(error.localizedDescription, privacy: .public)")
+            NSSound.beep()
+        }
+    }
+
     // MARK: - Editing
 
     func resolveKeyframeOverlaps() {
@@ -167,7 +456,7 @@ final class ProjectEditor: ObservableObject {
         performEdit("Delete Zoom") {
             keyframes.removeAll { $0.id == selectedKeyframeID }
         }
-        self.selectedKeyframeID = nil
+        select(nil)
     }
 
     func moveSelectedKeyframe(by delta: TimeInterval) {
@@ -200,8 +489,8 @@ final class ProjectEditor: ObservableObject {
     /// - Parameter commit: pass `false` for live drag updates inside
     ///   `beginInteractiveEdit` / `endInteractiveEdit`; overlaps are resolved once, when
     ///   the drag ends. Resolving on every tick would trim neighbors the block passes over.
-    func updateKeyframe(_ keyframe: ZoomKeyframe, commit: Bool = true) {
-        performEdit("Move Zoom", coalescingKey: AnyHashable(keyframe.id), continuous: !commit) {
+    func updateKeyframe(_ keyframe: ZoomKeyframe, commit: Bool = true, actionName: String = "Move Zoom") {
+        performEdit(actionName, coalescingKey: AnyHashable(keyframe.id), continuous: !commit) {
             guard let index = keyframes.firstIndex(where: { $0.id == keyframe.id }) else { return }
             keyframes[index] = ZoomKeyframeEditor.clampKeyframe(keyframe, duration: duration)
             if commit {
@@ -218,8 +507,35 @@ final class ProjectEditor: ObservableObject {
             continuous: true
         ) {
             guard let index = keyframes.firstIndex(where: { $0.id == selectedKeyframeID }) else { return }
-            keyframes[index].scale = max(1.1, min(3.0, scale))
+            let range = ZoomKeyframeEditor.focusScaleRange
+            keyframes[index].scale = max(range.lowerBound, min(range.upperBound, scale))
         }
+    }
+
+    /// Adds a zoom over `span` (source time), pointing where the preview looks now, and
+    /// selects it (dragging on the zoom track).
+    func addZoom(over span: TimeSpan) {
+        let length = span.duration
+        guard length >= ZoomKeyframeEditor.minimumSpan else { return }
+        let crop = interpolator.cropRect(at: span.start)
+        let center = CGPoint(x: crop.x + crop.width / 2, y: crop.y + crop.height / 2)
+        let settings = editSettings.zoomPreset.settings
+        let keyframe = ZoomKeyframeEditor.keyframe(
+            ZoomKeyframe(
+                startTime: span.start,
+                peakTime: span.start + min(settings.easeInDuration, length / 3),
+                endTime: span.end,
+                center: center,
+                scale: settings.zoomScale,
+                source: .manual
+            ),
+            movingFocusTo: center
+        )
+        performEdit("Add Zoom") {
+            keyframes.append(ZoomKeyframeEditor.clampKeyframe(keyframe, duration: duration))
+            ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+        }
+        select(.zoom(keyframe.id))
     }
 
     /// Moves the head trim (source time).
@@ -247,7 +563,9 @@ final class ProjectEditor: ObservableObject {
             return
         }
         editTimeline("Split") { $0 = updated }
-        selectedSegmentID = segmentAtPlayhead?.id
+        if let segment = segmentAtPlayhead {
+            select(.clip(segment.id))
+        }
     }
 
     /// Removes a segment; the rest closes up behind it.
@@ -259,7 +577,7 @@ final class ProjectEditor: ObservableObject {
         }
         editTimeline("Delete Clip") { $0 = updated }
         if selectedSegmentID == id {
-            selectedSegmentID = nil
+            select(nil)
         }
     }
 
@@ -330,17 +648,25 @@ final class ProjectEditor: ObservableObject {
     func applyZoomPreset(_ preset: ZoomPreset, regenerateAuto: Bool = true) {
         performEdit("Change Zoom Preset") {
             editSettings.zoomPreset = preset
-            guard regenerateAuto else { return }
+            if regenerateAuto {
+                regenerateAutoZooms(for: preset)
+            }
+        }
+    }
 
-            let generator = AutoZoomGenerator(
-                settings: preset.settings,
-                frameWidth: CGFloat(project.metadata.width),
-                frameHeight: CGFloat(project.metadata.height)
-            )
-            let autoKeyframes = generator.generate(from: project.clickEvents)
-            let manualKeyframes = keyframes.filter { $0.source == .manual }
-            keyframes = (autoKeyframes + manualKeyframes).sorted { $0.startTime < $1.startTime }
-            ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+    /// Replaces the auto zooms with fresh ones for `preset`; manual zooms stay.
+    private func regenerateAutoZooms(for preset: ZoomPreset) {
+        let generator = AutoZoomGenerator(
+            settings: preset.settings,
+            frameWidth: CGFloat(project.metadata.width),
+            frameHeight: CGFloat(project.metadata.height)
+        )
+        let autoKeyframes = generator.generate(from: project.clickEvents)
+        let manualKeyframes = keyframes.filter { $0.source == .manual }
+        keyframes = (autoKeyframes + manualKeyframes).sorted { $0.startTime < $1.startTime }
+        ZoomKeyframeEditor.resolveOverlaps(&keyframes)
+        if let selectedKeyframeID, !keyframes.contains(where: { $0.id == selectedKeyframeID }) {
+            select(nil)
         }
     }
 
@@ -355,7 +681,7 @@ final class ProjectEditor: ObservableObject {
             keyframes.append(keyframe)
             ZoomKeyframeEditor.resolveOverlaps(&keyframes)
         }
-        selectedKeyframeID = keyframe.id
+        select(.zoom(keyframe.id))
         isManualZoomMode = false
     }
 
@@ -451,11 +777,8 @@ final class ProjectEditor: ObservableObject {
     private func restore(_ state: EditorSnapshot) {
         keyframes = state.keyframes
         editSettings = state.editSettings
-        if let selectedKeyframeID, !keyframes.contains(where: { $0.id == selectedKeyframeID }) {
-            self.selectedKeyframeID = nil
-        }
-        if let selectedSegmentID, !timeline.segments.contains(where: { $0.id == selectedSegmentID }) {
-            self.selectedSegmentID = nil
+        if !selectionExists {
+            select(nil)
         }
         // Keep the playhead inside the restored edit.
         if playheadTime > outputDuration {
@@ -463,6 +786,17 @@ final class ProjectEditor: ObservableObject {
         }
         persist()
         refreshUndoState()
+    }
+
+    /// Whether the selected item is still there (after undo, say).
+    private var selectionExists: Bool {
+        switch selection {
+        case let .clip(id)?: return timeline.segments.contains { $0.id == id }
+        case let .zoom(id)?: return keyframes.contains { $0.id == id }
+        case let .text(id)?: return editSettings.textOverlays.contains { $0.id == id }
+        case let .blur(id)?: return editSettings.blurRegions.contains { $0.id == id }
+        case nil: return true
+        }
     }
 
     private func refreshUndoState() {
@@ -508,6 +842,18 @@ final class ProjectEditor: ObservableObject {
         isPlaying = false
     }
 
+    /// Moves the playhead by whole output frames.
+    func step(frames: Int) {
+        pausePlayback()
+        let frameDuration = 1 / Double(max(project.metadata.fps, 1))
+        seek(to: playheadTime + Double(frames) * frameDuration)
+    }
+
+    func step(seconds: Double) {
+        pausePlayback()
+        seek(to: playheadTime + seconds)
+    }
+
     /// Keeps the camera player within a frame or two of the main player during playback.
     private func syncCameraPlayer(to time: CMTime) {
         guard let cameraPlayer else { return }
@@ -547,11 +893,16 @@ final class ProjectEditor: ObservableObject {
         }
     }
 
-    /// Writes any pending edit to disk now (the window is closing).
+    /// Writes any pending edit to disk now (the window is closing), and removes
+    /// background pictures that were replaced (undo can't bring them back any more).
     func flushAutosave() {
         endInteractiveEdit()
         persist()
         autosaver.flush()
+        ProjectStore.removeUnusedBackgroundImages(
+            in: project.bundleURL,
+            keeping: editSettings.exportStyle.background.imageFileName
+        )
     }
 
     func revealExportInFinder() {

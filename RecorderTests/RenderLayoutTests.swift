@@ -15,10 +15,11 @@ struct RenderLayoutTests {
         let down = BackgroundStyle.gradientEndpoints(angle: 180, in: rect)
         #expect(isClose(down.start.y, 100, tolerance: 1e-6) && isClose(down.end.y, 0, tolerance: 1e-6))
 
-        // 135° starts beyond the top-left corner and ends beyond the bottom-right one.
+        // 135°: the line through the centre, long enough that the top-left corner is
+        // exactly the start colour and the bottom-right corner the end colour.
         let diagonal = BackgroundStyle.gradientEndpoints(angle: 135, in: rect)
-        #expect(diagonal.start.x < 0 && diagonal.start.y > 100)
-        #expect(diagonal.end.x > 200 && diagonal.end.y < 0)
+        #expect(isClose(diagonal.start.x, 25, tolerance: 1e-6) && isClose(diagonal.start.y, 125, tolerance: 1e-6))
+        #expect(isClose(diagonal.end.x, 175, tolerance: 1e-6) && isClose(diagonal.end.y, -25, tolerance: 1e-6))
     }
 
     @Test func textStaysOnTheCanvas() {

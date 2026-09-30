@@ -82,6 +82,9 @@
 		B2000000000000000000004A /* TimelineItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004E /* TimelineItems.swift */; };
 		B2000000000000000000004B /* StylePreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004F /* StylePreset.swift */; };
 		B2000000000000000000004C /* SystemCursorImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000050 /* SystemCursorImages.swift */; };
+		B2000000000000000000004D /* EditorShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000051 /* EditorShortcuts.swift */; };
+		B2000000000000000000004E /* TimelineGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000052 /* TimelineGeometry.swift */; };
+		B2000000000000000000004F /* Waveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000053 /* Waveform.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -164,6 +167,9 @@
 		A2000000000000000000004E /* TimelineItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineItems.swift; sourceTree = "<group>"; };
 		A2000000000000000000004F /* StylePreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StylePreset.swift; sourceTree = "<group>"; };
 		A20000000000000000000050 /* SystemCursorImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCursorImages.swift; sourceTree = "<group>"; };
+		A20000000000000000000051 /* EditorShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorShortcuts.swift; sourceTree = "<group>"; };
+		A20000000000000000000052 /* TimelineGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineGeometry.swift; sourceTree = "<group>"; };
+		A20000000000000000000053 /* Waveform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Waveform.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -370,6 +376,9 @@
 				A20000000000000000000046 /* EditTimeline.swift */,
 				A20000000000000000000047 /* IdleStretchDetector.swift */,
 				A2000000000000000000004E /* TimelineItems.swift */,
+				A20000000000000000000051 /* EditorShortcuts.swift */,
+				A20000000000000000000052 /* TimelineGeometry.swift */,
+				A20000000000000000000053 /* Waveform.swift */,
 			);
 			path = Timeline;
 			sourceTree = "<group>";
@@ -446,6 +455,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2000000000000000000004F /* Waveform.swift in Sources */,
+				B2000000000000000000004E /* TimelineGeometry.swift in Sources */,
+				B2000000000000000000004D /* EditorShortcuts.swift in Sources */,
 				B2000000000000000000004C /* SystemCursorImages.swift in Sources */,
 				B2000000000000000000004B /* StylePreset.swift in Sources */,
 				B2000000000000000000004A /* TimelineItems.swift in Sources */,
