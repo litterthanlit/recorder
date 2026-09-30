@@ -44,7 +44,6 @@ final class ProjectEditor: ObservableObject {
         cameraPlayer != nil
     }
 
-    private let videoExporter = VideoExporter()
     private let autosaver = ProjectAutosaver()
     private var timeObserver: Any?
     private var terminationObserver: NSObjectProtocol?
@@ -543,38 +542,11 @@ final class ProjectEditor: ObservableObject {
             endInteractiveEdit()
             persist()
             autosaver.flush()
-
-            let sourceSize = CGSize(width: project.metadata.width, height: project.metadata.height)
-            let outputSize = editSettings.canvas.pixelSize(source: sourceSize)
-            let audioTrackCount = try await AVURLAsset(url: project.videoURL).loadTracks(withMediaType: .audio).count
-
-            try await videoExporter.export(
-                sourceURL: project.videoURL,
-                outputURL: project.exportURL,
-                configuration: ExportConfiguration(
-                    keyframes: keyframes,
-                    outputSize: outputSize,
-                    bitrate: ExportBitrate.target(for: outputSize, fps: project.metadata.fps),
-                    timeline: timeline,
-                    exportStyle: editSettings.exportStyle,
-                    zoomPreset: editSettings.zoomPreset,
-                    cursorEvents: project.cursorEvents,
-                    clickEvents: project.clickEvents,
-                    drawCursor: !project.cursorEvents.isEmpty,
-                    frameRate: project.metadata.fps,
-                    cameraURL: project.hasCameraTrack ? project.cameraURL : nil,
-                    camera: editSettings.camera,
-                    sourcePixelsPerPoint: project.metadata.scaleFactor,
-                    audioTrackRoles: project.metadata.resolvedAudioTrackRoles(trackCount: audioTrackCount),
-                    audio: editSettings.audio
-                )
-            ) { [weak self] progress in
-                Task { @MainActor in
-                    // Progress updates can land after the export has already finished.
-                    guard let self, self.isExporting else { return }
-                    self.exportProgress = progress
-                    self.state = .exporting(progress: progress)
-                }
+            try await ExportService.export(project) { [weak self] progress in
+                // Progress updates can land after the export has already finished.
+                guard let self, self.isExporting else { return }
+                self.exportProgress = progress
+                self.state = .exporting(progress: progress)
             }
             state = .exported
         } catch {

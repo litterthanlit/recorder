@@ -13,6 +13,7 @@ final class AppState: ObservableObject {
     let hotkeys = RecordingHotkeysController()
     let captureSelector = CaptureSelector()
     private var recordingOverlays: RecordingOverlays?
+    private var quickAccess: QuickAccessController?
 
     /// Set by the status item: open and close the menu bar panel.
     var showPanelHandler: (() -> Void)?
@@ -24,6 +25,15 @@ final class AppState: ObservableObject {
         title: "\(Brand.name) Settings"
     ) { [unowned self] in
         SettingsWindow.makeContent(appState: self)
+    }
+    private lazy var libraryPresenter = WindowPresenter(
+        name: "library",
+        title: "\(Brand.name) Library",
+        styleMask: [.titled, .closable, .miniaturizable, .resizable]
+    ) { [unowned self] in
+        let hosting = NSHostingController(rootView: LibraryView(appState: self))
+        hosting.view.frame.size = CGSize(width: 960, height: 640)
+        return hosting
     }
     private lazy var onboardingPresenter = WindowPresenter(
         name: "onboarding",
@@ -47,6 +57,14 @@ final class AppState: ObservableObject {
             self?.handleHotkey(action)
         }
         recordingOverlays = RecordingOverlays(session: session, settings: settingsStore)
+        let quickAccess = QuickAccessController(library: library, settings: settingsStore)
+        quickAccess.onEdit = { [weak self] project in
+            self?.session.openProject(project)
+        }
+        self.quickAccess = quickAccess
+        session.onTakeFinished = { [weak self] project in
+            self?.handleFinishedTake(project)
+        }
         settingsStore.$settings
             .map(\.playSounds)
             .removeDuplicates()
@@ -190,7 +208,18 @@ final class AppState: ObservableObject {
 
     func showLibrary() {
         dismissPanel()
-        library.revealProjectsFolder()
+        libraryPresenter.show()
+    }
+
+    /// A take was saved: open it in the editor, or offer it in a Quick Access card.
+    private func handleFinishedTake(_ project: RecorderProject) {
+        library.refresh()
+        switch settingsStore.settings.afterRecording {
+        case .openEditor:
+            session.openProject(project)
+        case .quickAccess:
+            quickAccess?.show(project)
+        }
     }
 
     private func handleHotkey(_ action: HotkeyAction) {

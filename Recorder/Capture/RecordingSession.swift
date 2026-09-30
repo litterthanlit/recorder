@@ -20,6 +20,8 @@ final class RecordingSession: ObservableObject {
     @Published private(set) var isPaused = false
     /// Play a sound when a take stops or pauses (Settings > While recording).
     var soundsEnabled = true
+    /// Called with each saved take; AppState opens the editor or Quick Access.
+    var onTakeFinished: ((RecorderProject) -> Void)?
     @Published private(set) var activeEditor: ProjectEditor?
     @Published var preferences = RecordingPreferences.load() {
         didSet { preferences.save() }
@@ -479,9 +481,8 @@ final class RecordingSession: ObservableObject {
             if let interruption {
                 notice = "Recording stopped early (\(interruption.localizedDescription)). What was captured was saved."
             }
-            let editor = ProjectEditor(project: project)
-            activeEditor = editor
-            state = .editing(project)
+            state = .idle
+            onTakeFinished?(project)
         } catch {
             state = .failed(error.localizedDescription)
         }

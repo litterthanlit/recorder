@@ -236,3 +236,52 @@ struct EditSettingsMigrationTests {
         #expect(metadata.resolvedAudioTrackRoles(trackCount: 2) == [.microphone, .systemAudio])
     }
 }
+
+@Suite("Library")
+struct LibraryTests {
+    @Test func renamingRewritesOnlyTheName() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.cleanup() }
+        let project = ProjectModelTests.sampleProject()
+        let bundleURL = ProjectStore.bundleURL(for: project.metadata.id, in: directory.url)
+        try ProjectStore.save(project, to: bundleURL)
+
+        try ProjectStore.rename(bundleURL: bundleURL, to: "  Onboarding demo ")
+        var summary = try #require(ProjectStore.listProjects(in: directory.url).first)
+        #expect(summary.name == "Onboarding demo")
+        #expect(summary.displayName == "Onboarding demo")
+        #expect(try ProjectStore.loadProject(from: bundleURL).clickEvents == project.clickEvents)
+
+        try ProjectStore.rename(bundleURL: bundleURL, to: "")
+        summary = try #require(ProjectStore.listProjects(in: directory.url).first)
+        #expect(summary.name == nil)
+        #expect(summary.displayName == "Safari — Docs")
+    }
+
+    @Test func searchMatchesNameAndDescription() {
+        var metadata = ProjectModelTests.sampleProject().metadata
+        metadata.name = "Pricing Page Walkthrough"
+        let summary = ProjectSummary(metadata: metadata, bundleURL: URL(fileURLWithPath: "/tmp/x.recorder"), hasExport: false)
+        #expect(summary.matches("pricing"))
+        #expect(summary.matches("SAFARI"))
+        #expect(summary.matches(""))
+        #expect(!summary.matches("keynote"))
+    }
+
+    @Test func sortsByEachOrder() {
+        func summary(_ name: String, created: TimeInterval, duration: TimeInterval) -> ProjectSummary {
+            let base = ProjectModelTests.sampleProject(createdAt: Date(timeIntervalSince1970: created)).metadata
+            var metadata = ProjectMetadata(
+                id: UUID(), createdAt: base.createdAt, width: 10, height: 10, fps: 60, duration: duration,
+                scaleFactor: 2, captureOriginX: 0, captureOriginY: 0, captureWidth: 5, captureHeight: 5
+            )
+            metadata.name = name
+            return ProjectSummary(metadata: metadata, bundleURL: URL(fileURLWithPath: "/tmp/\(name).recorder"), hasExport: false)
+        }
+        let projects = [summary("b", created: 2, duration: 5), summary("a", created: 3, duration: 1), summary("c", created: 1, duration: 9)]
+        #expect(ProjectSort.newest.sorted(projects).map(\.displayName) == ["a", "b", "c"])
+        #expect(ProjectSort.oldest.sorted(projects).map(\.displayName) == ["c", "b", "a"])
+        #expect(ProjectSort.longest.sorted(projects).map(\.displayName) == ["c", "b", "a"])
+        #expect(ProjectSort.name.sorted(projects).map(\.displayName) == ["a", "b", "c"])
+    }
+}

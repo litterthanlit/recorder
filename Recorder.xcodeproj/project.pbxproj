@@ -75,6 +75,9 @@
 		B20000000000000000000043 /* IdleStretchDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000047 /* IdleStretchDetector.swift */; };
 		B20000000000000000000044 /* TimelineCompositionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000048 /* TimelineCompositionBuilder.swift */; };
 		B20000000000000000000045 /* CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000049 /* CanvasLayout.swift */; };
+		B20000000000000000000046 /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004A /* ExportService.swift */; };
+		B20000000000000000000047 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004B /* LibraryView.swift */; };
+		B20000000000000000000048 /* QuickAccessPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004C /* QuickAccessPanel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -150,6 +153,9 @@
 		A20000000000000000000047 /* IdleStretchDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleStretchDetector.swift; sourceTree = "<group>"; };
 		A20000000000000000000048 /* TimelineCompositionBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineCompositionBuilder.swift; sourceTree = "<group>"; };
 		A20000000000000000000049 /* CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasLayout.swift; sourceTree = "<group>"; };
+		A2000000000000000000004A /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
+		A2000000000000000000004B /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		A2000000000000000000004C /* QuickAccessPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAccessPanel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -262,6 +268,7 @@
 				A2000000000000000000000B /* VideoExporter.swift */,
 				A2000000000000000000000C /* CompositionRenderer.swift */,
 				A20000000000000000000048 /* TimelineCompositionBuilder.swift */,
+				A2000000000000000000004A /* ExportService.swift */,
 			);
 			path = Export;
 			sourceTree = "<group>";
@@ -281,6 +288,7 @@
 				C2000000000000000000000F /* Design */,
 				A2000000000000000000003C /* OnboardingView.swift */,
 				C20000000000000000000010 /* Capture */,
+				C20000000000000000000012 /* Library */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -340,6 +348,7 @@
 			children = (
 				A20000000000000000000041 /* AreaSelectionOverlay.swift */,
 				A20000000000000000000042 /* RecordingHUD.swift */,
+				A2000000000000000000004C /* QuickAccessPanel.swift */,
 			);
 			path = Capture;
 			sourceTree = "<group>";
@@ -351,6 +360,14 @@
 				A20000000000000000000047 /* IdleStretchDetector.swift */,
 			);
 			path = Timeline;
+			sourceTree = "<group>";
+		};
+		C20000000000000000000012 /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000004B /* LibraryView.swift */,
+			);
+			path = Library;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -417,6 +434,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000048 /* QuickAccessPanel.swift in Sources */,
+				B20000000000000000000047 /* LibraryView.swift in Sources */,
+				B20000000000000000000046 /* ExportService.swift in Sources */,
 				B20000000000000000000045 /* CanvasLayout.swift in Sources */,
 				B20000000000000000000044 /* TimelineCompositionBuilder.swift in Sources */,
 				B20000000000000000000043 /* IdleStretchDetector.swift in Sources */,

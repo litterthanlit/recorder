@@ -22,6 +22,8 @@ struct ProjectMetadata: Codable, Equatable {
     /// What each audio track in video.mov holds, in track order. Empty for takes from
     /// before this was recorded; see `resolvedAudioTrackRoles(trackCount:)`.
     let audioTrackRoles: [AudioTrackRole]
+    /// A name the user gave the project in the library.
+    var name: String?
 
     /// Roles for `trackCount` audio tracks. Older takes recorded the mic first, then
     /// system audio.
@@ -91,6 +93,7 @@ struct ProjectMetadata: Codable, Equatable {
         appName = try container.decodeIfPresent(String.self, forKey: .appName)
         pausePoints = try container.decodeIfPresent([TimeInterval].self, forKey: .pausePoints) ?? []
         audioTrackRoles = (try? container.decodeIfPresent([AudioTrackRole].self, forKey: .audioTrackRoles)) ?? []
+        name = try container.decodeIfPresent(String.self, forKey: .name)
     }
 }
 
@@ -329,6 +332,15 @@ enum ProjectStore {
         return (try? JSONDecoder().decode(InputLog.self, from: data)) ?? InputLog()
     }
 
+    /// Names a project (an empty name clears it). Only meta.json is rewritten.
+    static func rename(bundleURL: URL, to name: String) throws {
+        var metadata = try loadMetadata(from: bundleURL)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        metadata.name = trimmed.isEmpty ? nil : trimmed
+        try makeEncoder().encode(Versioned(value: metadata))
+            .write(to: bundleURL.appendingPathComponent(File.meta), options: .atomic)
+    }
+
     static func loadKeyframes(from bundleURL: URL) throws -> [ZoomKeyframe] {
         let data = try Data(contentsOf: bundleURL.appendingPathComponent(File.keyframes))
         return try JSONDecoder().decode([ZoomKeyframe].self, from: data)
@@ -369,7 +381,23 @@ struct ProjectSummary: Identifiable, Equatable {
     let createdAt: Date
     let duration: TimeInterval
     let title: String
+    /// The user's name for it, if any.
+    let name: String?
     let hasExport: Bool
+
+    /// What the library shows: the user's name, or a description of what was recorded.
+    var displayName: String {
+        name ?? title
+    }
+
+    /// Case- and accent-insensitive search on the name and the description.
+    func matches(_ query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return [displayName, title].contains {
+            $0.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+    }
 
     var videoURL: URL {
         bundleURL.appendingPathComponent("video.mov")
@@ -385,6 +413,7 @@ struct ProjectSummary: Identifiable, Equatable {
         createdAt = metadata.createdAt
         duration = metadata.duration
         title = Self.title(for: metadata)
+        name = metadata.name
         self.hasExport = hasExport
     }
 
@@ -408,6 +437,40 @@ struct ProjectSummary: Identifiable, Equatable {
                 return window
             case (true, true):
                 return "Window recording"
+            }
+        }
+    }
+}
+
+/// Orders for the library.
+enum ProjectSort: String, CaseIterable, Identifiable {
+    case newest
+    case oldest
+    case longest
+    case name
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .newest: return "Newest First"
+        case .oldest: return "Oldest First"
+        case .longest: return "Longest First"
+        case .name: return "Name"
+        }
+    }
+
+    func sorted(_ projects: [ProjectSummary]) -> [ProjectSummary] {
+        switch self {
+        case .newest:
+            return projects.sorted { $0.createdAt > $1.createdAt }
+        case .oldest:
+            return projects.sorted { $0.createdAt < $1.createdAt }
+        case .longest:
+            return projects.sorted { $0.duration > $1.duration }
+        case .name:
+            return projects.sorted {
+                $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
             }
         }
     }
