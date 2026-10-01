@@ -145,28 +145,32 @@ struct BackgroundInspector: View {
         .opacity(style.backgroundEnabled ? 1 : 0.45)
     }
 
+    /// The recording's width over height, for the Auto shape.
+    private var sourceAspect: CGFloat {
+        let metadata = editor.project.metadata
+        return metadata.width > 0 && metadata.height > 0 ? CGFloat(metadata.width) / CGFloat(metadata.height) : 16.0 / 9.0
+    }
+
     private var canvasSection: some View {
         InspectorSection("Canvas") {
             InspectorLabeled("Shape") {
-                Picker("Shape", selection: editor.settingBinding(\.canvas.aspect, actionName: "Change Shape")) {
-                    ForEach(OutputAspect.allCases) { aspect in
-                        Text("\(aspect.label) · \(aspect.useCase)").tag(aspect)
-                    }
-                }
-                .labelsHidden()
+                AspectPicker(
+                    selection: editor.settingBinding(\.canvas.aspect, actionName: "Change Shape"),
+                    sourceAspect: sourceAspect
+                )
+                InspectorHint(editor.editSettings.canvas.aspect.useCase)
             }
             InspectorLabeled("Size") {
-                Picker("Size", selection: editor.settingBinding(\.canvas.resolution, actionName: "Change Resolution")) {
-                    ForEach(OutputResolution.allCases) { resolution in
-                        Text(resolution.label).tag(resolution)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                InspectorSegmentedPicker(
+                    "Size",
+                    selection: editor.settingBinding(\.canvas.resolution, actionName: "Change Resolution"),
+                    options: OutputResolution.allCases
+                ) { $0.label }
+                // String(_:) keeps the digits ungrouped: "1920", not "1,920".
+                Text("\(String(Int(editor.exportOutputSize.width))) × \(String(Int(editor.exportOutputSize.height))) pixels")
+                    .font(DS.Typeface.caption.monospacedDigit())
+                    .foregroundStyle(DS.Palette.secondaryText)
             }
-            Text("\(Int(editor.exportOutputSize.width)) × \(Int(editor.exportOutputSize.height)) pixels")
-                .font(DS.Typeface.caption.monospacedDigit())
-                .foregroundStyle(DS.Palette.secondaryText)
         }
     }
 
@@ -232,6 +236,77 @@ private struct BackgroundKindPicker: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(kind.label) background")
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+        }
+    }
+}
+
+/// The video's shapes as small frames in a row, so the choice reads at a glance.
+private struct AspectPicker: View {
+    @Binding var selection: OutputAspect
+    /// Width over height of the recording, drawn (dashed) for Auto.
+    let sourceAspect: CGFloat
+
+    var body: some View {
+        HStack(spacing: DS.Spacing.xxs) {
+            ForEach(OutputAspect.allCases) { aspect in
+                AspectTile(aspect: aspect, ratio: aspect.ratio ?? sourceAspect, isSelected: selection == aspect) {
+                    selection = aspect
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Shape")
+    }
+
+    private struct AspectTile: View {
+        let aspect: OutputAspect
+        let ratio: CGFloat
+        let isSelected: Bool
+        let action: () -> Void
+
+        private static let glyphBox = CGSize(width: 20, height: 16)
+
+        /// The largest frame of this shape that fits the glyph box.
+        private var glyphSize: CGSize {
+            let box = Self.glyphBox
+            let clamped = min(max(ratio, 0.25), 4)
+            return clamped >= box.width / box.height
+                ? CGSize(width: box.width, height: box.width / clamped)
+                : CGSize(width: box.height * clamped, height: box.height)
+        }
+
+        /// "16 by 9" rather than a time.
+        private var spokenLabel: String {
+            aspect == .auto ? "Auto" : aspect.label.replacingOccurrences(of: ":", with: " by ")
+        }
+
+        var body: some View {
+            let tint: Color = isSelected ? DS.Palette.accent : DS.Palette.secondaryText
+            let fill: Color = isSelected ? DS.Palette.accent.opacity(0.12) : DS.Palette.raisedSurface
+            let dash: [CGFloat] = aspect == .auto ? [2.5, 2] : []
+            let weight: Font.Weight = isSelected ? .semibold : .regular
+            return Button(action: action) {
+                VStack(spacing: 5) {
+                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                        .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: dash))
+                        .frame(width: glyphSize.width, height: glyphSize.height)
+                        .frame(width: Self.glyphBox.width, height: Self.glyphBox.height)
+                    Text(aspect.label)
+                        .font(.system(size: 10, weight: weight))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .foregroundStyle(tint)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(RoundedRectangle(cornerRadius: DS.Radius.medium, style: .continuous).fill(fill))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("\(aspect.label): \(aspect.useCase)")
+            .accessibilityLabel(spokenLabel)
+            .accessibilityHint(aspect.useCase)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
         }
     }
@@ -370,13 +445,11 @@ struct CursorInspector: View {
             }
             if keystrokes.filter != .off {
                 InspectorLabeled("Position") {
-                    Picker("Position", selection: editor.settingBinding(\.exportStyle.keystrokes.placement, actionName: "Keystroke Position")) {
-                        ForEach(KeystrokeOverlayStyle.Placement.allCases) { placement in
-                            Text(placement.label).tag(placement)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                    InspectorSegmentedPicker(
+                        "Position",
+                        selection: editor.settingBinding(\.exportStyle.keystrokes.placement, actionName: "Keystroke Position"),
+                        options: KeystrokeOverlayStyle.Placement.allCases
+                    ) { $0.label }
                 }
                 EditorSlider(
                     editor: editor,
@@ -428,13 +501,11 @@ struct CameraInspector: View {
             InspectorToggle(title: "Show camera", isOn: editor.settingBinding(\.camera.isVisible, actionName: "Show Camera"))
             Group {
                 InspectorLabeled("Shape") {
-                    Picker("Shape", selection: editor.settingBinding(\.camera.shape, actionName: "Camera Shape")) {
-                        ForEach(CameraShape.allCases) { shape in
-                            Text(shape.label).tag(shape)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                    InspectorSegmentedPicker(
+                        "Shape",
+                        selection: editor.settingBinding(\.camera.shape, actionName: "Camera Shape"),
+                        options: CameraShape.allCases
+                    ) { $0.label }
                 }
                 InspectorLabeled("Position") {
                     CornerPicker(selection: editor.settingBinding(\.camera.position, actionName: "Camera Position"))
@@ -512,16 +583,14 @@ struct ZoomInspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.lg) {
             InspectorSection("Auto zoom") {
-                Picker("Style", selection: Binding(
-                    get: { editor.editSettings.zoomPreset },
-                    set: { editor.applyZoomPreset($0) }
-                )) {
-                    ForEach(ZoomPreset.allCases) { preset in
-                        Text(preset.label).tag(preset)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                InspectorSegmentedPicker(
+                    "Style",
+                    selection: Binding(
+                        get: { editor.editSettings.zoomPreset },
+                        set: { editor.applyZoomPreset($0) }
+                    ),
+                    options: ZoomPreset.allCases
+                ) { $0.label }
                 InspectorHint("Zooms in on each click. A new style rebuilds the auto zooms; the ones you added stay.")
                 Button {
                     editor.applyZoomPreset(editor.editSettings.zoomPreset)

@@ -60,13 +60,7 @@ private struct ClipInspector: View {
                     .font(DS.Typeface.body)
             }
             InspectorSection("Speed") {
-                Picker("Speed", selection: speedBinding) {
-                    ForEach(Self.speeds, id: \.self) { speed in
-                        Text(Timecode.speed(speed)).tag(speed)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                InspectorSegmentedPicker("Speed", selection: speedBinding, options: Self.speeds) { Timecode.speed($0) }
                 EditorSlider(
                     editor: editor,
                     title: "Custom",
@@ -77,20 +71,27 @@ private struct ClipInspector: View {
                 InspectorHint("Sped-up audio keeps its pitch.")
             }
             InspectorSection("Edit") {
+                // Two equal halves of the column; side by side at their natural widths
+                // they were a few points wider than the inspector.
                 HStack(spacing: DS.Spacing.xs) {
                     Button {
                         editor.splitAtPlayhead()
                     } label: {
-                        Label("Split at Playhead", systemImage: "scissors")
+                        Label("Split", systemImage: "scissors")
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(SecondaryButtonStyle())
                     .help("Split at the playhead (S)")
+                    .accessibilityLabel("Split at playhead")
                     Button {
                         if editor.speedUpIdleStretches() == 0 {
                             NSSound.beep()
                         }
                     } label: {
                         Label("Speed Up Idle", systemImage: "hare")
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(SecondaryButtonStyle())
                     .help("Play stretches with no clicks, pointer movement or typing at 4×")
@@ -194,13 +195,7 @@ private struct TextInspector: View {
                     .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Text")
                 InspectorLabeled("Style") {
-                    Picker("Style", selection: styleBinding) {
-                        ForEach(TextOverlay.Style.allCases) { style in
-                            Text(style.label).tag(style)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                    InspectorSegmentedPicker("Style", selection: styleBinding, options: TextOverlay.Style.allCases) { $0.label }
                 }
                 EditorSlider(
                     editor: editor,
@@ -241,13 +236,7 @@ private struct BlurInspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.lg) {
             InspectorSection("Hide") {
-                Picker("Style", selection: kindBinding) {
-                    ForEach(BlurRegion.Kind.allCases) { kind in
-                        Text(kind.label).tag(kind)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                InspectorSegmentedPicker("Style", selection: kindBinding, options: BlurRegion.Kind.allCases) { $0.label }
                 EditorSlider(
                     editor: editor,
                     title: "Strength",

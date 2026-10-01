@@ -57,7 +57,7 @@ struct ExportSheet: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Export")
                 .font(DS.Typeface.largeTitle)
-            Text("\(Int(outputSize.width)) × \(Int(outputSize.height)) · \(frameRate) fps · \(Timecode.short(duration))")
+            Text("\(String(Int(outputSize.width))) × \(String(Int(outputSize.height))) · \(frameRate) fps · \(Timecode.short(duration))")
                 .font(DS.Typeface.footnote.monospacedDigit())
                 .foregroundStyle(DS.Palette.secondaryText)
         }
