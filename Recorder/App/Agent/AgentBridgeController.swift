@@ -63,6 +63,7 @@ final class AgentToolHost: AgentBridgeHandler {
     /// Undo for agents' edits to takes that aren't open.
     let journal = AgentEditJournal()
     let exports = AgentExportJobs()
+    let scanner = AgentMediaScanner()
 
     init(appState: AppState) {
         self.appState = appState
@@ -76,13 +77,21 @@ final class AgentToolHost: AgentBridgeHandler {
         guard let appState else {
             return MCPToolResult.error("Trace is quitting.")
         }
-        let context = AgentToolContext(appState: appState, progress: progress, journal: journal, exports: exports)
+        let context = AgentToolContext(
+            appState: appState,
+            progress: progress,
+            journal: journal,
+            exports: exports,
+            scanner: scanner
+        )
         do {
             switch tool {
             case "list_takes":
                 return try AgentTakeTools.listTakes(arguments, context)
             case "get_take":
                 return try AgentTakeTools.getTake(arguments, context)
+            case "analyze_take":
+                return try await AgentAnalysisTools.analyzeTake(arguments, context)
             case "view_frames":
                 return try await AgentTakeTools.viewFrames(arguments, context)
             case "open_take":
@@ -119,14 +128,15 @@ final class AgentToolHost: AgentBridgeHandler {
     }
 }
 
-/// What a tool sees: the app, how to report progress, and the host's undo journal and
-/// export jobs.
+/// What a tool sees: the app, how to report progress, and the host's undo journal,
+/// export jobs and media scanner.
 @MainActor
 struct AgentToolContext {
     let appState: AppState
     let progress: MCPProgress
     let journal: AgentEditJournal
     let exports: AgentExportJobs
+    let scanner: AgentMediaScanner
 
     /// The take an agent named (`take_id`), or the newest one.
     func resolveTake(_ arguments: AgentArguments) throws -> ProjectSummary {

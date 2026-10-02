@@ -125,6 +125,12 @@
 		B20000000000000000000075 /* AgentEditCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000079 /* AgentEditCatalog.swift */; };
 		B20000000000000000000076 /* AgentEditTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000007A /* AgentEditTools.swift */; };
 		B20000000000000000000077 /* AgentExportTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000007B /* AgentExportTools.swift */; };
+		B20000000000000000000078 /* SpeechDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000007C /* SpeechDetector.swift */; };
+		B20000000000000000000079 /* VisualChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000007D /* VisualChange.swift */; };
+		B2000000000000000000007A /* TakeAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000007E /* TakeAnalyzer.swift */; };
+		B2000000000000000000007B /* TakeAnalysisReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000007F /* TakeAnalysisReport.swift */; };
+		B2000000000000000000007C /* AgentMediaScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000080 /* AgentMediaScanner.swift */; };
+		B2000000000000000000007D /* AgentAnalysisTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000081 /* AgentAnalysisTools.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -250,6 +256,12 @@
 		A20000000000000000000079 /* AgentEditCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEditCatalog.swift; sourceTree = "<group>"; };
 		A2000000000000000000007A /* AgentEditTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEditTools.swift; sourceTree = "<group>"; };
 		A2000000000000000000007B /* AgentExportTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExportTools.swift; sourceTree = "<group>"; };
+		A2000000000000000000007C /* SpeechDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechDetector.swift; sourceTree = "<group>"; };
+		A2000000000000000000007D /* VisualChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualChange.swift; sourceTree = "<group>"; };
+		A2000000000000000000007E /* TakeAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeAnalyzer.swift; sourceTree = "<group>"; };
+		A2000000000000000000007F /* TakeAnalysisReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeAnalysisReport.swift; sourceTree = "<group>"; };
+		A20000000000000000000080 /* AgentMediaScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMediaScanner.swift; sourceTree = "<group>"; };
+		A20000000000000000000081 /* AgentAnalysisTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAnalysisTools.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -525,6 +537,10 @@
 				A20000000000000000000077 /* AgentEdits.swift */,
 				A20000000000000000000078 /* AgentStyleEdits.swift */,
 				A20000000000000000000079 /* AgentEditCatalog.swift */,
+				A2000000000000000000007C /* SpeechDetector.swift */,
+				A2000000000000000000007D /* VisualChange.swift */,
+				A2000000000000000000007E /* TakeAnalyzer.swift */,
+				A2000000000000000000007F /* TakeAnalysisReport.swift */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -539,6 +555,8 @@
 				A20000000000000000000075 /* AgentFrameRenderer.swift */,
 				A2000000000000000000007A /* AgentEditTools.swift */,
 				A2000000000000000000007B /* AgentExportTools.swift */,
+				A20000000000000000000080 /* AgentMediaScanner.swift */,
+				A20000000000000000000081 /* AgentAnalysisTools.swift */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -607,6 +625,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2000000000000000000007D /* AgentAnalysisTools.swift in Sources */,
+				B2000000000000000000007C /* AgentMediaScanner.swift in Sources */,
+				B2000000000000000000007B /* TakeAnalysisReport.swift in Sources */,
+				B2000000000000000000007A /* TakeAnalyzer.swift in Sources */,
+				B20000000000000000000079 /* VisualChange.swift in Sources */,
+				B20000000000000000000078 /* SpeechDetector.swift in Sources */,
 				B20000000000000000000077 /* AgentExportTools.swift in Sources */,
 				B20000000000000000000076 /* AgentEditTools.swift in Sources */,
 				B20000000000000000000075 /* AgentEditCatalog.swift in Sources */,

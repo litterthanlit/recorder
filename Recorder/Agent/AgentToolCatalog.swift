@@ -5,7 +5,7 @@ import Foundation
 enum AgentToolCatalog {
     static var tools: [MCPTool] {
         [
-            listTakes, getTake, viewFrames,
+            listTakes, getTake, analyzeTake, viewFrames,
             editTimeline, editZooms, editText, editBlur, setStyle, undo,
             exportVideo, exportStatus, openTake
         ]
@@ -50,6 +50,24 @@ enum AgentToolCatalog {
         recorded. Times are seconds; positions are normalized 0–1 with the origin at the top-left.
         """,
         inputSchema: Schema.object([("take_id", takeID)], required: ["take_id"]),
+        annotations: MCPTool.Annotations(readOnly: true, idempotent: true)
+    )
+
+    static let analyzeTake = MCPTool(
+        name: "analyze_take",
+        title: "Find what to cut",
+        description: """
+        Reads a take's activity (clicks, typing, pointer movement, speech on the microphone, and how \
+        much the screen changes) and finds the lead-in before the first action, the tail after the \
+        last, dead air (nothing happening) and waits (only the screen moving, like a page loading). \
+        Returns them in source time with the beats (click groups, typing, shortcuts) and a suggested \
+        edit as edit_timeline operations. Speech is never cut. Reading a long recording takes a while: \
+        after wait_seconds (default 40) it returns status "running"; call it again for the result.
+        """,
+        inputSchema: Schema.object([
+            ("take_id", takeID),
+            ("wait_seconds", Schema.number("How long to wait for the recording to be read (default 40).", minimum: 0, maximum: 600))
+        ], required: ["take_id"]),
         annotations: MCPTool.Annotations(readOnly: true, idempotent: true)
     )
 
@@ -103,8 +121,8 @@ enum AgentToolCatalog {
     - Each edit tool call is one undo step named "Agent: …"; undo reverts your last one.
     - Check your work: view_frames with rendered true shows frames exactly as they will export.
 
-    Typical flow: list_takes → get_take → view_frames (grid true, to find what to cut, zoom \
-    on or hide) → edit_timeline, edit_zooms, edit_text, edit_blur, set_style → view_frames \
-    rendered true → export_video.
+    Typical flow: list_takes → analyze_take (what to cut) → view_frames (grid true, to see \
+    what's on screen and where) → edit_timeline (start from the suggested operations), \
+    edit_zooms, edit_text, edit_blur, set_style → view_frames rendered true → export_video.
     """
 }
