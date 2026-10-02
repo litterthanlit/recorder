@@ -13,7 +13,7 @@ enum TimelineMetrics {
     static let trailingSpace: CGFloat = 40
 
     static var tracksHeight: CGFloat {
-        clipHeight + zoomHeight + itemHeight * 2 + audioHeight
+        clipHeight + zoomHeight + itemHeight * 3 + audioHeight
     }
 
     static var preferredHeight: CGFloat {
@@ -171,6 +171,7 @@ private struct TimelineTrackHeaders: View {
             header("Zoom", icon: "plus.magnifyingglass", tint: DS.Palette.zoomTrack, height: TimelineMetrics.zoomHeight)
             header("Text", icon: "textformat", tint: DS.Palette.textTrack, height: TimelineMetrics.itemHeight)
             header("Blur", icon: "eye.slash", tint: DS.Palette.blurTrack, height: TimelineMetrics.itemHeight)
+            header("3D", icon: "rotate.3d", tint: DS.Palette.cameraTrack, height: TimelineMetrics.itemHeight)
             header("Audio", icon: "waveform", tint: DS.Palette.audioTrack, height: TimelineMetrics.audioHeight)
             Spacer(minLength: 0)
         }

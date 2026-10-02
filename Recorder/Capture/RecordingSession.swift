@@ -476,7 +476,11 @@ final class RecordingSession: ObservableObject {
                 cursorEvents: trackingResult.cursor,
                 keyframes: keyframes,
                 editSettings: editSettings,
-                inputs: InputLog(keystrokes: trackingResult.keystrokes, cursorKinds: trackingResult.cursorKinds)
+                inputs: InputLog(
+                    keystrokes: trackingResult.keystrokes,
+                    cursorKinds: trackingResult.cursorKinds,
+                    appFocus: trackingResult.appFocus
+                )
             )
 
             try ProjectStore.save(project)
@@ -504,9 +508,16 @@ final class RecordingSession: ObservableObject {
         return activeEditor
     }
 
+    /// Undo history to start an editor with (AI agents' edits to a take that wasn't open).
+    var editHistoryForProject: ((UUID) -> EditHistory<EditorSnapshot>?)?
+
     func openEditor(for project: RecorderProject) {
         if activeEditor?.project.metadata.id != project.metadata.id {
-            activeEditor = ProjectEditor(project: project)
+            if let history = editHistoryForProject?(project.metadata.id) {
+                activeEditor = ProjectEditor(project: project, history: history)
+            } else {
+                activeEditor = ProjectEditor(project: project)
+            }
         }
     }
 
@@ -611,7 +622,8 @@ final class RecordingSession: ObservableObject {
             scaleFactor: screenRecorder.scaleFactor,
             trackCursor: preferences.cursorSmoothingEnabled,
             trackKeystrokes: preferences.recordKeystrokes,
-            trackedWindowID: screenRecorder.capturedWindowID
+            trackedWindowID: screenRecorder.capturedWindowID,
+            ignoredBundleIDs: screenRecorder.excludedBundleIDs
         )
 
         do {

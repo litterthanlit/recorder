@@ -51,6 +51,7 @@ enum DS {
         static let manualZoomTrack = Color(nsColor: .systemOrange)
         static let textTrack = Color(nsColor: .systemTeal)
         static let blurTrack = Color(nsColor: .systemPink)
+        static let cameraTrack = Color(nsColor: .systemIndigo)
         static let audioTrack = Color(nsColor: .systemGreen)
         static let playhead = Color(nsColor: .systemYellow)
     }

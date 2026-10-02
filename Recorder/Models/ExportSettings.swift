@@ -327,25 +327,33 @@ struct AudioMixSettings: Codable, Equatable {
 
     var microphoneVolume: Double = 1
     var systemAudioVolume: Double = 1
+    /// Short fades either side of each cut, so the jump doesn't click.
+    var cutFades = false
+    /// Silence over parts played faster than 2.5×. See `AudioEnvelope`.
+    var muteSpedUp = false
 
     func volume(for role: AudioTrackRole) -> Double {
         let volume = role == .microphone ? microphoneVolume : systemAudioVolume
         return min(max(volume, Self.volumeRange.lowerBound), Self.volumeRange.upperBound)
     }
 
-    init(microphoneVolume: Double = 1, systemAudioVolume: Double = 1) {
+    init(microphoneVolume: Double = 1, systemAudioVolume: Double = 1, cutFades: Bool = false, muteSpedUp: Bool = false) {
         self.microphoneVolume = microphoneVolume
         self.systemAudioVolume = systemAudioVolume
+        self.cutFades = cutFades
+        self.muteSpedUp = muteSpedUp
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         microphoneVolume = try container.decodeIfPresent(Double.self, forKey: .microphoneVolume) ?? 1
         systemAudioVolume = try container.decodeIfPresent(Double.self, forKey: .systemAudioVolume) ?? 1
+        cutFades = (try? container.decodeIfPresent(Bool.self, forKey: .cutFades)) ?? false
+        muteSpedUp = (try? container.decodeIfPresent(Bool.self, forKey: .muteSpedUp)) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
-        case microphoneVolume, systemAudioVolume
+        case microphoneVolume, systemAudioVolume, cutFades, muteSpedUp
     }
 }
 
@@ -365,6 +373,16 @@ struct ProjectEditSettings: Codable, Equatable {
     var camera = CameraOverlayStyle()
     var textOverlays: [TextOverlay] = []
     var blurRegions: [BlurRegion] = []
+    /// The part of the recording to show, like an app's window (normalized, bottom-left
+    /// origin); `nil` shows all of it. See `SourceCrop`.
+    var sourceCrop: CGRect?
+    /// The crop moving with a window over the take, keeping `sourceCrop`'s shape; `nil`
+    /// holds it still. Only with a `sourceCrop`.
+    var cropPath: CropPath?
+    /// A transition at every cut; `nil` cuts straight.
+    var cutTransition: CutTransition?
+    /// 3D moves of the recording's frame (source time).
+    var cameraMoves: [CameraMove] = []
 
     /// The edit to use: the saved one, or the old trim as a single segment.
     func resolvedTimeline(sourceDuration: TimeInterval) -> EditTimeline {
@@ -573,6 +591,10 @@ extension ProjectEditSettings {
         case camera
         case textOverlays
         case blurRegions
+        case sourceCrop
+        case cropPath
+        case cutTransition
+        case cameraMoves
     }
 
     /// Keys only read, to migrate older settings.
@@ -601,5 +623,12 @@ extension ProjectEditSettings {
         camera = try container.decodeIfPresent(CameraOverlayStyle.self, forKey: .camera) ?? defaults.camera
         textOverlays = (try? container.decodeIfPresent([TextOverlay].self, forKey: .textOverlays)) ?? []
         blurRegions = (try? container.decodeIfPresent([BlurRegion].self, forKey: .blurRegions)) ?? []
+        let crop = try? container.decodeIfPresent(CGRect.self, forKey: .sourceCrop)
+        sourceCrop = crop.flatMap { SourceCrop.sanitized($0) }
+        if let crop = sourceCrop, let path = try? container.decodeIfPresent(CropPath.self, forKey: .cropPath) {
+            cropPath = path.sanitized(shape: crop.height / crop.width)
+        }
+        cutTransition = try? container.decodeIfPresent(CutTransition.self, forKey: .cutTransition)
+        cameraMoves = (try? container.decodeIfPresent([CameraMove].self, forKey: .cameraMoves)) ?? []
     }
 }

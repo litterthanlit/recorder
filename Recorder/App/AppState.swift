@@ -14,6 +14,8 @@ final class AppState: ObservableObject {
     let captureSelector = CaptureSelector()
     private var recordingOverlays: RecordingOverlays?
     private var quickAccess: QuickAccessController?
+    /// Serves AI agents while Settings › Agents › "Allow AI agents" is on.
+    private(set) lazy var agentBridge = AgentBridgeController(host: AgentToolHost(appState: self))
 
     /// Set by the status item: open and close the menu bar panel.
     var showPanelHandler: (() -> Void)?
@@ -59,11 +61,15 @@ final class AppState: ObservableObject {
         recordingOverlays = RecordingOverlays(session: session, settings: settingsStore)
         let quickAccess = QuickAccessController(library: library, settings: settingsStore)
         quickAccess.onEdit = { [weak self] project in
-            self?.session.openProject(project)
+            // Through the library, so an edit made since the take (by an agent) isn't lost.
+            self?.openProject(ProjectSummary(metadata: project.metadata, bundleURL: project.bundleURL))
         }
         self.quickAccess = quickAccess
         session.onTakeFinished = { [weak self] project in
             self?.handleFinishedTake(project)
+        }
+        session.editHistoryForProject = { [weak self] id in
+            self?.agentBridge.host.journal.handOff(id)
         }
         settingsStore.$settings
             .map(\.playSounds)
@@ -81,6 +87,14 @@ final class AppState: ObservableObject {
         onboardingPresenter.onClose = { [weak self] in
             self?.settingsStore.settings.hasCompletedOnboarding = true
         }
+
+        settingsStore.$settings
+            .map(\.agentAccessEnabled)
+            .removeDuplicates()
+            .sink { [weak self] enabled in
+                self?.agentBridge.setEnabled(enabled)
+            }
+            .store(in: &cancellables)
 
         session.$state
             .receive(on: RunLoop.main)
@@ -101,9 +115,15 @@ final class AppState: ObservableObject {
 
     func applicationDidFinishLaunching() {
         permissions.refresh()
-        if !settingsStore.settings.hasCompletedOnboarding || !permissions.hasRequiredPermissions {
+        // Started in the background for an agent: no windows; the agent reports problems.
+        let launchedForAgent = CommandLine.arguments.contains(TraceAppLauncher.argument)
+        if !launchedForAgent, !settingsStore.settings.hasCompletedOnboarding || !permissions.hasRequiredPermissions {
             showOnboarding()
         }
+    }
+
+    func applicationWillTerminate() {
+        agentBridge.stop()
     }
 
     // MARK: - Actions
@@ -270,7 +290,8 @@ final class AppState: ObservableObject {
                 library.refresh()
                 return
             }
-            session.openProject(loaded)
+            // An agent may have saved an edit while this was loading.
+            session.openProject(ProjectStore.reloadingEdits(of: loaded))
         }
     }
 

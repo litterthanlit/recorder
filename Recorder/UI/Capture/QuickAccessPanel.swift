@@ -141,7 +141,8 @@ final class QuickAccessModel: ObservableObject {
         exportState = .exporting(0)
         Task {
             do {
-                let url = try await ExportService.export(project) { [weak self] progress in
+                // Re-read the edit: an agent may have changed it since the take ended.
+                let url = try await ExportService.export(ProjectStore.reloadingEdits(of: project)) { [weak self] progress in
                     self?.exportState = .exporting(progress)
                 }
                 exportState = .exported(url)

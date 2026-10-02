@@ -46,6 +46,8 @@ struct TextOverlay: Codable, Equatable, Identifiable {
     var style: Style
     /// Size relative to the style's default.
     var scale: Double
+    /// How it comes on and goes off.
+    var animation: TextAnimation
 
     static let fadeDuration: TimeInterval = 0.2
     static let defaultDuration: TimeInterval = 3
@@ -56,7 +58,8 @@ struct TextOverlay: Codable, Equatable, Identifiable {
         span: TimeSpan,
         center: CGPoint = CGPoint(x: 0.5, y: 0.82),
         style: Style = .caption,
-        scale: Double = 1
+        scale: Double = 1,
+        animation: TextAnimation = .fade
     ) {
         self.id = id
         self.text = text
@@ -64,11 +67,17 @@ struct TextOverlay: Codable, Equatable, Identifiable {
         self.center = center
         self.style = style
         self.scale = scale
+        self.animation = animation
     }
 
     /// 0 outside its span, fading in and out over `fadeDuration`.
     func opacity(at time: TimeInterval) -> Double {
         TimelineItemFade.opacity(at: time, span: span, fade: Self.fadeDuration)
+    }
+
+    /// `center` kept on the canvas (0–1 on both axes).
+    static func clampedCenter(_ center: CGPoint) -> CGPoint {
+        CGPoint(x: min(max(center.x, 0), 1), y: min(max(center.y, 0), 1))
     }
 
     init(from decoder: Decoder) throws {
@@ -79,10 +88,11 @@ struct TextOverlay: Codable, Equatable, Identifiable {
         center = try container.decodeIfPresent(CGPoint.self, forKey: .center) ?? CGPoint(x: 0.5, y: 0.82)
         style = try container.decodeIfPresent(Style.self, forKey: .style) ?? .caption
         scale = try container.decodeIfPresent(Double.self, forKey: .scale) ?? 1
+        animation = (try? container.decodeIfPresent(TextAnimation.self, forKey: .animation)) ?? .fade
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, text, span, center, style, scale
+        case id, text, span, center, style, scale, animation
     }
 }
 
@@ -121,6 +131,18 @@ struct BlurRegion: Codable, Equatable, Identifiable {
 
     func isActive(at time: TimeInterval) -> Bool {
         span.contains(time)
+    }
+
+    /// `rect` kept inside 0–1 and at least 2% across.
+    static func clampedRect(_ rect: CGRect) -> CGRect {
+        let width = min(max(rect.width, 0.02), 1)
+        let height = min(max(rect.height, 0.02), 1)
+        return CGRect(
+            x: min(max(rect.minX, 0), 1 - width),
+            y: min(max(rect.minY, 0), 1 - height),
+            width: width,
+            height: height
+        )
     }
 
     init(from decoder: Decoder) throws {

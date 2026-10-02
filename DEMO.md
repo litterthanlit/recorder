@@ -55,6 +55,43 @@ Work top to bottom; the whole pass takes a few minutes per take.
    small screens); click ripples on for tutorials, off for cinematic cuts.
 8. **Save the look** once you like it, and make it the default for new takes.
 
+## Let an agent edit it
+
+An AI agent can do the editing pass for you. Turn on **Settings › Agents › Allow AI
+agents**, connect Claude Code, Claude Desktop or Cursor (the [README](README.md#agents-mcp)
+shows how), and describe the video you want:
+
+> Make my latest take into a 16:9 launch demo of Acme. Cut the setup and the part where I
+> switched to Slack, keep only the Acme window, title it "Acme 2.0", add a short caption
+> for each step, then export an MP4.
+
+The agent reads the take: clicks, typing, speech, how much the screen changes and which
+app was in front. It looks at frames to write the captions, then makes the whole pass in
+one step:
+
+1. It trims the setup and the stop.
+2. It cuts pauses and detours into other apps. Speech is never cut.
+3. It speeds through waits like page loads, easing in and out of them.
+4. It crops to your app's window and follows it if you move it. Notifications and other
+   apps' windows over it are blurred, or cut when they hide much of it.
+5. It zooms onto your clicks.
+6. It opens with a 3D tilt-in and adds transitions at the cuts.
+7. It brings the title and captions on in motion.
+
+Last, it checks rendered frames, fixes what's off and exports.
+
+- **Keep the take open in the editor** to watch the edits land. Each agent step is one
+  undo step ("Agent: Launch Demo"), so ⌘Z takes it back.
+- **Record as usual.** Takes from this version on remember which app was in front, where
+  its window was and what lay over it, so cropping, cutting detours and hiding other apps
+  need no guessing. For older takes, the agent reads the window's position off the frames
+  instead. Window recordings show only the window, so nothing else can get in.
+- **Say how tight**: "relaxed" keeps more breathing room, "punchy" cuts every pause. Name
+  a look ("Vivid", "Midnight"), or ask for 9:16 for Reels and Shorts.
+- **Still check it yourself.** The agent can't know what's private to you. Look for names,
+  emails and keys, and ask it to blur them (or press B). Pauses in narration may be
+  tightened, so listen once.
+
 ## Export
 
 | Destination | Format | Quality | Notes |

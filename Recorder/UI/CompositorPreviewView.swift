@@ -9,19 +9,39 @@ import SwiftUI
 struct CompositorPreviewView: NSViewRepresentable {
     @ObservedObject var editor: ProjectEditor
 
-    /// While a zoom is being aimed the preview shows the whole recording.
+    /// While a zoom is being aimed or the crop drawn, the preview shows the whole
+    /// recording: no zooms and no crop.
+    private var showsWholeRecording: Bool {
+        editor.isEditingZoomFocus || editor.isCropMode
+    }
+
     private var keyframes: [ZoomKeyframe] {
-        editor.isEditingZoomFocus ? [] : editor.keyframes
+        showsWholeRecording ? [] : editor.keyframes
+    }
+
+    private var settings: CompositionRenderSettings {
+        var shown = editor.renderSettings
+        // The player plays this edit until a rebuild catches up; transitions follow it.
+        shown.timeline = editor.playerTimeline ?? editor.timeline
+        if showsWholeRecording {
+            shown.sourceCrop = nil
+            shown.cropPath = nil
+        }
+        // Boxes drawn over the picture need it flat.
+        if showsWholeRecording || editor.isManualZoomMode || editor.selectedBlur != nil {
+            shown.cameraMoves = []
+        }
+        return shown
     }
 
     func makeNSView(context: Context) -> CompositorPreviewHost {
         let host = CompositorPreviewHost(player: editor.player, cameraPlayer: editor.cameraPlayer)
-        host.apply(keyframes: keyframes, settings: editor.renderSettings, timeline: editor.playerTimeline ?? editor.timeline)
+        host.apply(keyframes: keyframes, settings: settings, timeline: editor.playerTimeline ?? editor.timeline)
         return host
     }
 
     func updateNSView(_ nsView: CompositorPreviewHost, context: Context) {
-        nsView.apply(keyframes: keyframes, settings: editor.renderSettings, timeline: editor.playerTimeline ?? editor.timeline)
+        nsView.apply(keyframes: keyframes, settings: settings, timeline: editor.playerTimeline ?? editor.timeline)
     }
 }
 
@@ -271,6 +291,7 @@ final class CompositorPreviewHost: NSView {
                   pixelBuffer: screenBuffer,
                   cameraBuffer: lastCameraBuffer,
                   at: renderTimeline?.sourceTime(forOutput: seconds) ?? seconds,
+                  outputTime: seconds,
                   outputWidth: pixelWidth,
                   outputHeight: pixelHeight,
                   pool: pool

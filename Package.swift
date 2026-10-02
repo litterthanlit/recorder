@@ -20,6 +20,7 @@ let package = Package(
                 "Recorder.entitlements"
             ],
             sources: [
+                "Agent",
                 "Zoom",
                 "Editor/ZoomKeyframeEditor.swift",
                 "Editor/EditHistory.swift",

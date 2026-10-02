@@ -198,7 +198,10 @@ struct RecorderProject: Codable, Equatable {
 /// would lose information by rewriting them; a bundle from a newer version is refused.
 enum ProjectFormat {
     /// 2: cuts, splits and speed (`ProjectEditSettings.timeline`).
-    static let current = 2
+    /// 3: cropping to part of the screen (`ProjectEditSettings.sourceCrop`) and motion:
+    /// text animation, cut transitions, speed ramps and 3D camera moves.
+    /// 4: a crop that follows a window (`ProjectEditSettings.cropPath`).
+    static let current = 4
 }
 
 enum ProjectStoreError: LocalizedError, Equatable {
@@ -426,6 +429,20 @@ enum ProjectStore {
         let data = try Data(contentsOf: url)
         try FormatProbe.check(data)
         return try JSONDecoder().decode(ProjectEditSettings.self, from: data)
+    }
+
+    /// `project` with its zooms and edit settings read again from disk: an AI agent may
+    /// have changed them since this copy was made (after a take, say). The copy's own are
+    /// kept where the files can't be read.
+    static func reloadingEdits(of project: RecorderProject) -> RecorderProject {
+        var current = project
+        if let keyframes = try? loadKeyframes(from: project.bundleURL) {
+            current.keyframes = keyframes
+        }
+        if let settings = try? loadEditSettings(from: project.bundleURL) {
+            current.editSettings = settings
+        }
+        return current
     }
 
     static func loadProject(from bundleURL: URL) throws -> RecorderProject {

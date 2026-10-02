@@ -12,4 +12,6 @@ enum Log {
     static let library = Logger(subsystem: subsystem, category: "library")
     static let hotkeys = Logger(subsystem: subsystem, category: "hotkeys")
     static let permissions = Logger(subsystem: subsystem, category: "permissions")
+    /// AI agents over MCP: the bridge and their tool calls.
+    static let agent = Logger(subsystem: subsystem, category: "agent")
 }
