@@ -145,10 +145,10 @@ struct BackgroundInspector: View {
         .opacity(style.backgroundEnabled ? 1 : 0.45)
     }
 
-    /// The recording's width over height, for the Auto shape.
+    /// The recording's width over height once cropped, for the Auto shape.
     private var sourceAspect: CGFloat {
-        let metadata = editor.project.metadata
-        return metadata.width > 0 && metadata.height > 0 ? CGFloat(metadata.width) / CGFloat(metadata.height) : 16.0 / 9.0
+        let size = editor.contentSize
+        return size.width > 0 && size.height > 0 ? size.width / size.height : 16.0 / 9.0
     }
 
     private var canvasSection: some View {
@@ -171,6 +171,7 @@ struct BackgroundInspector: View {
                     .font(DS.Typeface.caption.monospacedDigit())
                     .foregroundStyle(DS.Palette.secondaryText)
             }
+            CropControls(editor: editor)
         }
     }
 

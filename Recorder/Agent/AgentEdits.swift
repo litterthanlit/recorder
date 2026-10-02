@@ -217,6 +217,8 @@ enum AgentEdits {
         )
         var keyframes = snapshot.keyframes
         var settings = snapshot.editSettings
+        // Zooms push in within the crop.
+        let base = settings.cropBase
         let notes = try eachOperation(operations) { operation, arguments in
             switch operation {
             case "auto":
@@ -240,11 +242,11 @@ enum AgentEdits {
                     startTime: span.start,
                     peakTime: span.start + min(ease.easeInDuration, span.duration / 3),
                     endTime: span.end,
-                    center: CGPoint(x: 0.5, y: 0.5),
+                    center: CGPoint(x: base.midX, y: base.midY),
                     scale: ease.zoomScale,
                     source: .manual
                 )
-                let keyframe = try aimed(start, arguments, requireTarget: true)
+                let keyframe = try aimed(start, arguments, requireTarget: true, base: base)
                 keyframes.append(ZoomKeyframeEditor.clampKeyframe(keyframe, duration: take.duration))
                 return "Added a zoom over \(describe(span)) (zoom_id \(keyframe.id.uuidString))."
             case "update":
@@ -270,7 +272,7 @@ enum AgentEdits {
                     updated.peakTime = span.start + max(lead, 0)
                     updated.endTime = span.end
                 }
-                updated = try aimed(updated, arguments, requireTarget: false)
+                updated = try aimed(updated, arguments, requireTarget: false, base: base)
                 keyframes[index] = ZoomKeyframeEditor.clampKeyframe(updated, duration: take.duration)
                 return "Updated zoom \(id.uuidString)."
             case "remove":
@@ -298,18 +300,25 @@ enum AgentEdits {
         return notes
     }
 
-    /// Points `keyframe` at `rect` (fitting it) or `point` (with `scale`).
-    static func aimed(_ keyframe: ZoomKeyframe, _ arguments: AgentArguments, requireTarget: Bool) throws -> ZoomKeyframe {
+    /// Points `keyframe` at `rect` (fitting it) or `point` (with `scale`), inside `base`
+    /// (what the video shows at rest: the crop).
+    static func aimed(
+        _ keyframe: ZoomKeyframe,
+        _ arguments: AgentArguments,
+        requireTarget: Bool,
+        base: CGRect = SourceCrop.full
+    ) throws -> ZoomKeyframe {
         var result = keyframe
-        if let scale = try arguments.double("scale", in: Double(ZoomKeyframeEditor.focusScaleRange.lowerBound)...Double(ZoomKeyframeEditor.focusScaleRange.upperBound)) {
+        let range = ZoomKeyframeEditor.focusScaleRange
+        if let scale = try arguments.double("scale", in: Double(range.lowerBound)...Double(range.upperBound)) {
             result.scale = CGFloat(scale)
-            result = ZoomKeyframeEditor.keyframe(result, movingFocusTo: result.center)
+            result = ZoomKeyframeEditor.keyframe(result, movingFocusTo: result.center, base: base)
         }
         if let rect = try arguments.object("rect") {
-            return ZoomKeyframeEditor.keyframe(result, focusingOn: try AgentCoordinates.sourceRect(rect))
+            return ZoomKeyframeEditor.keyframe(result, focusingOn: try AgentCoordinates.sourceRect(rect), base: base)
         }
         if let point = try arguments.object("point") {
-            return ZoomKeyframeEditor.keyframe(result, movingFocusTo: try AgentCoordinates.sourcePoint(point))
+            return ZoomKeyframeEditor.keyframe(result, movingFocusTo: try AgentCoordinates.sourcePoint(point), base: base)
         }
         if requireTarget {
             throw AgentToolError("Say where to zoom: rect {x, y, width, height} or point {x, y} (0–1, origin top-left).")
@@ -499,6 +508,36 @@ enum AgentEdits {
             }
         }
         snapshot.editSettings.blurRegions = regions
+        return notes
+    }
+
+    // MARK: - Crop
+
+    /// set_crop: show only part of the recording (`rect`, origin top-left, optionally
+    /// grown by `margin`), or all of it (`clear`).
+    static func setCrop(_ snapshot: inout EditorSnapshot, arguments: AgentArguments, take: AgentEditTake) throws -> [String] {
+        if try arguments.bool("clear") == true {
+            guard snapshot.editSettings.sourceCrop != nil else {
+                throw AgentToolError("The take isn't cropped; it already shows the whole recording.")
+            }
+            snapshot.editSettings.sourceCrop = nil
+            return ["Showing the whole recording again."]
+        }
+        guard let rectArguments = try arguments.object("rect") else {
+            throw AgentToolError("set_crop needs rect {x, y, width, height} (0–1, origin top-left), or clear: true.")
+        }
+        let margin = CGFloat(try arguments.double("margin", in: 0...0.2) ?? 0)
+        let rect = try AgentCoordinates.sourceRect(rectArguments).insetBy(dx: -margin, dy: -margin)
+        guard let crop = SourceCrop.sanitized(rect) else {
+            throw AgentToolError("That rect is the whole recording; pass clear: true to remove a crop.")
+        }
+        snapshot.editSettings.sourceCrop = crop
+        let size = SourceCrop.contentSize(source: take.sourceSize, crop: crop)
+        var notes = ["Cropped to \(Int(size.width.rounded()))×\(Int(size.height.rounded())) px of the recording; zooms now push in within it."]
+        if snapshot.editSettings.canvas.aspect != .auto {
+            let shape = AgentAspect.name(snapshot.editSettings.canvas.aspect)
+            notes.append("The canvas stays \(shape); set_style aspect \"auto\" matches the crop's shape.")
+        }
         return notes
     }
 

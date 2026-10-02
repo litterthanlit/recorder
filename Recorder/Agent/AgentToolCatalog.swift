@@ -6,7 +6,7 @@ enum AgentToolCatalog {
     static var tools: [MCPTool] {
         [
             listTakes, getTake, analyzeTake, viewFrames,
-            editTimeline, editZooms, editText, editBlur, setStyle, undo,
+            editTimeline, setCrop, editZooms, editText, editBlur, setStyle, undo,
             exportVideo, exportStatus, openTake
         ]
     }
@@ -122,7 +122,8 @@ enum AgentToolCatalog {
     - Check your work: view_frames with rendered true shows frames exactly as they will export.
 
     Typical flow: list_takes → analyze_take (what to cut) → view_frames (grid true, to see \
-    what's on screen and where) → edit_timeline (start from the suggested operations), \
-    edit_zooms, edit_text, edit_blur, set_style → view_frames rendered true → export_video.
+    what's on screen and where) → edit_timeline (start from the suggested operations) → \
+    set_crop (only the product's window) → edit_zooms, edit_text, edit_blur, set_style → \
+    view_frames rendered true → export_video.
     """
 }

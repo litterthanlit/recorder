@@ -122,6 +122,7 @@ enum TakeDescription {
             || timeline.trimEnd < duration - 0.05
             || !settings.textOverlays.isEmpty
             || !settings.blurRegions.isEmpty
+            || settings.sourceCrop != nil
     }
 
     static func detail(
@@ -156,7 +157,8 @@ enum TakeDescription {
         detail["text"] = .array(editSettings.textOverlays.map(textJSON))
         detail["blur"] = .array(editSettings.blurRegions.map(blurJSON))
         detail["look"] = lookJSON(editSettings.exportStyle)
-        detail["canvas"] = canvasJSON(editSettings.canvas, source: source)
+        detail["canvas"] = canvasJSON(editSettings.canvas, source: editSettings.contentSize(source: source))
+        detail["crop"] = cropJSON(editSettings.sourceCrop, source: source)
         let audio: JSONValue = [
             "tracks": .array(metadata.audioTrackRoles.map { JSONValue.string($0.rawValue) }),
             "microphone_volume": .finite(editSettings.audio.microphoneVolume),
@@ -300,6 +302,17 @@ enum TakeDescription {
         ]
     }
 
+    /// The crop, as agents read rects (origin top-left), with its size in pixels.
+    static func cropJSON(_ crop: CGRect?, source: CGSize) -> JSONValue {
+        guard let crop = crop.flatMap({ SourceCrop.sanitized($0) }) else { return .null }
+        let size = SourceCrop.contentSize(source: source, crop: crop)
+        return [
+            "rect": AgentCoordinates.json(sourceRect: crop),
+            "pixels": .string("\(Int(size.width.rounded()))x\(Int(size.height.rounded()))")
+        ]
+    }
+
+    /// - Parameter source: the picture's size once cropped.
     static func canvasJSON(_ canvas: CanvasSpec, source: CGSize) -> JSONValue {
         let size = canvas.pixelSize(source: source)
         return [

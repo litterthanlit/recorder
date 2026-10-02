@@ -70,6 +70,25 @@ extension AgentToolCatalog {
         annotations: MCPTool.Annotations(destructive: true)
     )
 
+    static let setCrop = MCPTool(
+        name: "set_crop",
+        title: "Show only your app",
+        description: """
+        Crops the recording to part of the screen, usually the product's window, so the video shows \
+        only that: the crop is what plays at rest, zooms push in within it, and the canvas's auto \
+        shape and source size follow it. rect is {x, y, width, height} on the recording (0–1, origin \
+        top-left; read it off view_frames with grid true); margin grows it a little on each side. \
+        clear: true shows the whole recording again. One undo step.
+        """,
+        inputSchema: Schema.object([
+            ("take_id", takeID),
+            ("rect", rect),
+            ("margin", Schema.number("Grow the rect by this much of the recording on each side (0–0.2).", minimum: 0, maximum: 0.2)),
+            ("clear", Schema.boolean("Remove the crop: show the whole recording."))
+        ], required: ["take_id"]),
+        annotations: MCPTool.Annotations(destructive: true)
+    )
+
     static let editZooms = MCPTool(
         name: "edit_zooms",
         title: "Zooms",

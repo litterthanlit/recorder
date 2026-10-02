@@ -154,6 +154,7 @@ private struct ZoomSelectionInspector: View {
         } else {
             editor.pausePlayback()
             editor.seek(toSource: keyframe.peakTime)
+            editor.isCropMode = false
             editor.isEditingZoomFocus = true
         }
     }

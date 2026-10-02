@@ -67,6 +67,12 @@ enum AgentEditTools {
         }
     }
 
+    static func setCrop(_ arguments: AgentArguments, _ context: AgentToolContext) throws -> JSONValue {
+        try apply("Crop", arguments, context) { snapshot, take in
+            try AgentEdits.setCrop(&snapshot, arguments: arguments, take: take)
+        }
+    }
+
     static func setStyle(_ arguments: AgentArguments, _ context: AgentToolContext) throws -> JSONValue {
         try apply("Style", arguments, context) { snapshot, take in
             try AgentEdits.setStyle(&snapshot, arguments: arguments, take: take)

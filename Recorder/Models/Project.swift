@@ -198,7 +198,9 @@ struct RecorderProject: Codable, Equatable {
 /// would lose information by rewriting them; a bundle from a newer version is refused.
 enum ProjectFormat {
     /// 2: cuts, splits and speed (`ProjectEditSettings.timeline`).
-    static let current = 2
+    /// 3: cropping to part of the screen (`ProjectEditSettings.sourceCrop`) and motion:
+    /// text animation, cut transitions, speed ramps and 3D camera moves.
+    static let current = 3
 }
 
 enum ProjectStoreError: LocalizedError, Equatable {

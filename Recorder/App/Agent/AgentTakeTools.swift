@@ -73,7 +73,7 @@ enum AgentTakeTools {
             rendered: rendered,
             keyframes: take.keyframes,
             renderSettings: CompositionRenderSettings(project: project, editSettings: take.editSettings),
-            canvasSize: take.editSettings.canvas.pixelSize(source: source),
+            canvasSize: take.editSettings.canvasPixelSize(source: source),
             sourceSize: source,
             asSheet: asSheet,
             grid: grid && !rendered,

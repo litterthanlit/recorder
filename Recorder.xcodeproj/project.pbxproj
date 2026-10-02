@@ -131,6 +131,8 @@
 		B2000000000000000000007B /* TakeAnalysisReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000007F /* TakeAnalysisReport.swift */; };
 		B2000000000000000000007C /* AgentMediaScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000080 /* AgentMediaScanner.swift */; };
 		B2000000000000000000007D /* AgentAnalysisTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000081 /* AgentAnalysisTools.swift */; };
+		B2000000000000000000007E /* SourceCrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000082 /* SourceCrop.swift */; };
+		B2000000000000000000007F /* CropControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000083 /* CropControls.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -262,6 +264,8 @@
 		A2000000000000000000007F /* TakeAnalysisReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeAnalysisReport.swift; sourceTree = "<group>"; };
 		A20000000000000000000080 /* AgentMediaScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMediaScanner.swift; sourceTree = "<group>"; };
 		A20000000000000000000081 /* AgentAnalysisTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAnalysisTools.swift; sourceTree = "<group>"; };
+		A20000000000000000000082 /* SourceCrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceCrop.swift; sourceTree = "<group>"; };
+		A20000000000000000000083 /* CropControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropControls.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -367,6 +371,7 @@
 				A2000000000000000000003E /* PauseLedger.swift */,
 				A20000000000000000000040 /* CaptureExclusion.swift */,
 				A20000000000000000000049 /* CanvasLayout.swift */,
+				A20000000000000000000082 /* SourceCrop.swift */,
 			);
 			path = Composition;
 			sourceTree = "<group>";
@@ -503,6 +508,7 @@
 				A20000000000000000000059 /* CanvasOverlays.swift */,
 				A2000000000000000000005A /* TransportBar.swift */,
 				A20000000000000000000060 /* ExportSheet.swift */,
+				A20000000000000000000083 /* CropControls.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -625,6 +631,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2000000000000000000007F /* CropControls.swift in Sources */,
+				B2000000000000000000007E /* SourceCrop.swift in Sources */,
 				B2000000000000000000007D /* AgentAnalysisTools.swift in Sources */,
 				B2000000000000000000007C /* AgentMediaScanner.swift in Sources */,
 				B2000000000000000000007B /* TakeAnalysisReport.swift in Sources */,

@@ -35,6 +35,8 @@ final class ProjectEditor: ObservableObject {
     @Published var selection: EditorSelection?
     /// Dragging over the canvas picks the area for a new zoom.
     @Published var isManualZoomMode = false
+    /// Drawing the part of the recording to keep (the crop) over the whole recording.
+    @Published var isCropMode = false
     /// The canvas shows the whole recording with the selected zoom's focus to drag.
     @Published var isEditingZoomFocus = false
     @Published var isExportSheetPresented = false
@@ -197,7 +199,8 @@ final class ProjectEditor: ObservableObject {
         ZoomInterpolator(
             keyframes: keyframes,
             springEnabled: editSettings.exportStyle.springCameraEnabled,
-            springSettings: editSettings.zoomPreset.motionFX.spring
+            springSettings: editSettings.zoomPreset.motionFX.spring,
+            base: editSettings.cropBase
         )
     }
 
@@ -206,8 +209,17 @@ final class ProjectEditor: ObservableObject {
     }
 
     var exportOutputSize: CGSize {
-        let source = CGSize(width: project.metadata.width, height: project.metadata.height)
-        return editSettings.canvas.pixelSize(source: source)
+        editSettings.canvasPixelSize(source: sourceSize)
+    }
+
+    /// The recording's size in pixels.
+    var sourceSize: CGSize {
+        CGSize(width: project.metadata.width, height: project.metadata.height)
+    }
+
+    /// The recording's size once cropped.
+    var contentSize: CGSize {
+        editSettings.contentSize(source: sourceSize)
     }
 
     init(project: RecorderProject) {
@@ -522,7 +534,8 @@ final class ProjectEditor: ObservableObject {
                 scale: settings.zoomScale,
                 source: .manual
             ),
-            movingFocusTo: center
+            movingFocusTo: center,
+            base: editSettings.cropBase
         )
         performEdit("Add Zoom") {
             keyframes.append(ZoomKeyframeEditor.clampKeyframe(keyframe, duration: duration))
@@ -667,7 +680,8 @@ final class ProjectEditor: ObservableObject {
             at: playheadSourceTime,
             normalizedRect: normalizedRect,
             duration: duration,
-            settings: editSettings.zoomPreset.settings
+            settings: editSettings.zoomPreset.settings,
+            base: editSettings.cropBase
         )
         performEdit("Add Zoom") {
             keyframes.append(keyframe)
@@ -700,6 +714,19 @@ final class ProjectEditor: ObservableObject {
                 }
             }
         )
+    }
+
+    // MARK: - Crop
+
+    /// Shows only `rect` of the recording (normalized, bottom-left origin), or all of it
+    /// for `nil`, and leaves crop mode.
+    func setSourceCrop(_ rect: CGRect?) {
+        let crop = rect.flatMap { SourceCrop.sanitized($0) }
+        isCropMode = false
+        guard crop != editSettings.sourceCrop else { return }
+        performEdit(crop == nil ? "Remove Crop" : "Crop") {
+            editSettings.sourceCrop = crop
+        }
     }
 
     // MARK: - Outside edits (AI agents)

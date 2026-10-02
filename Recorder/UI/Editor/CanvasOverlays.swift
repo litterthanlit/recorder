@@ -13,9 +13,15 @@ struct CanvasOverlay: View {
     @ObservedObject var playback: EditorPlayback
     let canvasSize: CGSize
 
+    /// While a zoom is aimed or the crop drawn, the preview shows the whole recording.
+    private var showsWholeRecording: Bool {
+        editor.isEditingZoomFocus || editor.isCropMode
+    }
+
     private var contentFrame: CGRect {
         let style = editor.editSettings.exportStyle
-        let aspect = CGFloat(editor.project.metadata.width) / CGFloat(max(editor.project.metadata.height, 1))
+        let size = showsWholeRecording ? editor.sourceSize : editor.contentSize
+        let aspect = size.width / max(size.height, 1)
         return CanvasLayout.contentFrame(
             canvas: canvasSize,
             contentAspect: aspect,
@@ -27,9 +33,9 @@ struct CanvasOverlay: View {
         editor.timeline.sourceTime(forOutput: playback.time)
     }
 
-    /// The part of the recording on screen: all of it while aiming a zoom.
+    /// The part of the recording on screen: all of it while aiming a zoom or cropping.
     private var visibleCrop: NormalizedRect {
-        editor.isEditingZoomFocus ? .fullFrame : editor.interpolator.cropRect(at: sourceTime)
+        showsWholeRecording ? .fullFrame : editor.interpolator.cropRect(at: sourceTime)
     }
 
     var body: some View {
@@ -46,7 +52,9 @@ struct CanvasOverlay: View {
 
     @ViewBuilder
     private var tools: some View {
-        if editor.isManualZoomMode {
+        if editor.isCropMode {
+            CropSelection(editor: editor, contentFrame: contentFrame)
+        } else if editor.isManualZoomMode {
             ManualZoomSelection(editor: editor, contentFrame: contentFrame, visibleCrop: visibleCrop)
         } else if editor.isEditingZoomFocus, let keyframe = editor.selectedKeyframe {
             ZoomFocusEditor(editor: editor, keyframe: keyframe, contentFrame: contentFrame)
@@ -59,7 +67,7 @@ struct CanvasOverlay: View {
 
     /// Selects the text or blur showing under `location`, or clears the selection.
     private func selectItem(at location: CGPoint) {
-        guard !editor.isManualZoomMode, !editor.isEditingZoomFocus else { return }
+        guard !editor.isManualZoomMode, !editor.isEditingZoomFocus, !editor.isCropMode else { return }
         let time = sourceTime
         for overlay in editor.editSettings.textOverlays.reversed() where overlay.opacity(at: time) > 0 {
             if TextPlateLayout.viewFrame(for: overlay, canvas: canvasSize).contains(location) {
@@ -228,8 +236,13 @@ private struct ZoomFocusEditor: View {
         )
     }
 
+    /// What the video shows at rest (the crop); the zoom stays inside it.
+    private var base: CGRect {
+        editor.editSettings.cropBase
+    }
+
     var body: some View {
-        let focus = ZoomKeyframeEditor.focusRect(for: keyframe)
+        let focus = ZoomKeyframeEditor.focusRect(for: keyframe, base: base)
         let frame = ZoomKeyframeEditor.viewRect(forSource: focus, contentFrame: contentFrame, visibleCrop: .fullFrame)
         return ZStack(alignment: .topLeading) {
             Path { path in
@@ -275,7 +288,7 @@ private struct ZoomFocusEditor: View {
                 let dx = value.translation.width / max(contentFrame.width, 1)
                 let dy = -value.translation.height / max(contentFrame.height, 1)
                 let target = CGPoint(x: start.centerX + dx, y: start.centerY + dy)
-                let moved = ZoomKeyframeEditor.keyframe(start, movingFocusTo: target)
+                let moved = ZoomKeyframeEditor.keyframe(start, movingFocusTo: target, base: base)
                 editor.updateKeyframe(moved, commit: false, actionName: Self.actionName)
             }
             .onEnded { _ in finish() }
@@ -286,21 +299,24 @@ private struct ZoomFocusEditor: View {
             .onChanged { value in
                 let start = begin()
                 let startFrame = ZoomKeyframeEditor.viewRect(
-                    forSource: ZoomKeyframeEditor.focusRect(for: start),
+                    forSource: ZoomKeyframeEditor.focusRect(for: start, base: base),
                     contentFrame: contentFrame,
                     visibleCrop: .fullFrame
                 )
                 let fixed = normalized(corner.opposite.point(in: startFrame))
                 let moving = corner.point(in: startFrame)
                 let pointer = normalized(CGPoint(x: moving.x + value.translation.width, y: moving.y + value.translation.height))
-                let side = max(abs(pointer.x - fixed.x), abs(pointer.y - fixed.y))
-                let square = CGRect(
-                    x: pointer.x < fixed.x ? fixed.x - side : fixed.x,
-                    y: pointer.y < fixed.y ? fixed.y - side : fixed.y,
-                    width: side,
-                    height: side
+                // The zoom keeps the crop's shape (square without one).
+                let ratio: CGFloat = base.height > 0 ? base.width / base.height : 1
+                let width = max(abs(pointer.x - fixed.x), abs(pointer.y - fixed.y) * ratio)
+                let height = width / ratio
+                let box = CGRect(
+                    x: pointer.x < fixed.x ? fixed.x - width : fixed.x,
+                    y: pointer.y < fixed.y ? fixed.y - height : fixed.y,
+                    width: width,
+                    height: height
                 )
-                let resized = ZoomKeyframeEditor.keyframe(start, focusingOn: square)
+                let resized = ZoomKeyframeEditor.keyframe(start, focusingOn: box, base: base)
                 editor.updateKeyframe(resized, commit: false, actionName: Self.actionName)
             }
             .onEnded { _ in finish() }

@@ -365,6 +365,9 @@ struct ProjectEditSettings: Codable, Equatable {
     var camera = CameraOverlayStyle()
     var textOverlays: [TextOverlay] = []
     var blurRegions: [BlurRegion] = []
+    /// The part of the recording to show, like an app's window (normalized, bottom-left
+    /// origin); `nil` shows all of it. See `SourceCrop`.
+    var sourceCrop: CGRect?
 
     /// The edit to use: the saved one, or the old trim as a single segment.
     func resolvedTimeline(sourceDuration: TimeInterval) -> EditTimeline {
@@ -573,6 +576,7 @@ extension ProjectEditSettings {
         case camera
         case textOverlays
         case blurRegions
+        case sourceCrop
     }
 
     /// Keys only read, to migrate older settings.
@@ -601,5 +605,7 @@ extension ProjectEditSettings {
         camera = try container.decodeIfPresent(CameraOverlayStyle.self, forKey: .camera) ?? defaults.camera
         textOverlays = (try? container.decodeIfPresent([TextOverlay].self, forKey: .textOverlays)) ?? []
         blurRegions = (try? container.decodeIfPresent([BlurRegion].self, forKey: .blurRegions)) ?? []
+        let crop = try? container.decodeIfPresent(CGRect.self, forKey: .sourceCrop)
+        sourceCrop = crop.flatMap { SourceCrop.sanitized($0) }
     }
 }

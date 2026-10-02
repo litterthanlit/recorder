@@ -104,11 +104,14 @@ enum ZoomKeyframeEditor {
         return clampKeyframe(updated, duration: duration)
     }
 
+    /// - Parameter base: what the video shows at rest (the source crop); the scale is
+    ///   relative to it.
     static func makeManualKeyframe(
         at playhead: TimeInterval,
         normalizedRect: CGRect,
         duration: TimeInterval,
-        settings: AutoZoomSettings = AutoZoomSettings()
+        settings: AutoZoomSettings = AutoZoomSettings(),
+        base: CGRect = SourceCrop.full
     ) -> ZoomKeyframe {
         let clampedRect = clampNormalizedRect(normalizedRect)
         let center = CGPoint(
@@ -117,7 +120,7 @@ enum ZoomKeyframeEditor {
         )
         let scale = min(
             maximumManualScale,
-            max(minimumManualScale, 1 / max(clampedRect.width, clampedRect.height))
+            max(minimumManualScale, fittingScale(for: clampedRect, base: base))
         )
 
         let peakTime = max(0, min(playhead, duration))
@@ -217,36 +220,47 @@ enum ZoomKeyframeEditor {
     static let focusScaleRange: ClosedRange<CGFloat> = 1.1...4
 
     /// The part of the recording a zoom shows at its peak (normalized, bottom-left
-    /// origin), matching the interpolator's crop.
-    static func focusRect(for keyframe: ZoomKeyframe) -> CGRect {
-        let side = 1 / max(keyframe.scale, 1)
+    /// origin), matching the interpolator's crop. `base` is what the video shows at rest
+    /// (the source crop).
+    static func focusRect(for keyframe: ZoomKeyframe, base: CGRect = SourceCrop.full) -> CGRect {
+        let scale = max(keyframe.scale, 1)
+        let width = base.width / scale
+        let height = base.height / scale
         return CGRect(
-            x: min(max(keyframe.centerX - side / 2, 0), 1 - side),
-            y: min(max(keyframe.centerY - side / 2, 0), 1 - side),
-            width: side,
-            height: side
+            x: min(max(keyframe.centerX - width / 2, base.minX), base.maxX - width),
+            y: min(max(keyframe.centerY - height / 2, base.minY), base.maxY - height),
+            width: width,
+            height: height
         )
     }
 
-    /// The zoom pointed at `center` (normalized), kept so its focus stays inside the frame.
-    static func keyframe(_ keyframe: ZoomKeyframe, movingFocusTo center: CGPoint) -> ZoomKeyframe {
+    /// The zoom pointed at `center` (normalized), kept so its focus stays inside `base`.
+    static func keyframe(_ keyframe: ZoomKeyframe, movingFocusTo center: CGPoint, base: CGRect = SourceCrop.full) -> ZoomKeyframe {
         var updated = keyframe
-        let half = 1 / max(keyframe.scale, 1) / 2
+        let scale = max(keyframe.scale, 1)
+        let halfWidth = base.width / scale / 2
+        let halfHeight = base.height / scale / 2
         updated.center = CGPoint(
-            x: min(max(center.x, half), 1 - half),
-            y: min(max(center.y, half), 1 - half)
+            x: min(max(center.x, base.minX + halfWidth), base.maxX - halfWidth),
+            y: min(max(center.y, base.minY + halfHeight), base.maxY - halfHeight)
         )
         return updated
     }
 
-    /// The zoom showing `rect` (normalized): its centre, and the scale that fits the
-    /// rect's longer side, within `focusScaleRange`.
-    static func keyframe(_ keyframe: ZoomKeyframe, focusingOn rect: CGRect) -> ZoomKeyframe {
+    /// The zoom showing `rect` (normalized): its centre, and the closest scale that still
+    /// shows all of it, within `focusScaleRange`.
+    static func keyframe(_ keyframe: ZoomKeyframe, focusingOn rect: CGRect, base: CGRect = SourceCrop.full) -> ZoomKeyframe {
         var updated = keyframe
-        let side = max(rect.width, rect.height)
-        let scale = side > 0 ? 1 / side : focusScaleRange.upperBound
+        let scale = fittingScale(for: rect, base: base)
         updated.scale = min(max(scale, focusScaleRange.lowerBound), focusScaleRange.upperBound)
-        return Self.keyframe(updated, movingFocusTo: CGPoint(x: rect.midX, y: rect.midY))
+        return Self.keyframe(updated, movingFocusTo: CGPoint(x: rect.midX, y: rect.midY), base: base)
+    }
+
+    /// How many times closer than `base` a view can be and still show all of `rect`
+    /// (the upper end of `focusScaleRange` for an empty rect).
+    static func fittingScale(for rect: CGRect, base: CGRect) -> CGFloat {
+        let side = max(rect.width / max(base.width, 1e-6), rect.height / max(base.height, 1e-6))
+        return side > 0 ? 1 / side : focusScaleRange.upperBound
     }
 
     static func clampNormalizedRect(_ rect: CGRect) -> CGRect {

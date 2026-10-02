@@ -26,6 +26,9 @@ struct CompositionRenderSettings: Equatable {
     var blurRegions: [BlurRegion] = []
     /// The picture for an image background, inside the project bundle.
     var backgroundImageURL: URL?
+    /// The part of the recording shown at rest (normalized, bottom-left origin); `nil`
+    /// shows all of it. See `SourceCrop`.
+    var sourceCrop: CGRect?
 }
 
 extension CompositionRenderSettings {
@@ -47,7 +50,8 @@ extension CompositionRenderSettings {
             cursorKinds: project.inputs.cursorKinds,
             textOverlays: editSettings.textOverlays,
             blurRegions: editSettings.blurRegions,
-            backgroundImageURL: edited.backgroundImageURL
+            backgroundImageURL: edited.backgroundImageURL,
+            sourceCrop: editSettings.sourceCrop
         )
     }
 }
@@ -100,7 +104,8 @@ final class CompositionRenderer {
         self.interpolator = ZoomInterpolator(
             keyframes: keyframes,
             springEnabled: settings.exportStyle.springCameraEnabled,
-            springSettings: settings.zoomPreset.motionFX.spring
+            springSettings: settings.zoomPreset.motionFX.spring,
+            base: SourceCrop.base(settings.sourceCrop)
         )
         self.rippleEvaluator = ClickRippleEvaluator(settings: settings.zoomPreset.motionFX)
         self.smoothedCursorEvents = Self.cursorPath(for: settings, smoother: cursorSmoother)
@@ -123,7 +128,8 @@ final class CompositionRenderer {
         interpolator = ZoomInterpolator(
             keyframes: keyframes,
             springEnabled: settings.exportStyle.springCameraEnabled,
-            springSettings: settings.zoomPreset.motionFX.spring
+            springSettings: settings.zoomPreset.motionFX.spring,
+            base: SourceCrop.base(settings.sourceCrop)
         )
         rippleEvaluator = ClickRippleEvaluator(settings: settings.zoomPreset.motionFX)
         if pointerChanged || settings.exportStyle.cursorSmoothingEnabled != previous.exportStyle.cursorSmoothingEnabled {

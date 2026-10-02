@@ -9,19 +9,32 @@ import SwiftUI
 struct CompositorPreviewView: NSViewRepresentable {
     @ObservedObject var editor: ProjectEditor
 
-    /// While a zoom is being aimed the preview shows the whole recording.
+    /// While a zoom is being aimed or the crop drawn, the preview shows the whole
+    /// recording: no zooms and no crop.
+    private var showsWholeRecording: Bool {
+        editor.isEditingZoomFocus || editor.isCropMode
+    }
+
     private var keyframes: [ZoomKeyframe] {
-        editor.isEditingZoomFocus ? [] : editor.keyframes
+        showsWholeRecording ? [] : editor.keyframes
+    }
+
+    private var settings: CompositionRenderSettings {
+        var shown = editor.renderSettings
+        if showsWholeRecording {
+            shown.sourceCrop = nil
+        }
+        return shown
     }
 
     func makeNSView(context: Context) -> CompositorPreviewHost {
         let host = CompositorPreviewHost(player: editor.player, cameraPlayer: editor.cameraPlayer)
-        host.apply(keyframes: keyframes, settings: editor.renderSettings, timeline: editor.playerTimeline ?? editor.timeline)
+        host.apply(keyframes: keyframes, settings: settings, timeline: editor.playerTimeline ?? editor.timeline)
         return host
     }
 
     func updateNSView(_ nsView: CompositorPreviewHost, context: Context) {
-        nsView.apply(keyframes: keyframes, settings: editor.renderSettings, timeline: editor.playerTimeline ?? editor.timeline)
+        nsView.apply(keyframes: keyframes, settings: settings, timeline: editor.playerTimeline ?? editor.timeline)
     }
 }
 
