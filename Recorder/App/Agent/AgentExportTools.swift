@@ -191,9 +191,51 @@ enum AgentExportTools {
         }
         preferences.options = options
         let wait = try arguments.double("wait_seconds", in: 0...maximumWait) ?? defaultWait
-        let destination = try self.destination(arguments, project: project, preferences: preferences, jobs: context.exports)
-
         let library = context.appState.library
+
+        if let list = try arguments.array("aspects") {
+            let aspects = try AgentAspect.parseList(list, key: "aspects")
+            let reframe = try arguments.bool("reframe") ?? true
+            let take = AgentEditTake(project: project, looks: [])
+            let edit = EditorSnapshot(keyframes: project.keyframes, editSettings: project.editSettings)
+            var jobs: [AgentExportJobs.Job] = []
+            for aspect in aspects {
+                let shaped = edit.variant(for: aspect, reframe: reframe, take: take)
+                var variant = project
+                variant.keyframes = shaped.keyframes
+                variant.editSettings = shaped.editSettings
+                let destination = try self.destination(
+                    arguments,
+                    project: variant,
+                    preferences: preferences,
+                    jobs: context.exports,
+                    suffix: " " + AgentAspect.name(aspect).replacingOccurrences(of: ":", with: "x")
+                )
+                jobs.append(context.exports.start(
+                    project: variant,
+                    takeName: "\(summary.displayName) (\(AgentAspect.name(aspect)))",
+                    options: options,
+                    destination: destination,
+                    outputDuration: duration
+                ) { _ in
+                    library.refresh()
+                })
+            }
+            do {
+                // They run one after another, all within the one wait.
+                let deadline = ProcessInfo.processInfo.systemUptime + wait
+                for job in jobs {
+                    let left = max(deadline - ProcessInfo.processInfo.systemUptime, 0)
+                    try await context.exports.wait(for: job, timeout: left, progress: context.progress)
+                }
+            } catch is CancellationError {
+                jobs.forEach { context.exports.cancel($0) }
+                throw CancellationError()
+            }
+            return statuses(jobs)
+        }
+
+        let destination = try self.destination(arguments, project: project, preferences: preferences, jobs: context.exports)
         let job = context.exports.start(
             project: project,
             takeName: summary.displayName,
@@ -243,7 +285,8 @@ enum AgentExportTools {
         _ arguments: AgentArguments,
         project: RecorderProject,
         preferences: ExportPreferences,
-        jobs: AgentExportJobs
+        jobs: AgentExportJobs,
+        suffix: String = ""
     ) throws -> URL {
         var folder = preferences.folderURL
         if let path = try arguments.string("folder") {
@@ -271,7 +314,7 @@ enum AgentExportTools {
             template = base
         }
         let fileName = ExportNaming.fileName(
-            template: template,
+            template: template + suffix,
             name: project.metadata.name ?? ProjectSummary.title(for: project.metadata),
             date: project.metadata.createdAt,
             fileExtension: preferences.options.format.fileExtension
@@ -282,6 +325,23 @@ enum AgentExportTools {
     }
 
     static func status(_ job: AgentExportJobs.Job) -> JSONValue {
+        let parts = statusParts(job)
+        return MCPToolResult.structured(parts.value, summary: parts.summary, files: parts.files, isError: parts.isError)
+    }
+
+    /// Several exports, one after another (one per shape).
+    static func statuses(_ jobs: [AgentExportJobs.Job]) -> JSONValue {
+        let parts = jobs.map { statusParts($0) }
+        let value: JSONValue = ["exports": .array(parts.map { $0.value })]
+        return MCPToolResult.structured(
+            value,
+            summary: parts.map { $0.summary }.joined(separator: " "),
+            files: parts.flatMap { $0.files },
+            isError: parts.contains { $0.isError }
+        )
+    }
+
+    private static func statusParts(_ job: AgentExportJobs.Job) -> (value: JSONValue, summary: String, files: [URL], isError: Bool) {
         var value: [String: JSONValue] = [
             "export_id": .string(job.id),
             "take_id": .string(job.takeID.uuidString),
@@ -322,6 +382,6 @@ enum AgentExportTools {
         case .cancelled:
             summary = "Export \(job.id) was cancelled; no file was written."
         }
-        return MCPToolResult.structured(.object(value), summary: summary, files: files, isError: isError)
+        return (.object(value), summary, files, isError)
     }
 }

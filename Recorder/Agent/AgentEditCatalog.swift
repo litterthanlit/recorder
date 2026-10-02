@@ -250,6 +250,7 @@ extension AgentToolCatalog {
             ("app", Schema.string("The app the demo is about (default: the one in front longest). The video is cropped to its window, detours away from it are cut and other apps over it are cut or blurred.")),
             ("look", Schema.string("A look's name, like \"Vivid\" or \"Midnight\" (default: keep the take's look).")),
             ("aspect", Schema.string("Video shape: \(AgentAspect.choices) (default: keep the take's).")),
+            ("reframe", Schema.boolean("With aspect: fill the shape with a frame that follows the action (default true), or fit the whole picture.")),
             ("pace", Schema.string(
                 "How tight: relaxed (only long pauses go, waits 2–4×), snappy (the default: pauses over 1.5 s, waits 4–8×) or punchy (every pause, waits 6–12×).",
                 oneOf: LaunchDemoPace.allCases.map(\.rawValue)
@@ -299,6 +300,7 @@ extension AgentToolCatalog {
             ], description: "Behind the recording: one of wallpaper, color, from+to, or kind \"none\".")),
             ("zoom_preset", Schema.string("How strong automatic zooms are; remakes them.", oneOf: ZoomPreset.allCases.map(\.rawValue))),
             ("aspect", Schema.string("Canvas shape.", oneOf: AgentAspect.names.map { $0.1 })),
+            ("reframe", Schema.boolean("When the picture's shape differs from the canvas's: fill the canvas with a frame that follows the clicks, typing and zooms (true), or fit the whole picture on the background (false).")),
             ("resolution", Schema.string("Canvas size.", oneOf: ["720p", "1080p", "1440p", "4k", "source"])),
             ("padding", Schema.number("Space around the recording, 0–0.3 of the frame.", minimum: 0, maximum: 0.3)),
             ("corner_radius", Schema.number("Rounded corners, 0–48.", minimum: 0, maximum: 48)),
@@ -348,12 +350,21 @@ extension AgentToolCatalog {
         title: "Export",
         description: """
         Exports the take as edited: mp4 (plays everywhere), hevc (smaller), prores (for video editors) \
-        or gif (at most 30 s). Unset options use the person's export settings. Waits up to wait_seconds \
-        (default 45) and returns the file; a longer export returns status "running" and an export_id \
-        for export_status. Never replaces an existing file.
+        or gif (at most 30 s). Unset options use the person's export settings. aspects exports one file \
+        per shape from the same edit, like ["16:9", "9:16", "1:1"]: each is reframed to fill its shape, \
+        following the action (reframe false fits the whole picture instead), with text kept clear of \
+        the controls apps lay over vertical video. Waits up to wait_seconds (default 45) and returns the \
+        files; a longer export returns status "running" and an export_id for export_status. Never \
+        replaces an existing file.
         """,
         inputSchema: Schema.object([
             ("take_id", takeID),
+            ("aspects", Schema.array(
+                of: Schema.string("A shape.", oneOf: AgentAspect.names.map { $0.1 }),
+                "Export one file per shape (default: just the take's own shape).",
+                maxItems: 4
+            )),
+            ("reframe", Schema.boolean("With aspects: reframe each shape to follow the action (default true), or fit the whole picture.")),
             ("format", Schema.string("File type.", oneOf: ExportFormat.allCases.map(\.rawValue))),
             ("quality", Schema.string("mp4 and hevc only: web (small), high, or studio (near-lossless).", oneOf: ExportQuality.allCases.map(\.rawValue))),
             ("fps", Schema.integer("Frame rate: 24, 30 or 60 (default: the recording's).", minimum: 24, maximum: 60)),

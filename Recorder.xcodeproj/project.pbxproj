@@ -146,6 +146,7 @@
 		B2000000000000000000008A /* LaunchDemoRecipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008E /* LaunchDemoRecipe.swift */; };
 		B2000000000000000000008B /* WindowStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008F /* WindowStack.swift */; };
 		B2000000000000000000008C /* CropPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000090 /* CropPath.swift */; };
+		B2000000000000000000008D /* Reframe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000091 /* Reframe.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -292,6 +293,7 @@
 		A2000000000000000000008E /* LaunchDemoRecipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchDemoRecipe.swift; sourceTree = "<group>"; };
 		A2000000000000000000008F /* WindowStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowStack.swift; sourceTree = "<group>"; };
 		A20000000000000000000090 /* CropPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropPath.swift; sourceTree = "<group>"; };
+		A20000000000000000000091 /* Reframe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Reframe.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -405,6 +407,7 @@
 				A2000000000000000000008A /* CameraMoves.swift */,
 				A2000000000000000000008F /* WindowStack.swift */,
 				A20000000000000000000090 /* CropPath.swift */,
+				A20000000000000000000091 /* Reframe.swift */,
 			);
 			path = Composition;
 			sourceTree = "<group>";
@@ -670,6 +673,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2000000000000000000008D /* Reframe.swift in Sources */,
 				B2000000000000000000008C /* CropPath.swift in Sources */,
 				B2000000000000000000008B /* WindowStack.swift in Sources */,
 				B2000000000000000000008A /* LaunchDemoRecipe.swift in Sources */,

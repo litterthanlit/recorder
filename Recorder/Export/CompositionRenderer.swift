@@ -59,8 +59,8 @@ extension CompositionRenderSettings {
             textOverlays: editSettings.textOverlays,
             blurRegions: editSettings.blurRegions,
             backgroundImageURL: edited.backgroundImageURL,
-            sourceCrop: editSettings.sourceCrop,
-            cropPath: editSettings.cropPath,
+            sourceCrop: editSettings.shownCrop,
+            cropPath: editSettings.shownCropPath,
             timeline: editSettings.resolvedTimeline(sourceDuration: project.metadata.duration),
             cutTransition: editSettings.cutTransition,
             cameraMoves: editSettings.cameraMoves

@@ -94,14 +94,20 @@ enum SourceCrop {
 }
 
 extension ProjectEditSettings {
-    /// What the video shows at rest when the crop holds still: the crop, or the whole
-    /// recording.
+    /// What the video shows at rest when it holds still: the reframing for the canvas's
+    /// shape, the crop, or the whole recording.
     var cropBase: CGRect {
-        SourceCrop.base(sourceCrop)
+        SourceCrop.base(shownCrop)
     }
 
-    /// The crop over the take: still, or following a window.
+    /// What the video shows over the take: the reframing for the canvas's shape, or the
+    /// crop, still or following a window.
     var cropMotion: CropMotion {
+        CropMotion(crop: shownCrop, path: shownCropPath)
+    }
+
+    /// The crop alone over the take, without any reframing: what a reframing picks from.
+    var windowMotion: CropMotion {
         CropMotion(crop: sourceCrop, path: cropPath)
     }
 
@@ -110,9 +116,10 @@ extension ProjectEditSettings {
         cropMotion.base(at: time)
     }
 
-    /// Pixel size of the recording once cropped, for a recording of `source` pixels.
+    /// Pixel size of the picture as shown (cropped or reframed), for a recording of
+    /// `source` pixels.
     func contentSize(source: CGSize) -> CGSize {
-        SourceCrop.contentSize(source: source, crop: sourceCrop)
+        SourceCrop.contentSize(source: source, crop: shownCrop)
     }
 
     /// The canvas size in pixels: its shape and size, with Auto and Source following the

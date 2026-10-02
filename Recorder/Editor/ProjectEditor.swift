@@ -211,7 +211,7 @@ final class ProjectEditor: ObservableObject {
             springEnabled: editSettings.exportStyle.springCameraEnabled,
             springSettings: editSettings.zoomPreset.motionFX.spring,
             base: editSettings.cropBase,
-            path: editSettings.cropPath
+            path: editSettings.shownCropPath
         )
     }
 
@@ -245,6 +245,10 @@ final class ProjectEditor: ObservableObject {
             cameraPlayer = nil
         }
         editSettings.setTimeline(editSettings.resolvedTimeline(sourceDuration: project.metadata.duration))
+        // A reframing that didn't load is worked out again.
+        if editSettings.canvas.reframes, editSettings.activeReframe == nil {
+            refreshReframe(since: nil)
+        }
         // The preview draws the recorded cursor with the system's own cursor images.
         SystemCursorImages.shared.load()
         installTimeObserver()
@@ -794,6 +798,30 @@ final class ProjectEditor: ObservableObject {
         editTimeline(on ? "Smooth Speed Changes" : "Sharp Speed Changes") { $0.speedRamp = ramp }
     }
 
+    // MARK: - Reframing
+
+    /// Whether the canvas fills its shape by following the action rather than fitting the
+    /// whole picture.
+    var reframes: Bool {
+        editSettings.canvas.reframes
+    }
+
+    /// Whether the picture's shape differs from the canvas's, so reframing would change
+    /// anything.
+    var canReframe: Bool {
+        guard let ratio = editSettings.canvas.aspect.ratio else { return false }
+        let size = SourceCrop.contentSize(source: sourceSize, crop: editSettings.sourceCrop)
+        guard size.width > 0, size.height > 0 else { return false }
+        return abs(size.width / size.height - ratio) / ratio > Reframer.shapeTolerance
+    }
+
+    func setReframes(_ on: Bool) {
+        guard on != editSettings.canvas.reframes else { return }
+        performEdit(on ? "Reframe to Fill" : "Fit Whole Picture") {
+            editSettings.canvas.reframes = on
+        }
+    }
+
     // MARK: - Crop
 
     /// Shows only `rect` of the recording (normalized, bottom-left origin), holding
@@ -907,7 +935,9 @@ final class ProjectEditor: ObservableObject {
     ) {
         if interaction != nil {
             if continuous {
+                let before = snapshot
                 change()
+                refreshReframe(since: before)
                 persist()
                 return
             }
@@ -917,7 +947,18 @@ final class ProjectEditor: ObservableObject {
 
         let before = snapshot
         change()
+        refreshReframe(since: before)
         recordEdit(from: before, actionName: actionName, coalescingKey: coalescingKey)
+    }
+
+    /// Keeps the reframing in step with what it follows (the shape, the crop, the zooms),
+    /// as part of the edit that changed them.
+    private func refreshReframe(since before: EditorSnapshot?) {
+        var updated = snapshot
+        updated.refreshReframe(take: AgentEditTake(project: project, looks: []), since: before)
+        if updated.editSettings.reframe != editSettings.reframe {
+            editSettings.reframe = updated.editSettings.reframe
+        }
     }
 
     private func recordEdit(from before: EditorSnapshot, actionName: String, coalescingKey: AnyHashable?) {

@@ -11,19 +11,26 @@ struct AgentEditTake {
     var looks: [StylePreset]
     /// Which app was in front (empty for takes from before Trace kept it).
     var appFocus: [AppFocusEvent]
+    /// The pointer and key presses, for following the action.
+    var cursor: [CursorEvent]
+    var keystrokes: [KeystrokeEvent]
 
     init(
         duration: TimeInterval,
         sourceSize: CGSize,
         clicks: [ClickEvent] = [],
         looks: [StylePreset] = StylePreset.builtIn,
-        appFocus: [AppFocusEvent] = []
+        appFocus: [AppFocusEvent] = [],
+        cursor: [CursorEvent] = [],
+        keystrokes: [KeystrokeEvent] = []
     ) {
         self.duration = duration
         self.sourceSize = sourceSize
         self.clicks = clicks
         self.looks = looks
         self.appFocus = appFocus
+        self.cursor = cursor
+        self.keystrokes = keystrokes
     }
 
     init(project: RecorderProject, looks: [StylePreset]) {
@@ -32,7 +39,9 @@ struct AgentEditTake {
             sourceSize: CGSize(width: project.metadata.width, height: project.metadata.height),
             clicks: project.clickEvents,
             looks: looks,
-            appFocus: project.inputs.appFocus
+            appFocus: project.inputs.appFocus,
+            cursor: project.cursorEvents,
+            keystrokes: project.inputs.keystrokes
         )
     }
 }

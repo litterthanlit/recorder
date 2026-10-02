@@ -82,7 +82,7 @@ struct StylePreset: Codable, Equatable, Identifiable {
                 id: UUID(uuidString: "5A1D0001-0000-4000-8000-000000000005")!,
                 name: "Vertical Social",
                 style: social,
-                canvas: CanvasSpec(aspect: .portrait, resolution: .hd1080),
+                canvas: CanvasSpec(aspect: .portrait, resolution: .hd1080, reframes: true),
                 zoomPreset: .punch
             )
         ]

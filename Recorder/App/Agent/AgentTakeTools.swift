@@ -60,11 +60,22 @@ enum AgentTakeTools {
         let asSheet = layout == "sheet"
         let timeBase = try AgentTimeBase.read(arguments, default: rendered ? .output : .source)
         let moments = try frameMoments(arguments, take: take, timeBase: timeBase, asSheet: asSheet)
+        var edit = EditorSnapshot(keyframes: take.keyframes, editSettings: take.editSettings)
+        if let shape = try arguments.string("aspect") {
+            guard rendered else {
+                throw AgentToolError("aspect previews the finished video: pass rendered: true with it.")
+            }
+            guard let aspect = AgentAspect.parse(shape) else {
+                throw AgentToolError("aspect must be one of \(AgentAspect.choices) (got \"\(shape)\").")
+            }
+            let reframe = try arguments.bool("reframe") ?? true
+            edit = edit.variant(for: aspect, reframe: reframe, take: AgentEditTake(project: take.project, looks: []))
+        }
 
         context.progress.report(0.02, "Reading \(moments.count) frame\(moments.count == 1 ? "" : "s")")
         let images = try await renderFrames(
             take.project,
-            snapshot: EditorSnapshot(keyframes: take.keyframes, editSettings: take.editSettings),
+            snapshot: edit,
             moments: moments,
             rendered: rendered,
             asSheet: asSheet,

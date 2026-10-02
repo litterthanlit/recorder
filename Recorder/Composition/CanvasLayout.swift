@@ -95,10 +95,15 @@ enum OutputResolution: String, Codable, CaseIterable, Identifiable {
 struct CanvasSpec: Codable, Equatable {
     var aspect: OutputAspect = .widescreen
     var resolution: OutputResolution = .hd1080
+    /// When the picture has another shape: fill the canvas with a crop of its shape that
+    /// follows the action (see `Reframer`) instead of fitting all of the picture on the
+    /// background.
+    var reframes = false
 
-    init(aspect: OutputAspect = .widescreen, resolution: OutputResolution = .hd1080) {
+    init(aspect: OutputAspect = .widescreen, resolution: OutputResolution = .hd1080, reframes: Bool = false) {
         self.aspect = aspect
         self.resolution = resolution
+        self.reframes = reframes
     }
 
     /// The pixel size for a recording of `source` pixels, with even dimensions.
@@ -128,10 +133,11 @@ struct CanvasSpec: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         aspect = try container.decodeIfPresent(OutputAspect.self, forKey: .aspect) ?? .widescreen
         resolution = try container.decodeIfPresent(OutputResolution.self, forKey: .resolution) ?? .hd1080
+        reframes = (try? container.decodeIfPresent(Bool.self, forKey: .reframes)) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
-        case aspect, resolution
+        case aspect, resolution, reframes
     }
 }
 

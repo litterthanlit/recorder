@@ -78,6 +78,26 @@ enum AgentAspect {
     static var choices: String {
         names.map { $0.1 }.joined(separator: ", ")
     }
+
+    /// Shapes from a list of names (`key` says which argument), each once, in order.
+    static func parseList(_ values: [JSONValue], key: String, maximum: Int = 4) throws -> [OutputAspect] {
+        guard !values.isEmpty else {
+            throw AgentToolError("\(key) is empty: list shapes like [\"16:9\", \"9:16\", \"1:1\"].")
+        }
+        guard values.count <= maximum else {
+            throw AgentToolError("At most \(maximum) shapes in \(key).")
+        }
+        var result: [OutputAspect] = []
+        for (index, value) in values.enumerated() {
+            guard let text = value.stringValue, let aspect = parse(text) else {
+                throw AgentToolError("\(key)[\(index)] must be one of \(choices).")
+            }
+            if !result.contains(aspect) {
+                result.append(aspect)
+            }
+        }
+        return result
+    }
 }
 
 /// What agents read about takes (list_takes and get_take): times in seconds, places on
@@ -159,6 +179,14 @@ enum TakeDescription {
         detail["look"] = lookJSON(editSettings.exportStyle)
         detail["canvas"] = canvasJSON(editSettings.canvas, source: editSettings.contentSize(source: source))
         detail["crop"] = cropJSON(editSettings.sourceCrop, path: editSettings.cropPath, source: source)
+        if let reframe = editSettings.activeReframe {
+            detail["reframed"] = [
+                "shape": .string(AgentAspect.name(reframe.aspect)),
+                "rect": AgentCoordinates.json(sourceRect: reframe.crop),
+                "follows_action": .bool(reframe.path != nil),
+                "note": "A frame of the canvas's shape picked from the picture, following the clicks, typing and zooms."
+            ]
+        }
         detail["motion"] = motionJSON(editSettings, timeline: timeline)
         detail["camera_moves"] = .array(editSettings.cameraMoves.map(cameraMoveJSON))
         let audio: JSONValue = [
@@ -360,7 +388,8 @@ enum TakeDescription {
         return [
             "aspect": .string(AgentAspect.name(canvas.aspect)),
             "resolution": .string(canvas.resolution.rawValue),
-            "output_size": .string("\(Int(size.width))x\(Int(size.height))")
+            "output_size": .string("\(Int(size.width))x\(Int(size.height))"),
+            "reframes": .bool(canvas.reframes)
         ]
     }
 

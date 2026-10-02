@@ -63,6 +63,9 @@ struct LaunchDemoOptions: Equatable {
     /// A look's name; `nil` keeps the take's look.
     var look: String?
     var aspect: OutputAspect?
+    /// Fill a shape other than the picture's by following the action; `nil` reframes
+    /// when `aspect` is given and leaves the take's choice otherwise.
+    var reframe: Bool?
     var pace: LaunchDemoPace = .snappy
     /// At every cut; `nil` for straight cuts.
     var transition: CutTransitionStyle? = .zoomBlur
@@ -89,6 +92,7 @@ extension LaunchDemoOptions {
             }
             aspect = parsed
         }
+        reframe = try arguments.bool("reframe")
         pace = try arguments.choice("pace", LaunchDemoPace.self) ?? .snappy
         if let name = try arguments.string("transition") {
             switch AgentEdits.parseTransition(name) {
@@ -236,7 +240,10 @@ struct LaunchDemoRecipe {
         }
         if let aspect = options.aspect {
             settings.canvas.aspect = aspect
+            settings.canvas.reframes = options.reframe ?? true
             report.changes.append("Shape \(AgentAspect.name(aspect)).")
+        } else if let reframe = options.reframe {
+            settings.canvas.reframes = reframe
         }
 
         let timeline = makeTimeline(take: take, analysis: analysis, report: &report)
@@ -266,6 +273,12 @@ struct LaunchDemoRecipe {
             report.changes.append("Straight cuts with audio fades, silent sped-up parts, motion blur and a spring camera.")
         }
 
+        if settings.canvas.reframes {
+            settings.reframe = Reframer.reframe(settings, keyframes: keyframes, take: take)
+            if settings.reframe != nil {
+                report.changes.append("Reframed for \(AgentAspect.name(settings.canvas.aspect)): the frame follows the clicks, typing and zooms.")
+            }
+        }
         addTiltIn(&settings, timeline: timeline, take: take, report: &report)
         report.beats = Self.beatTimes(analysis.beats, in: timeline)
         addText(&settings, timeline: timeline, report: &report)

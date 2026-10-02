@@ -124,6 +124,12 @@ extension AgentEdits {
             canvas.aspect = aspect
             notes.append("Shape \(AgentAspect.name(aspect)).")
         }
+        if let reframes = try arguments.bool("reframe") {
+            canvas.reframes = reframes
+            notes.append(reframes
+                ? "Reframes to fill the shape, following the clicks, typing and zooms."
+                : "Fits the whole picture in the shape.")
+        }
         if let text = try arguments.string("resolution") {
             guard let resolution = parseResolution(text) else {
                 throw AgentToolError("resolution must be 720p, 1080p, 1440p, 4k or source (got \"\(text)\").")

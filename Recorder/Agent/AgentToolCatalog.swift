@@ -82,7 +82,8 @@ enum AgentToolCatalog {
         will look (rendered: true, with zooms, background, text and effects). Pick explicit times, or a \
         count spread evenly over the whole take or a range. layout "sheet" (default) tiles up to 24 frames \
         into one labeled contact sheet; "frames" returns up to 6 separate, larger images. grid: true draws \
-        a 0–1 coordinate grid (origin top-left) on raw frames, for reading positions to crop, zoom or blur.
+        a 0–1 coordinate grid (origin top-left) on raw frames, for reading positions to crop, zoom or blur. \
+        With rendered, aspect previews the edit at another shape the way export_video aspects makes it.
         """,
         inputSchema: Schema.object([
             ("take_id", takeID),
@@ -98,7 +99,9 @@ enum AgentToolCatalog {
             )),
             ("rendered", Schema.boolean("Show frames as they will export (default false: the raw recording).")),
             ("layout", Schema.string("One contact sheet, or separate frames.", oneOf: ["sheet", "frames"])),
-            ("grid", Schema.boolean("Draw a 0–1 coordinate grid on raw frames (default false)."))
+            ("grid", Schema.boolean("Draw a 0–1 coordinate grid on raw frames (default false).")),
+            ("aspect", Schema.string("With rendered: show the edit at this shape, reframed to follow the action.", oneOf: AgentAspect.names.map { $0.1 })),
+            ("reframe", Schema.boolean("With aspect: false fits the whole picture instead of reframing (default true)."))
         ], required: ["take_id"]),
         annotations: MCPTool.Annotations(readOnly: true, idempotent: true)
     )

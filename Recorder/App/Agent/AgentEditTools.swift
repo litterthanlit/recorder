@@ -159,6 +159,8 @@ enum AgentEditTools {
         let notes = try edit(&after, take)
         ZoomKeyframeEditor.resolveOverlaps(&after.keyframes)
         after.keyframes.sort { $0.startTime < $1.startTime }
+        // The editor does this for an open take, as part of the same edit.
+        after.refreshReframe(take: take, since: before)
         if after != before {
             project.keyframes = after.keyframes
             project.editSettings = after.editSettings

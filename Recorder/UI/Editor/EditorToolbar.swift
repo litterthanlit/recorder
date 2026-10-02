@@ -128,6 +128,11 @@ private struct CanvasShapeMenu: View {
                 }
             }
             .pickerStyle(.inline)
+            Divider()
+            // Off: the whole picture sits on the background. On: a crop of the canvas's
+            // shape follows the clicks, typing and zooms, like a camera operator.
+            Toggle("Reframe to Fill the Shape", isOn: reframeBinding)
+                .disabled(!editor.canReframe)
         } label: {
             Label(editor.editSettings.canvas.aspect.label, systemImage: "aspectratio")
                 .labelStyle(.titleAndIcon)
@@ -136,6 +141,13 @@ private struct CanvasShapeMenu: View {
         .fixedSize()
         .help("Shape of the video")
         .accessibilityLabel("Video shape, \(editor.editSettings.canvas.aspect.label)")
+    }
+
+    private var reframeBinding: Binding<Bool> {
+        Binding(
+            get: { editor.reframes },
+            set: { editor.setReframes($0) }
+        )
     }
 }
 

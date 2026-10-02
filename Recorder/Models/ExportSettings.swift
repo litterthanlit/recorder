@@ -379,6 +379,9 @@ struct ProjectEditSettings: Codable, Equatable {
     /// The crop moving with a window over the take, keeping `sourceCrop`'s shape; `nil`
     /// holds it still. Only with a `sourceCrop`.
     var cropPath: CropPath?
+    /// The video recomposed for a canvas shape other than the picture's, following the
+    /// action (see `Reframer`); used while the canvas has that shape.
+    var reframe: Reframing?
     /// A transition at every cut; `nil` cuts straight.
     var cutTransition: CutTransition?
     /// 3D moves of the recording's frame (source time).
@@ -593,6 +596,7 @@ extension ProjectEditSettings {
         case blurRegions
         case sourceCrop
         case cropPath
+        case reframe
         case cutTransition
         case cameraMoves
     }
@@ -628,6 +632,7 @@ extension ProjectEditSettings {
         if let crop = sourceCrop, let path = try? container.decodeIfPresent(CropPath.self, forKey: .cropPath) {
             cropPath = path.sanitized(shape: crop.height / crop.width)
         }
+        reframe = (try? container.decodeIfPresent(Reframing.self, forKey: .reframe))?.flatMap { $0.sanitized() }
         cutTransition = try? container.decodeIfPresent(CutTransition.self, forKey: .cutTransition)
         cameraMoves = (try? container.decodeIfPresent([CameraMove].self, forKey: .cameraMoves)) ?? []
     }
