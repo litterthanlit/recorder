@@ -61,25 +61,17 @@ enum AgentTakeTools {
         let timeBase = try AgentTimeBase.read(arguments, default: rendered ? .output : .source)
         let moments = try frameMoments(arguments, take: take, timeBase: timeBase, asSheet: asSheet)
 
-        // The renderer draws the recorded cursor with the system's own images.
-        SystemCursorImages.shared.load()
         context.progress.report(0.02, "Reading \(moments.count) frame\(moments.count == 1 ? "" : "s")")
-        let project = take.project
-        let source = CGSize(width: project.metadata.width, height: project.metadata.height)
-        let request = AgentFrameRenderer.Request(
-            videoURL: project.videoURL,
-            cameraURL: take.editSettings.camera.isVisible && project.hasCameraTrack ? project.cameraURL : nil,
+        let images = try await renderFrames(
+            take.project,
+            snapshot: EditorSnapshot(keyframes: take.keyframes, editSettings: take.editSettings),
             moments: moments,
             rendered: rendered,
-            keyframes: take.keyframes,
-            renderSettings: CompositionRenderSettings(project: project, editSettings: take.editSettings),
-            canvasSize: take.editSettings.canvasPixelSize(source: source),
-            sourceSize: source,
             asSheet: asSheet,
             grid: grid && !rendered,
-            labelTimeBase: timeBase
+            labelTimeBase: timeBase,
+            progress: context.progress
         )
-        let images = try await AgentFrameRenderer.render(request, progress: context.progress)
 
         let frames: [JSONValue] = moments.enumerated().map { index, moment in
             var frame: [String: JSONValue] = [
@@ -109,6 +101,37 @@ enum AgentTakeTools {
             summary: label,
             images: images.map { (data: $0, mimeType: "image/jpeg") }
         )
+    }
+
+    /// JPEG images of `moments` of a take with the edit `snapshot`.
+    static func renderFrames(
+        _ project: RecorderProject,
+        snapshot: EditorSnapshot,
+        moments: [AgentFrameMoment],
+        rendered: Bool,
+        asSheet: Bool,
+        grid: Bool,
+        labelTimeBase: AgentTimeBase,
+        progress: MCPProgress
+    ) async throws -> [Data] {
+        // The renderer draws the recorded cursor with the system's own images.
+        SystemCursorImages.shared.load()
+        let settings = snapshot.editSettings
+        let source = CGSize(width: project.metadata.width, height: project.metadata.height)
+        let request = AgentFrameRenderer.Request(
+            videoURL: project.videoURL,
+            cameraURL: settings.camera.isVisible && project.hasCameraTrack ? project.cameraURL : nil,
+            moments: moments,
+            rendered: rendered,
+            keyframes: snapshot.keyframes,
+            renderSettings: CompositionRenderSettings(project: project, editSettings: settings),
+            canvasSize: settings.canvasPixelSize(source: source),
+            sourceSize: source,
+            asSheet: asSheet,
+            grid: grid,
+            labelTimeBase: labelTimeBase
+        )
+        return try await AgentFrameRenderer.render(request, progress: progress)
     }
 
     /// The moments to show, each on both clocks (`output` is nil where the edit cut it).

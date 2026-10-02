@@ -2,23 +2,26 @@
 
 Trace (the repo, target and module are still called Recorder): a native macOS 14+ menu
 bar screen recorder for product demos. Area/window/display capture, auto zoom on clicks,
-a multi-track editor (cuts, speed, zooms, text, blur, keystrokes, looks) and MP4, HEVC,
-ProRes and GIF export. Swift 5 language mode, SwiftUI + AppKit, ScreenCaptureKit,
-AVFoundation, Core Image. README.md lists features; DEMO.md is the user-facing workflow.
+a multi-track editor (cuts, speed and ramps, crop, zooms, animated text, blur, keystrokes,
+cut transitions, 3D moves, looks), MP4, HEVC, ProRes and GIF export, and an MCP server
+(`Trace --mcp`) so AI agents can edit and export takes. Swift 5 language mode, SwiftUI +
+AppKit, ScreenCaptureKit, AVFoundation, Core Image. README.md lists features; DEMO.md is
+the user-facing workflow.
 
 ## Verifying changes
 
 - Cloud sessions run on Linux: there is no Swift toolchain or Xcode. Push to the working
   branch and let `.github/workflows/ci.yml` (macos-15) check it: `swift test`, a signing
-  build-settings check, and an `xcodebuild` app build with signing off. Read results with
+  build-settings check, an `xcodebuild` app build with signing off, and
+  `scripts/mcp-smoke.py` against the built `Trace --mcp`. Read results with
   the GitHub MCP tools (`actions_list` → `list_workflow_runs` / `list_workflow_jobs`,
   `get_job_logs`). Job logs are large: fetch with `tail_lines` and grep for `error:` and
   `✘`.
 - CI proves it compiles and the pure logic is right. Capture, preview and export have not
   run on a real Mac since the redesign (September 2026); say so rather than claiming they
   work. See [Verify on a Mac](#verify-on-a-mac).
-- Testable logic belongs in the SwiftPM target `RecorderCore`: everything under `Zoom/`,
-  `Composition/`, `Models/` and `Timeline/`, plus `Editor/ZoomKeyframeEditor.swift` and
+- Testable logic belongs in the SwiftPM target `RecorderCore`: everything under `Agent/`,
+  `Zoom/`, `Composition/`, `Models/` and `Timeline/`, plus `Editor/ZoomKeyframeEditor.swift` and
   `Editor/EditHistory.swift`. Core files import Foundation/CoreGraphics only (no AppKit,
   SwiftUI or AVFoundation); colours are `RGBAColor`. App-only files added to `Editor/`
   need a Package.swift `exclude` entry. Tests use Swift Testing, one suite file per area
@@ -39,7 +42,17 @@ AVFoundation, Core Image. README.md lists features; DEMO.md is the user-facing w
   in source space; then the zoom crop fitted on the background; then spotlight, camera,
   text, keystrokes and watermark in output space. Fixed sizes are designed at 1080p and
   scaled by `CanvasLayout.referenceUnit`. Text layout is shared with the canvas through
-  `TextPlateLayout`, so the selection box fits the drawn text.
+  `TextPlateLayout`, so the selection box fits the drawn text. The source crop
+  (`ProjectEditSettings.sourceCrop`, `SourceCrop`) comes first: it's where the zoom rests
+  (`ZoomInterpolator(base:)`) and sets the content size the canvas follows. `RenderFeatures`
+  gates the newer effects (animated text, cut transitions, 3D moves) so default settings
+  take the old path. Transitions are timed in output time (the renderer takes
+  `outputTime`); 3D moves warp the framed picture with `CIPerspectiveTransform` over a
+  backdrop drawn without its flat shadow.
+- **Speed ramps** (`EditTimeline.speedRamp`) ease speed changes between touching segments:
+  only the mapping inside a segment and `compositionPlan` change, never a segment's output
+  duration. `AudioEnvelope` fades audio at cuts and silences pieces above 2.5×
+  (`AudioMixSettings.cutFades` / `muteSpedUp`).
 - **Preview**: `AVPlayer` plays a composition of the edit (`TimelineCompositionBuilder`);
   `CompositorPreviewHost` renders each display-link tick into an
   `AVSampleBufferDisplayLayer`, mapping player time to source time.
@@ -53,6 +66,17 @@ AVFoundation, Core Image. README.md lists features; DEMO.md is the user-facing w
   `beginInteractiveEdit` / `endInteractiveEdit` (`EditorSlider` does this) so a drag is one
   undo step. The playhead lives in `EditorPlayback` so 20 Hz ticks only redraw views that
   observe it. One `EditorSelection` (clip, zoom, text, blur) drives the inspector and canvas.
+- **Agents (MCP)**: `TraceMain` runs `MCPStdioServer` for `--mcp` (never creating
+  `AppState`). `MCPServer` (Core, both protocol eras) answers `tools/list` and prompts
+  itself and forwards `tools/call` over a Unix socket (`AgentBridge`, same user only) to
+  the app's `AgentToolHost` (main actor, `App/Agent/`), which `AgentBridgeController`
+  starts while Settings › Agents › "Allow AI agents" is on. Edits are pure functions over
+  `EditorSnapshot` in Core (`AgentEdits`, `AgentStyleEdits`, `LaunchDemoRecipe`); an open
+  take is changed through `ProjectEditor.applyExternalEdit` (one undo step), a closed one
+  is saved with `ProjectStore.saveEdits` and its undo kept in `AgentEditJournal`, which
+  hands it to the editor when the take opens. `TakeAnalyzer` (Core) finds what to cut
+  from the recorded input plus `AgentMediaScanner`'s frame times, screen changes and mic
+  speech. New takes record which app was in front (`AppFocusSampler` → `InputLog.appFocus`).
 - **UI map**: `UI/EditorView.swift` (layout and key commands), `UI/Editor/` (toolbar,
   inspector panels, selection inspector, canvas overlays, transport, export sheet),
   `UI/TimelineView.swift` + `UI/Timeline/` (tracks, thumbnails and waveform), `UI/Capture/`
@@ -61,8 +85,9 @@ AVFoundation, Core Image. README.md lists features; DEMO.md is the user-facing w
   host SwiftUI views (`EditorToolbarController`).
 - **Storage**: `ProjectStore` in `Models/Project.swift`. Projects live in
   `~/Movies/Trace/<uuid>.recorder/`; `LibraryMigration` moves bundles from the old
-  `~/Movies/Recorder`. `ProjectFormat.current` versions settings and metadata: a newer
-  project is refused, never overwritten. Decoding is tolerant (`decodeIfPresent ?? default`,
+  `~/Movies/Recorder`. `ProjectFormat.current` (3 since the crop, transitions, 3D moves
+  and text animation) versions settings and metadata: a newer project is refused, never
+  overwritten. Decoding is tolerant (`decodeIfPresent ?? default`,
   enums with fallback `init(from:)`), and legacy keys (`trimStart`/`trimEnd`,
   `backgroundEnabled`) are still written. Saving goes through `ProjectAutosaver`.
   Looks: `~/Library/Application Support/Trace/styles.json`. Export and recording
@@ -81,6 +106,14 @@ AVFoundation, Core Image. README.md lists features; DEMO.md is the user-facing w
   contexts; a mismatch here once mirrored every overlay.
 - Clocks: t = 0 is the first screen frame's host time. Clicks, keys, mic audio (converted
   from the capture session clock) and the camera track are placed relative to it.
+- Agent tools: a new tool needs an `MCPTool` in `AgentToolCatalog.tools` (that order is
+  the `tools/list` order, which clients cache) and a case in `AgentToolHost.run`
+  (`AgentBridgeController.swift`); edits go through `AgentEditTools.apply` so each call is
+  one undo step named `AgentEdits.actionPrefix + …`. Agents see rects and points
+  normalized with a top-left origin (`AgentCoordinates` converts) and times in source
+  seconds unless `time_base` is `"output"`. Errors are `AgentToolError`s that say how to
+  fix the call. In `--mcp` mode nothing but JSON-RPC may reach stdout (the smoke test
+  fails on any other line).
 - The app icon is generated: `python3 scripts/make-icon.py` rewrites
   `Assets.xcassets/AppIcon.appiconset`.
 - Signing: `Config/Signing.xcconfig` is the target's base config; a git-ignored
@@ -97,6 +130,9 @@ AVFoundation, Core Image. README.md lists features; DEMO.md is the user-facing w
     computed properties, and give ternaries explicit types.
   - Name clashes between views and Core types (a view called `TimelineRuler` hid the Core
     enum): check before naming a view.
+  - Key paths into tuples (`plan.map(\.speed)` on an array of tuples); use a closure.
+  - Enum cases called `none` next to Optionals (`.none` means `nil` there); pick another
+    name, like `straight`.
 
 ## Verify on a Mac
 
@@ -119,7 +155,27 @@ Nothing below has run on real hardware. In rough order of risk:
 6. **Library migration** from `~/Movies/Recorder`, and that renaming the app to Trace
    kept the Screen Recording and Accessibility permissions.
 7. `scripts/release.sh` end to end with a Developer ID certificate.
+8. **Agents**: turn on Settings › Agents, run `claude mcp add --scope user trace --
+   …/Trace.app/Contents/MacOS/Trace --mcp`, and list the tools with
+   `npx @modelcontextprotocol/inspector …/Trace --mcp`. With Trace quit, a call launches it
+   hidden (no panel or onboarding); with access off, a call returns the instructions and
+   launches nothing. An open take updates live and ⌘Z undoes "Agent: …"; a closed take's
+   edit is saved, the `undo` tool reverts it, and opening the take afterwards keeps that
+   history. `view_frames` (rendered) matches the export; `export_video` writes a file.
+9. **App focus**: a take with a detour into another app has `appFocus` in `inputs.json`
+   (no window titles), Trace's own panel doesn't count, and `set_crop app` frames exactly
+   the window, on a Retina display and on a second display with a negative origin.
+10. **Crop and motion**: preview matches export for a crop, each text animation, smooth
+    speed changes (audio in step), transitions with audio fades and muting, and 3D moves
+    (the shadow follows the tilted picture, the spotlight the cursor). The preview lies
+    flat while aiming a zoom, cropping or editing blur.
+11. **make_launch_demo** on a messy take (idle start, a detour, a slow page load): the
+    result reads well at 16:9 and 9:16, and `analyze_take` on a ten-minute take finishes
+    within a couple of minutes.
 
 Known limits: resizing a window mid-take isn't followed (the capture size is fixed at
 start); the cursor sprite ignores the Accessibility cursor-size setting; GIFs are capped
-at 30 s and 720 px wide.
+at 30 s and 720 px wide. App focus follows only the frontmost app's front window. Text
+animations and 3D moves are timed in source time, so they play faster inside sped-up
+parts. A 3D tilt needs a look with a background. Agents edit and export; they don't
+record, and can't choose a picture background.

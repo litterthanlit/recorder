@@ -5,7 +5,7 @@ import Foundation
 enum AgentToolCatalog {
     static var tools: [MCPTool] {
         [
-            listTakes, getTake, analyzeTake, viewFrames,
+            listTakes, getTake, analyzeTake, viewFrames, makeLaunchDemo,
             editTimeline, setCrop, editZooms, editText, editBlur, editCameraMoves, setStyle, undo,
             exportVideo, exportStatus, openTake
         ]
@@ -122,9 +122,14 @@ enum AgentToolCatalog {
     - Each edit tool call is one undo step named "Agent: …"; undo reverts your last one.
     - Check your work: view_frames with rendered true shows frames exactly as they will export.
 
-    Typical flow: list_takes → analyze_take (what to cut) → view_frames (grid true, to see \
-    what's on screen and where) → edit_timeline (start from the suggested operations) → \
-    set_crop (only the product's window) → edit_zooms, edit_text, edit_blur, \
+    Fastest path to a launch demo: list_takes → view_frames (to see the steps and write \
+    captions) → make_launch_demo (title, tagline, captions; it cuts, crops, zooms and animates \
+    in one step) → view_frames rendered true → refine with the edit tools → export_video.
+
+    Step by step instead: analyze_take (what to cut) → edit_timeline (start from its suggested \
+    operations) → set_crop (only the product's window) → edit_zooms, edit_text, edit_blur, \
     edit_camera_moves, set_style → view_frames rendered true → export_video.
+
+    Never leave private information on screen: hide it with edit_blur.
     """
 }

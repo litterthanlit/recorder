@@ -110,6 +110,16 @@ enum AgentEditTools {
         return result(summary, notes: ["Undid \"\(undone.actionName)\"."], project: project, snapshot: undone.snapshot, live: false)
     }
 
+    /// An edit as applied: the take and its state afterwards.
+    struct Applied {
+        let summary: ProjectSummary
+        let notes: [String]
+        let project: RecorderProject
+        let snapshot: EditorSnapshot
+        /// Made in the open editor rather than on disk.
+        let live: Bool
+    }
+
     /// Applies `edit` to a take: live in the open editor, or on disk (remembered so the
     /// undo tool can take it back).
     static func apply(
@@ -118,6 +128,17 @@ enum AgentEditTools {
         _ context: AgentToolContext,
         edit: (inout EditorSnapshot, AgentEditTake) throws -> [String]
     ) throws -> JSONValue {
+        let applied = try applyEdit(title, arguments, context, edit: edit)
+        return result(applied.summary, notes: applied.notes, project: applied.project, snapshot: applied.snapshot, live: applied.live)
+    }
+
+    /// `apply`, returning the take as it is afterwards.
+    static func applyEdit(
+        _ title: String,
+        _ arguments: AgentArguments,
+        _ context: AgentToolContext,
+        edit: (inout EditorSnapshot, AgentEditTake) throws -> [String]
+    ) throws -> Applied {
         let summary = try context.resolveTake(arguments)
         let looks = StyleLibraryStore.load().allPresets
         let actionName = AgentEdits.actionPrefix + title
@@ -128,7 +149,7 @@ enum AgentEditTools {
             try editor.applyExternalEdit(actionName) { snapshot in
                 notes = try edit(&snapshot, take)
             }
-            return result(summary, notes: notes, project: editor.project, snapshot: editor.currentSnapshot, live: true)
+            return Applied(summary: summary, notes: notes, project: editor.project, snapshot: editor.currentSnapshot, live: true)
         }
 
         var project = try context.loadProject(summary)
@@ -144,7 +165,7 @@ enum AgentEditTools {
             try save(project)
             context.journal.record(before, actionName: actionName, for: summary.id)
         }
-        return result(summary, notes: notes, project: project, snapshot: after, live: false)
+        return Applied(summary: summary, notes: notes, project: project, snapshot: after, live: false)
     }
 
     private static func requiredOperations(_ arguments: AgentArguments) throws -> [AgentArguments] {

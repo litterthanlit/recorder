@@ -207,6 +207,65 @@ extension AgentToolCatalog {
         annotations: MCPTool.Annotations(destructive: true)
     )
 
+    /// A caption: its text, or {text, at}.
+    static var launchCaption: JSONValue {
+        let timed = Schema.object([
+            ("text", Schema.string("What it says.")),
+            ("at", Schema.time("When it comes on, in source time (the recording's clock)."))
+        ], required: ["text"])
+        return .object([
+            "description": "A caption's text, or {text, at}.",
+            "anyOf": .array([Schema.string("What it says."), timed])
+        ])
+    }
+
+    static let makeLaunchDemo = MCPTool(
+        name: "make_launch_demo",
+        title: "Make a launch demo",
+        description: """
+        Turns a take into a motion launch demo in one step (one undo step). It reads the recording \
+        like analyze_take, then trims the lead-in and tail, cuts pauses and detours to other apps \
+        (never speech), speeds through waits with eased speed changes, crops to the app's window \
+        (newer takes), remakes the auto zooms, turns on motion blur and the spring camera, opens with \
+        a 3D tilt-in, adds transitions and audio fades at cuts, and places the title, tagline and \
+        captions, each up long enough to read. It rebuilds the timeline from the whole recording and \
+        replaces the text when given some; blur boxes and manual zooms stay. Returns what it did, \
+        where each piece of text landed (output time), where the actions land (beats_output) and a \
+        rendered contact sheet. Refine with the other edit tools. Reading a long recording takes a \
+        while: after wait_seconds it returns status "running"; call it again.
+        """,
+        inputSchema: Schema.object([
+            ("take_id", takeID),
+            ("title", Schema.string("A short title as the video opens, like the product's name.")),
+            ("tagline", Schema.string("A line under the title: what the product does, in a few words.")),
+            ("captions", Schema.array(
+                of: launchCaption,
+                "Short captions for the steps, in order. Without at, they're spread over the video and land on actions.",
+                maxItems: LaunchDemoOptions.maximumCaptions
+            )),
+            ("app", Schema.string("The app the demo is about (default: the one in front longest). The video is cropped to its window and detours away from it are cut.")),
+            ("look", Schema.string("A look's name, like \"Vivid\" or \"Midnight\" (default: keep the take's look).")),
+            ("aspect", Schema.string("Video shape: \(AgentAspect.choices) (default: keep the take's).")),
+            ("pace", Schema.string(
+                "How tight: relaxed (only long pauses go, waits 2–4×), snappy (the default: pauses over 1.5 s, waits 4–8×) or punchy (every pause, waits 6–12×).",
+                oneOf: LaunchDemoPace.allCases.map(\.rawValue)
+            )),
+            ("transition", Schema.string(
+                "At cuts (default zoom_blur).",
+                oneOf: CutTransitionStyle.allCases.map(\.rawValue) + ["none"]
+            )),
+            ("text_animation", Schema.string(
+                "How all the text comes on (default: the title and tagline rise, captions pop).",
+                oneOf: TextAnimation.allCases.map(\.rawValue)
+            )),
+            ("tilt_in", Schema.boolean("Open with a 3D tilt-in (default true; needs a look with a background).")),
+            ("crop_to_app", Schema.boolean("Crop to the app's window when the take recorded it (default true).")),
+            ("preview", Schema.boolean("Return a rendered contact sheet of the result (default true).")),
+            ("wait_seconds", Schema.number("How long to wait for the recording to be read (default 40).", minimum: 0, maximum: 600))
+        ], required: ["take_id"]),
+        annotations: MCPTool.Annotations(destructive: true)
+    )
+
     static let setStyle = MCPTool(
         name: "set_style",
         title: "Look and shape",

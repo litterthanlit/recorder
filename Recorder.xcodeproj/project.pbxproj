@@ -142,6 +142,8 @@
 		B20000000000000000000086 /* CameraMoves.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008A /* CameraMoves.swift */; };
 		B20000000000000000000087 /* AppFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008B /* AppFocus.swift */; };
 		B20000000000000000000088 /* AppFocusSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008C /* AppFocusSampler.swift */; };
+		B20000000000000000000089 /* AgentLaunchDemoTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008D /* AgentLaunchDemoTools.swift */; };
+		B2000000000000000000008A /* LaunchDemoRecipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008E /* LaunchDemoRecipe.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -284,6 +286,8 @@
 		A2000000000000000000008A /* CameraMoves.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraMoves.swift; sourceTree = "<group>"; };
 		A2000000000000000000008B /* AppFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFocus.swift; sourceTree = "<group>"; };
 		A2000000000000000000008C /* AppFocusSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFocusSampler.swift; sourceTree = "<group>"; };
+		A2000000000000000000008D /* AgentLaunchDemoTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentLaunchDemoTools.swift; sourceTree = "<group>"; };
+		A2000000000000000000008E /* LaunchDemoRecipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchDemoRecipe.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -574,6 +578,7 @@
 				A2000000000000000000007D /* VisualChange.swift */,
 				A2000000000000000000007E /* TakeAnalyzer.swift */,
 				A2000000000000000000007F /* TakeAnalysisReport.swift */,
+				A2000000000000000000008E /* LaunchDemoRecipe.swift */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -590,6 +595,7 @@
 				A2000000000000000000007B /* AgentExportTools.swift */,
 				A20000000000000000000080 /* AgentMediaScanner.swift */,
 				A20000000000000000000081 /* AgentAnalysisTools.swift */,
+				A2000000000000000000008D /* AgentLaunchDemoTools.swift */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -658,6 +664,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2000000000000000000008A /* LaunchDemoRecipe.swift in Sources */,
+				B20000000000000000000089 /* AgentLaunchDemoTools.swift in Sources */,
 				B20000000000000000000088 /* AppFocusSampler.swift in Sources */,
 				B20000000000000000000087 /* AppFocus.swift in Sources */,
 				B20000000000000000000086 /* CameraMoves.swift in Sources */,
