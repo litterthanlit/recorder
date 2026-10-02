@@ -92,6 +92,29 @@ Last, it checks rendered frames, fixes what's off and exports.
   emails and keys, and ask it to blur them (or press B). Pauses in narration may be
   tightened, so listen once.
 
+### Direct it as a storyboard
+
+For a more produced video, ask the agent to direct it (or pick the **storyboard_demo**
+prompt). It watches the take, then writes a storyboard: a handful of shots in the order you
+recorded them, each with a camera move and a few words of kinetic type.
+
+- **A hook in the first 2 s**: a short opening shot on a striking moment, with a title
+  and a push in.
+- **A payoff every 3–5 s**: a result appearing, a caption landing, a zoom arriving.
+- **The camera** zooms in, pushes slowly closer, pulls back to reveal, or pans from one
+  part of the screen to another; a still screen can float or orbit in 3D.
+
+Then it critiques the result: Trace renders stills where it matters and scores each one
+(readable text, text clear of what you clicked, the action in frame, not zoomed past
+sharp, something changing, no other app showing). It fixes the three worst, scores again,
+and the agent fixes what needs taste. Last, it exports 16:9, 9:16 and 1:1 from the same
+edit. The tall and square versions are reframed: a frame of that shape follows your clicks
+and typing, and text moves clear of the controls Reels, TikTok and Shorts put over the
+video.
+
+Shots play in recording order: Trace never jumps back. If the best moment is at the end,
+it's the payoff, not the opening.
+
 ## Export
 
 | Destination | Format | Quality | Notes |

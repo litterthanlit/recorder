@@ -131,6 +131,10 @@ enum AgentToolCatalog {
     captions) → make_launch_demo (title, tagline, captions; it cuts, crops, zooms and animates \
     in one step) → view_frames rendered true → refine with the edit tools → export_video.
 
+    Directed: view_frames and analyze_take → render_storyboard (shots in order, each with a camera \
+    move and kinetic type; a hook in the first 2 s, a payoff every 3–5 s) → critique_video (fix \
+    true; then fix what needs judgment) → export_video aspects ["16:9", "9:16", "1:1"].
+
     Step by step instead: analyze_take (what to cut) → edit_timeline (start from its suggested \
     operations) and edit_blur (its blur_operations) → set_crop app (only the product's window, \
     following it) → edit_zooms, edit_text, edit_blur, edit_camera_moves, set_style → \

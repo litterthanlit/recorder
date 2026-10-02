@@ -276,12 +276,16 @@ struct MCPServerTests {
         await server.receive(request(4, "prompts/get", ["name": "nope"]))
 
         let names = log.response(id: 1)?["result"]?["prompts"]?.arrayValue?.compactMap { $0["name"]?.stringValue }
-        #expect(names == ["launch_demo"])
+        #expect(names == ["launch_demo", "storyboard_demo"])
         #expect(log.response(id: 2)?["error"]?["code"]?.intValue == JSONRPC.invalidParams)
         let text = try #require(log.response(id: 3)?["result"]?["messages"]?.arrayValue?.first?["content"]?["text"]?.stringValue)
         #expect(text.contains("Acme"))
         #expect(text.contains("9:16"))
         #expect(log.response(id: 4)?["error"]?["code"]?.intValue == JSONRPC.invalidParams)
+
+        await server.receive(request(5, "prompts/get", ["name": "storyboard_demo", "arguments": ["product": "Acme"]]))
+        let directed = try #require(log.response(id: 5)?["result"]?["messages"]?.arrayValue?.first?["content"]?["text"]?.stringValue)
+        #expect(directed.contains("render_storyboard") && directed.contains("critique_video") && directed.contains("Acme"))
     }
 }
 

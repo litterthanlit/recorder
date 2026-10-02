@@ -34,7 +34,9 @@ speed up, annotate and export it in minutes.
 
 **Edit**
 - **Canvas** at the video's final shape (16:9, 9:16, 1:1, 4:3, 4:5 or as recorded), with
-  the same renderer as the export, so what you see is what you get.
+  the same renderer as the export, so what you see is what you get. **Reframe to fill** a
+  shape that differs from the recording's: a frame of that shape follows the clicks,
+  typing and zooms instead of shrinking the whole picture onto the background.
 - **Multi-track timeline**: clips with thumbnails, zooms, text, blur and the audio
   waveform. **Split** (S), **delete** clips, **trim** clip edges, **speed up** any clip
   (0.25–16×, pitch kept) or every idle stretch at once. Drags snap to the playhead and edges.
@@ -64,8 +66,9 @@ speed up, annotate and export it in minutes.
 ## Agents (MCP)
 
 An AI agent (Claude Code, Claude Desktop, Cursor or any MCP client) can edit your takes:
-cut them down, keep only your app on screen, turn them into a motion launch demo and
-export it.
+cut them down, keep only your app on screen, direct them as a storyboard of shots with
+camera moves and kinetic type, critique and fix the result, and export it at 16:9, 9:16
+and 1:1 from one timeline.
 
 1. In Trace, turn on **Settings › Agents › Allow AI agents**. It's off until you do.
 2. Connect your agent. The settings pane has copy buttons for both of these:
@@ -78,9 +81,10 @@ export it.
    { "mcpServers": { "trace": { "command": "/Applications/Trace.app/Contents/MacOS/Trace", "args": ["--mcp"] } } }
    ```
 
-3. Ask for what you want, or pick the **launch_demo** prompt in your client:
-   *"Turn my latest take into a 16:9 launch demo of Acme: cut the dead time and the detour
-   to Slack, keep only the Acme window, add a title and captions, then export an MP4."*
+3. Ask for what you want, or pick the **launch_demo** or **storyboard_demo** prompt in your
+   client: *"Turn my latest take into a launch demo of Acme: cut the dead time and the
+   detour to Slack, keep only the Acme window, add a title and captions, then export it at
+   16:9, 9:16 and 1:1."*
 
 | Tool | What it does |
 |------|--------------|
@@ -88,9 +92,11 @@ export it.
 | `analyze_take` | Finds the lead-in, tail, dead air, waits, detours into other apps and other apps' windows over yours, and suggests cuts and blurs. Speech is never cut |
 | `view_frames` | Frames as images: the raw recording (with a coordinate grid) or rendered exactly as it will export |
 | `make_launch_demo` | The whole pass in one step: trim, cut, speed through waits, crop to the app (following its window), hide other apps over it, zooms, a 3D tilt-in, transitions, title and captions |
+| `render_storyboard` | Directs the video from the agent's storyboard: shots on the recording, each with a camera move (zoom, push, pull, pan, 3D) and kinetic type, checked for a hook in the first 2 s and a payoff every 3–5 s |
+| `critique_video` | Scores stills of the finished video (readable text, text clear of the action, framing, sharpness, something changing, other apps hidden), shows the worst and fixes them, round after round |
 | `edit_timeline`, `set_crop`, `edit_zooms`, `edit_text`, `edit_blur`, `edit_camera_moves`, `set_style` | Precise edits |
 | `undo` | Takes back the agent's last edit |
-| `export_video`, `export_status` | MP4, HEVC, ProRes or GIF |
+| `export_video`, `export_status` | MP4, HEVC, ProRes or GIF; several shapes at once from the same edit, each reframed |
 | `open_take` | Shows the take in the editor |
 
 - **Every agent edit is one undo step**, named "Agent: …". An open take changes live in

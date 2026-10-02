@@ -48,7 +48,14 @@ the user-facing workflow.
   follows a window adds `cropPath` (`CropPath`, source time, built by
   `WindowCrop.following`): every point keeps the crop's shape, so the canvas never changes
   size, and the zoom rests on `CropMotion.base(at:)`; code that aims or draws a zoom asks
-  for the crop at that moment (`cropBase(at:)`), not `cropBase`. `RenderFeatures`
+  for the crop at that moment (`cropBase(at:)`), not `cropBase`. A canvas of another shape
+  can reframe (`CanvasSpec.reframes`): `Reframer` picks a crop of the canvas's shape inside
+  the window crop that follows clicks, typing, the pointer and zooms, kept in
+  `ProjectEditSettings.reframe`; renderer and editor read `shownCrop`/`shownCropPath`
+  (`windowMotion` is the crop without it). It's worked out again in the same edit whenever
+  the shape, crop or zooms change (`EditorSnapshot.refreshReframe`, from
+  `ProjectEditor.performEdit` and `AgentEditTools.applyEdit`), and `EditorSnapshot.variant`
+  makes other shapes of one edit (export_video aspects). `RenderFeatures`
   gates the newer effects (animated text, cut transitions, 3D moves) so default settings
   take the old path. Transitions are timed in output time (the renderer takes
   `outputTime`); 3D moves warp the framed picture with `CIPerspectiveTransform` over a
@@ -80,7 +87,12 @@ the user-facing workflow.
   is saved with `ProjectStore.saveEdits` and its undo kept in `AgentEditJournal`, which
   hands it to the editor when the take opens. `TakeAnalyzer` (Core) finds what to cut
   from the recorded input plus `AgentMediaScanner`'s frame times, screen changes and mic
-  speech. New takes record which app was in front, where its window was and which other
+  speech. Directed demos: `Storyboard` (render_storyboard's shots, in recording order) →
+  `StoryboardRecipe` (the timeline, zooms that start or settle in the cut-away time, 3D
+  moves, kinetic type, hook and payoff checks). `Critic` judges stills of the finished
+  video from `StillMeasurement`s (a `LumaGrid` of the still rendered without text, and
+  the text plates, measured by `AgentCritiqueRenderer`) and makes the fixes it can;
+  critique_video loops fix → measure again. New takes record which app was in front, where its window was and which other
   apps' windows lay over it (`AppFocusSampler` → `InputLog.appFocus`, `WindowStack`,
   `WindowCover`); `TakeAnalyzer.covers` turns those into cuts (big, nobody talking) and
   blur boxes, and detours are cut 0.05 s past each app switch so no other app flashes.
@@ -183,9 +195,18 @@ Nothing below has run on real hardware. In rough order of risk:
 11. **make_launch_demo** on a messy take (idle start, a detour, a slow page load): the
     result reads well at 16:9 and 9:16, and `analyze_take` on a ten-minute take finishes
     within a couple of minutes.
+12. **Reframing**: a 16:9 take at 9:16 and 1:1 with Reframe to Fill: preview matches
+    export, the frame follows clicks smoothly without hunting, zooms stay inside it, text
+    sits clear of the Reels controls, and `export_video aspects` writes one file per shape.
+13. **Storyboards and critique**: `render_storyboard` on a real take: each shot cuts in on
+    its move, pulls and pans read well, kinetic type lands on time. `critique_video`: a
+    title over a white page is flagged and the fix moves it somewhere readable, two rounds
+    of fixes don't undo each other, and 24 stills take seconds, not minutes.
 
-Known limits: resizing a window mid-take isn't followed (the capture size is fixed at
-start); the cursor sprite ignores the Accessibility cursor-size setting; GIFs are capped
+Known limits: shots play in recording order (Trace never jumps back, so a storyboard
+can't open on the ending); reframing and the critique follow recorded input (clicks,
+typing, the pointer) and brightness, not what the pixels mean, so taste stays the agent's.
+Resizing a window mid-take isn't followed (the capture size is fixed at start); the cursor sprite ignores the Accessibility cursor-size setting; GIFs are capped
 at 30 s and 720 px wide. App focus follows only the frontmost app's front window (a sheet
 counts as its document window), and covers only count windows in front of it. Zooms are
 aimed at fixed places in the recording, so a zoom held while its window is dragged is
