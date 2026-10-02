@@ -98,6 +98,15 @@
 		B2000000000000000000005A /* GIFWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005E /* GIFWriter.swift */; };
 		B2000000000000000000005B /* ExportOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005F /* ExportOptions.swift */; };
 		B2000000000000000000005C /* ExportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000060 /* ExportSheet.swift */; };
+		B2000000000000000000005D /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000061 /* JSONValue.swift */; };
+		B2000000000000000000005E /* JSONRPCMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000062 /* JSONRPCMessage.swift */; };
+		B2000000000000000000005F /* MCPCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000063 /* MCPCatalog.swift */; };
+		B20000000000000000000060 /* MCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000064 /* MCPServer.swift */; };
+		B20000000000000000000061 /* LineChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000065 /* LineChannel.swift */; };
+		B20000000000000000000062 /* AgentToolCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000066 /* AgentToolCatalog.swift */; };
+		B20000000000000000000063 /* AgentPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000067 /* AgentPrompts.swift */; };
+		B20000000000000000000064 /* TraceMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000068 /* TraceMain.swift */; };
+		B20000000000000000000065 /* MCPStdioServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000069 /* MCPStdioServer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -196,6 +205,15 @@
 		A2000000000000000000005E /* GIFWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GIFWriter.swift; sourceTree = "<group>"; };
 		A2000000000000000000005F /* ExportOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportOptions.swift; sourceTree = "<group>"; };
 		A20000000000000000000060 /* ExportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportSheet.swift; sourceTree = "<group>"; };
+		A20000000000000000000061 /* JSONValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONValue.swift; sourceTree = "<group>"; };
+		A20000000000000000000062 /* JSONRPCMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONRPCMessage.swift; sourceTree = "<group>"; };
+		A20000000000000000000063 /* MCPCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPCatalog.swift; sourceTree = "<group>"; };
+		A20000000000000000000064 /* MCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPServer.swift; sourceTree = "<group>"; };
+		A20000000000000000000065 /* LineChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineChannel.swift; sourceTree = "<group>"; };
+		A20000000000000000000066 /* AgentToolCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolCatalog.swift; sourceTree = "<group>"; };
+		A20000000000000000000067 /* AgentPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPrompts.swift; sourceTree = "<group>"; };
+		A20000000000000000000068 /* TraceMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraceMain.swift; sourceTree = "<group>"; };
+		A20000000000000000000069 /* MCPStdioServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPStdioServer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -233,6 +251,7 @@
 				A20000000000000000000012 /* Info.plist */,
 				A20000000000000000000013 /* Recorder.entitlements */,
 				C20000000000000000000011 /* Timeline */,
+				C20000000000000000000015 /* Agent */,
 			);
 			path = Recorder;
 			sourceTree = "<group>";
@@ -251,6 +270,8 @@
 				A20000000000000000000036 /* ActivationPolicyController.swift */,
 				A20000000000000000000037 /* SettingsStore.swift */,
 				A20000000000000000000038 /* WindowPresenters.swift */,
+				A20000000000000000000068 /* TraceMain.swift */,
+				C20000000000000000000016 /* Agent */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -446,6 +467,28 @@
 			path = Timeline;
 			sourceTree = "<group>";
 		};
+		C20000000000000000000015 /* Agent */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000061 /* JSONValue.swift */,
+				A20000000000000000000062 /* JSONRPCMessage.swift */,
+				A20000000000000000000063 /* MCPCatalog.swift */,
+				A20000000000000000000064 /* MCPServer.swift */,
+				A20000000000000000000065 /* LineChannel.swift */,
+				A20000000000000000000066 /* AgentToolCatalog.swift */,
+				A20000000000000000000067 /* AgentPrompts.swift */,
+			);
+			path = Agent;
+			sourceTree = "<group>";
+		};
+		C20000000000000000000016 /* Agent */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000069 /* MCPStdioServer.swift */,
+			);
+			path = Agent;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -510,6 +553,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000065 /* MCPStdioServer.swift in Sources */,
+				B20000000000000000000064 /* TraceMain.swift in Sources */,
+				B20000000000000000000063 /* AgentPrompts.swift in Sources */,
+				B20000000000000000000062 /* AgentToolCatalog.swift in Sources */,
+				B20000000000000000000061 /* LineChannel.swift in Sources */,
+				B20000000000000000000060 /* MCPServer.swift in Sources */,
+				B2000000000000000000005F /* MCPCatalog.swift in Sources */,
+				B2000000000000000000005E /* JSONRPCMessage.swift in Sources */,
+				B2000000000000000000005D /* JSONValue.swift in Sources */,
 				B2000000000000000000005C /* ExportSheet.swift in Sources */,
 				B2000000000000000000005B /* ExportOptions.swift in Sources */,
 				B2000000000000000000005A /* GIFWriter.swift in Sources */,
