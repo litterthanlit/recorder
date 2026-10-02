@@ -267,11 +267,11 @@ enum TakeDescription {
         case .wallpaper:
             backdrop["wallpaper"] = .string(background.wallpaper.rawValue)
         case .gradient:
-            backdrop["from"] = .string(hex(background.gradientStart))
-            backdrop["to"] = .string(hex(background.gradientEnd))
+            backdrop["from"] = .string(background.gradientStart.hexString)
+            backdrop["to"] = .string(background.gradientEnd.hexString)
             backdrop["angle"] = .finite(background.gradientAngle)
         case .solid:
-            backdrop["color"] = .string(hex(background.solidColor))
+            backdrop["color"] = .string(background.solidColor.hexString)
         case .image:
             backdrop["image"] = background.imageFileName.map { JSONValue.string($0) } ?? JSONValue.null
         case .none:
@@ -307,13 +307,6 @@ enum TakeDescription {
             "resolution": .string(canvas.resolution.rawValue),
             "output_size": .string("\(Int(size.width))x\(Int(size.height))")
         ]
-    }
-
-    static func hex(_ color: RGBAColor) -> String {
-        func byte(_ value: Double) -> Int {
-            Int((min(max(value, 0), 1) * 255).rounded())
-        }
-        return String(format: "#%02X%02X%02X", byte(color.red), byte(color.green), byte(color.blue))
     }
 
     static func isoDate(_ date: Date) -> String {

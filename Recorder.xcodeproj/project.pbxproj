@@ -120,6 +120,11 @@
 		B20000000000000000000070 /* AgentTakeTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000074 /* AgentTakeTools.swift */; };
 		B20000000000000000000071 /* AgentFrameRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000075 /* AgentFrameRenderer.swift */; };
 		B20000000000000000000072 /* AgentsSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000076 /* AgentsSettingsPane.swift */; };
+		B20000000000000000000073 /* AgentEdits.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000077 /* AgentEdits.swift */; };
+		B20000000000000000000074 /* AgentStyleEdits.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000078 /* AgentStyleEdits.swift */; };
+		B20000000000000000000075 /* AgentEditCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000079 /* AgentEditCatalog.swift */; };
+		B20000000000000000000076 /* AgentEditTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000007A /* AgentEditTools.swift */; };
+		B20000000000000000000077 /* AgentExportTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000007B /* AgentExportTools.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -240,6 +245,11 @@
 		A20000000000000000000074 /* AgentTakeTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTakeTools.swift; sourceTree = "<group>"; };
 		A20000000000000000000075 /* AgentFrameRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFrameRenderer.swift; sourceTree = "<group>"; };
 		A20000000000000000000076 /* AgentsSettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsSettingsPane.swift; sourceTree = "<group>"; };
+		A20000000000000000000077 /* AgentEdits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEdits.swift; sourceTree = "<group>"; };
+		A20000000000000000000078 /* AgentStyleEdits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStyleEdits.swift; sourceTree = "<group>"; };
+		A20000000000000000000079 /* AgentEditCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEditCatalog.swift; sourceTree = "<group>"; };
+		A2000000000000000000007A /* AgentEditTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEditTools.swift; sourceTree = "<group>"; };
+		A2000000000000000000007B /* AgentExportTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExportTools.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -512,6 +522,9 @@
 				A2000000000000000000006F /* TakeDescription.swift */,
 				A20000000000000000000070 /* FrameSampling.swift */,
 				A20000000000000000000071 /* AgentSetup.swift */,
+				A20000000000000000000077 /* AgentEdits.swift */,
+				A20000000000000000000078 /* AgentStyleEdits.swift */,
+				A20000000000000000000079 /* AgentEditCatalog.swift */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -524,6 +537,8 @@
 				A20000000000000000000073 /* AgentBridgeController.swift */,
 				A20000000000000000000074 /* AgentTakeTools.swift */,
 				A20000000000000000000075 /* AgentFrameRenderer.swift */,
+				A2000000000000000000007A /* AgentEditTools.swift */,
+				A2000000000000000000007B /* AgentExportTools.swift */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -592,6 +607,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000077 /* AgentExportTools.swift in Sources */,
+				B20000000000000000000076 /* AgentEditTools.swift in Sources */,
+				B20000000000000000000075 /* AgentEditCatalog.swift in Sources */,
+				B20000000000000000000074 /* AgentStyleEdits.swift in Sources */,
+				B20000000000000000000073 /* AgentEdits.swift in Sources */,
 				B20000000000000000000072 /* AgentsSettingsPane.swift in Sources */,
 				B20000000000000000000071 /* AgentFrameRenderer.swift in Sources */,
 				B20000000000000000000070 /* AgentTakeTools.swift in Sources */,

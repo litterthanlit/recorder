@@ -3,12 +3,6 @@ import AVFoundation
 import Foundation
 import SwiftUI
 
-/// The part of the editor that undo and redo restore.
-struct EditorSnapshot: Equatable {
-    var keyframes: [ZoomKeyframe]
-    var editSettings: ProjectEditSettings
-}
-
 /// What's selected in the editor: one item on the timeline.
 enum EditorSelection: Equatable {
     case clip(UUID)
@@ -244,6 +238,14 @@ final class ProjectEditor: ObservableObject {
         }
     }
 
+    /// Opens with an undo history already in place: AI agents' edits made while the take
+    /// was closed, so they can still be undone here.
+    convenience init(project: RecorderProject, history: EditHistory<EditorSnapshot>) {
+        self.init(project: project)
+        self.history = history
+        refreshUndoState()
+    }
+
     deinit {
         compositionTask?.cancel()
         exportTask?.cancel()
@@ -325,7 +327,7 @@ final class ProjectEditor: ObservableObject {
         guard let index = editSettings.textOverlays.firstIndex(where: { $0.id == id }) else { return }
         var updated = editSettings.textOverlays[index]
         change(&updated)
-        updated.center = CGPoint(x: min(max(updated.center.x, 0), 1), y: min(max(updated.center.y, 0), 1))
+        updated.center = TextOverlay.clampedCenter(updated.center)
         guard updated != editSettings.textOverlays[index] else { return }
         performEdit(actionName, coalescingKey: coalesce ? AnyHashable("text-\(id)-\(actionName)") : nil, continuous: continuous) {
             if let current = editSettings.textOverlays.firstIndex(where: { $0.id == id }) {
@@ -372,7 +374,7 @@ final class ProjectEditor: ObservableObject {
         guard let index = editSettings.blurRegions.firstIndex(where: { $0.id == id }) else { return }
         var updated = editSettings.blurRegions[index]
         change(&updated)
-        updated.rect = Self.clampedUnitRect(updated.rect)
+        updated.rect = BlurRegion.clampedRect(updated.rect)
         guard updated != editSettings.blurRegions[index] else { return }
         performEdit(actionName, coalescingKey: coalesce ? AnyHashable("blur-\(id)-\(actionName)") : nil, continuous: continuous) {
             if let current = editSettings.blurRegions.firstIndex(where: { $0.id == id }) {
@@ -388,18 +390,6 @@ final class ProjectEditor: ObservableObject {
         if selectedBlurID == id {
             select(nil)
         }
-    }
-
-    /// `rect` kept inside 0–1 and at least 2% across.
-    static func clampedUnitRect(_ rect: CGRect) -> CGRect {
-        let width = min(max(rect.width, 0.02), 1)
-        let height = min(max(rect.height, 0.02), 1)
-        return CGRect(
-            x: min(max(rect.minX, 0), 1 - width),
-            y: min(max(rect.minY, 0), 1 - height),
-            width: width,
-            height: height
-        )
     }
 
     /// Sets a text or blur item's span (source time), e.g. from a timeline drag.
@@ -661,15 +651,12 @@ final class ProjectEditor: ObservableObject {
 
     /// Replaces the auto zooms with fresh ones for `preset`; manual zooms stay.
     private func regenerateAutoZooms(for preset: ZoomPreset) {
-        let generator = AutoZoomGenerator(
-            settings: preset.settings,
-            frameWidth: CGFloat(project.metadata.width),
-            frameHeight: CGFloat(project.metadata.height)
+        keyframes = ZoomKeyframeEditor.replacingAutoZooms(
+            in: keyframes,
+            clicks: project.clickEvents,
+            preset: preset,
+            frameSize: CGSize(width: project.metadata.width, height: project.metadata.height)
         )
-        let autoKeyframes = generator.generate(from: project.clickEvents)
-        let manualKeyframes = keyframes.filter { $0.source == .manual }
-        keyframes = (autoKeyframes + manualKeyframes).sorted { $0.startTime < $1.startTime }
-        ZoomKeyframeEditor.resolveOverlaps(&keyframes)
         if let selectedKeyframeID, !keyframes.contains(where: { $0.id == selectedKeyframeID }) {
             select(nil)
         }
@@ -713,6 +700,45 @@ final class ProjectEditor: ObservableObject {
                 }
             }
         )
+    }
+
+    // MARK: - Outside edits (AI agents)
+
+    /// The edit as it is now, including changes not saved yet.
+    var currentSnapshot: EditorSnapshot {
+        snapshot
+    }
+
+    /// Applies an outside edit (an AI agent's) as one undo step named `actionName`. The
+    /// preview, timeline and inspector follow as they do for any edit.
+    func applyExternalEdit(_ actionName: String, _ change: (inout EditorSnapshot) throws -> Void) rethrows {
+        endInteractiveEdit()
+        var updated = snapshot
+        try change(&updated)
+        updated.keyframes.sort { $0.startTime < $1.startTime }
+        ZoomKeyframeEditor.resolveOverlaps(&updated.keyframes)
+        updated.keyframes.sort { $0.startTime < $1.startTime }
+        guard updated != snapshot else { return }
+        performEdit(actionName) {
+            keyframes = updated.keyframes
+            editSettings = updated.editSettings
+        }
+        if !selectionExists {
+            select(nil)
+        }
+        if playheadTime > outputDuration {
+            seek(to: outputDuration)
+        }
+    }
+
+    /// Undoes the last step if an agent made it (any step with `force`). Returns the
+    /// step's name, or `nil` when there was nothing it may undo.
+    @discardableResult
+    func undoAgentEdit(force: Bool) -> String? {
+        endInteractiveEdit()
+        guard let name = undoActionName, force || name.hasPrefix(AgentEdits.actionPrefix) else { return nil }
+        undo()
+        return name
     }
 
     // MARK: - Undo

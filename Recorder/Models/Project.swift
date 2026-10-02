@@ -428,6 +428,20 @@ enum ProjectStore {
         return try JSONDecoder().decode(ProjectEditSettings.self, from: data)
     }
 
+    /// `project` with its zooms and edit settings read again from disk: an AI agent may
+    /// have changed them since this copy was made (after a take, say). The copy's own are
+    /// kept where the files can't be read.
+    static func reloadingEdits(of project: RecorderProject) -> RecorderProject {
+        var current = project
+        if let keyframes = try? loadKeyframes(from: project.bundleURL) {
+            current.keyframes = keyframes
+        }
+        if let settings = try? loadEditSettings(from: project.bundleURL) {
+            current.editSettings = settings
+        }
+        return current
+    }
+
     static func loadProject(from bundleURL: URL) throws -> RecorderProject {
         let metadata = try loadMetadata(from: bundleURL)
         let events = try loadEvents(from: bundleURL)

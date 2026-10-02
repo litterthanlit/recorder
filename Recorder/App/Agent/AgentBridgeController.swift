@@ -60,6 +60,9 @@ final class AgentBridgeController: ObservableObject {
 @MainActor
 final class AgentToolHost: AgentBridgeHandler {
     private weak var appState: AppState?
+    /// Undo for agents' edits to takes that aren't open.
+    let journal = AgentEditJournal()
+    let exports = AgentExportJobs()
 
     init(appState: AppState) {
         self.appState = appState
@@ -73,7 +76,7 @@ final class AgentToolHost: AgentBridgeHandler {
         guard let appState else {
             return MCPToolResult.error("Trace is quitting.")
         }
-        let context = AgentToolContext(appState: appState, progress: progress)
+        let context = AgentToolContext(appState: appState, progress: progress, journal: journal, exports: exports)
         do {
             switch tool {
             case "list_takes":
@@ -84,6 +87,22 @@ final class AgentToolHost: AgentBridgeHandler {
                 return try await AgentTakeTools.viewFrames(arguments, context)
             case "open_take":
                 return try AgentTakeTools.openTake(arguments, context)
+            case "edit_timeline":
+                return try AgentEditTools.editTimeline(arguments, context)
+            case "edit_zooms":
+                return try AgentEditTools.editZooms(arguments, context)
+            case "edit_text":
+                return try AgentEditTools.editText(arguments, context)
+            case "edit_blur":
+                return try AgentEditTools.editBlur(arguments, context)
+            case "set_style":
+                return try AgentEditTools.setStyle(arguments, context)
+            case "undo":
+                return try AgentEditTools.undo(arguments, context)
+            case "export_video":
+                return try await AgentExportTools.exportVideo(arguments, context)
+            case "export_status":
+                return try await AgentExportTools.exportStatus(arguments, context)
             default:
                 return MCPToolResult.error(
                     "This copy of Trace doesn't have the \(tool) tool. Quit Trace and open it again so it matches the agent tools."
@@ -100,11 +119,14 @@ final class AgentToolHost: AgentBridgeHandler {
     }
 }
 
-/// What a tool sees: the app, and how to report progress.
+/// What a tool sees: the app, how to report progress, and the host's undo journal and
+/// export jobs.
 @MainActor
 struct AgentToolContext {
     let appState: AppState
     let progress: MCPProgress
+    let journal: AgentEditJournal
+    let exports: AgentExportJobs
 
     /// The take an agent named (`take_id`), or the newest one.
     func resolveTake(_ arguments: AgentArguments) throws -> ProjectSummary {
@@ -122,9 +144,14 @@ struct AgentToolContext {
                 editor: editor
             )
         }
+        let project = try loadProject(summary)
+        return AgentTakeState(project: project, keyframes: project.keyframes, editSettings: project.editSettings, editor: nil)
+    }
+
+    /// The take as saved on disk.
+    func loadProject(_ summary: ProjectSummary) throws -> RecorderProject {
         do {
-            let project = try ProjectStore.loadProject(from: summary.bundleURL)
-            return AgentTakeState(project: project, keyframes: project.keyframes, editSettings: project.editSettings, editor: nil)
+            return try ProjectStore.loadProject(from: summary.bundleURL)
         } catch ProjectStoreError.newerFormat {
             throw AgentToolError("\(summary.displayName) was saved by a newer version of Trace; update Trace to edit it.")
         } catch {

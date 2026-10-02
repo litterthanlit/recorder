@@ -4,7 +4,11 @@ import Foundation
 /// the instructions every client receives when it connects.
 enum AgentToolCatalog {
     static var tools: [MCPTool] {
-        [listTakes, getTake, viewFrames, openTake]
+        [
+            listTakes, getTake, viewFrames,
+            editTimeline, editZooms, editText, editBlur, setStyle, undo,
+            exportVideo, exportStatus, openTake
+        ]
     }
 
     static func tool(named name: String) -> MCPTool? {
@@ -99,7 +103,8 @@ enum AgentToolCatalog {
     - Each edit tool call is one undo step named "Agent: …"; undo reverts your last one.
     - Check your work: view_frames with rendered true shows frames exactly as they will export.
 
-    Typical flow: list_takes → analyze_take → view_frames → edits (or make_launch_demo) → \
-    view_frames rendered → export_video.
+    Typical flow: list_takes → get_take → view_frames (grid true, to find what to cut, zoom \
+    on or hide) → edit_timeline, edit_zooms, edit_text, edit_blur, set_style → view_frames \
+    rendered true → export_video.
     """
 }

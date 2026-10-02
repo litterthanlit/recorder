@@ -37,6 +37,25 @@ enum ZoomKeyframeEditor {
         }
     }
 
+    /// `keyframes` with the auto zooms replaced by fresh ones from `clicks` for `preset`;
+    /// manual zooms stay. Sorted, without overlaps.
+    static func replacingAutoZooms(
+        in keyframes: [ZoomKeyframe],
+        clicks: [ClickEvent],
+        preset: ZoomPreset,
+        frameSize: CGSize
+    ) -> [ZoomKeyframe] {
+        let generator = AutoZoomGenerator(
+            settings: preset.settings,
+            frameWidth: frameSize.width,
+            frameHeight: frameSize.height
+        )
+        let manual = keyframes.filter { $0.source == .manual }
+        var result = (generator.generate(from: clicks) + manual).sorted { $0.startTime < $1.startTime }
+        resolveOverlaps(&result)
+        return result
+    }
+
     /// True when `next` begins exactly where `previous` ends, i.e. the camera should
     /// travel directly between their targets.
     static func areChained(_ previous: ZoomKeyframe, _ next: ZoomKeyframe) -> Bool {

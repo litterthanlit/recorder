@@ -61,11 +61,15 @@ final class AppState: ObservableObject {
         recordingOverlays = RecordingOverlays(session: session, settings: settingsStore)
         let quickAccess = QuickAccessController(library: library, settings: settingsStore)
         quickAccess.onEdit = { [weak self] project in
-            self?.session.openProject(project)
+            // Through the library, so an edit made since the take (by an agent) isn't lost.
+            self?.openProject(ProjectSummary(metadata: project.metadata, bundleURL: project.bundleURL))
         }
         self.quickAccess = quickAccess
         session.onTakeFinished = { [weak self] project in
             self?.handleFinishedTake(project)
+        }
+        session.editHistoryForProject = { [weak self] id in
+            self?.agentBridge.host.journal.handOff(id)
         }
         settingsStore.$settings
             .map(\.playSounds)
@@ -286,7 +290,8 @@ final class AppState: ObservableObject {
                 library.refresh()
                 return
             }
-            session.openProject(loaded)
+            // An agent may have saved an edit while this was loading.
+            session.openProject(ProjectStore.reloadingEdits(of: loaded))
         }
     }
 

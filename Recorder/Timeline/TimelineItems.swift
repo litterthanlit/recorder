@@ -71,6 +71,11 @@ struct TextOverlay: Codable, Equatable, Identifiable {
         TimelineItemFade.opacity(at: time, span: span, fade: Self.fadeDuration)
     }
 
+    /// `center` kept on the canvas (0–1 on both axes).
+    static func clampedCenter(_ center: CGPoint) -> CGPoint {
+        CGPoint(x: min(max(center.x, 0), 1), y: min(max(center.y, 0), 1))
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
@@ -121,6 +126,18 @@ struct BlurRegion: Codable, Equatable, Identifiable {
 
     func isActive(at time: TimeInterval) -> Bool {
         span.contains(time)
+    }
+
+    /// `rect` kept inside 0–1 and at least 2% across.
+    static func clampedRect(_ rect: CGRect) -> CGRect {
+        let width = min(max(rect.width, 0.02), 1)
+        let height = min(max(rect.height, 0.02), 1)
+        return CGRect(
+            x: min(max(rect.minX, 0), 1 - width),
+            y: min(max(rect.minY, 0), 1 - height),
+            width: width,
+            height: height
+        )
     }
 
     init(from decoder: Decoder) throws {

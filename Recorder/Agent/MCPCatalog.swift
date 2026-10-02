@@ -158,8 +158,14 @@ enum MCPToolResult {
     }
 
     /// Structured data, also serialized into a text block for clients that only read text,
-    /// with an optional one-line summary first.
-    static func structured(_ value: JSONValue, summary: String? = nil, images: [(data: Data, mimeType: String)] = []) -> JSONValue {
+    /// with an optional one-line summary first. `files` become resource links.
+    static func structured(
+        _ value: JSONValue,
+        summary: String? = nil,
+        images: [(data: Data, mimeType: String)] = [],
+        files: [URL] = [],
+        isError: Bool = false
+    ) -> JSONValue {
         var content: [JSONValue] = []
         if let summary {
             content.append(["type": "text", "text": .string(summary)])
@@ -168,7 +174,26 @@ enum MCPToolResult {
         for image in images {
             content.append(["type": "image", "data": .string(image.data.base64EncodedString()), "mimeType": .string(image.mimeType)])
         }
-        return ["content": .array(content), "structuredContent": value, "isError": false]
+        for file in files {
+            content.append([
+                "type": "resource_link",
+                "uri": .string(file.absoluteString),
+                "name": .string(file.lastPathComponent),
+                "mimeType": .string(mimeType(forExtension: file.pathExtension))
+            ])
+        }
+        return ["content": .array(content), "structuredContent": value, "isError": .bool(isError)]
+    }
+
+    static func mimeType(forExtension pathExtension: String) -> String {
+        switch pathExtension.lowercased() {
+        case "mp4": return "video/mp4"
+        case "mov": return "video/quicktime"
+        case "gif": return "image/gif"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "png": return "image/png"
+        default: return "application/octet-stream"
+        }
     }
 
     /// Whether a result (as the bridge returned it) reports a failure.
