@@ -57,6 +57,42 @@ struct TakeAnalysis: Equatable {
         var seconds: TimeInterval
     }
 
+    /// Another app's window over the product's window in the kept part of a take: a
+    /// floating window, a menu bar extra's menu, a notification, the Dock, or another app
+    /// brought in front while talking.
+    struct Cover: Equatable {
+        enum Action: String {
+            /// It hides much of the window and nobody's talking: cut.
+            case cut
+            /// Blurred where it lies over the window.
+            case blur
+            /// Another app brought in front while talking (a detour being explained):
+            /// left in.
+            case keep
+        }
+
+        /// Where it lay over the window for a stretch.
+        struct Piece: Equatable {
+            var span: TimeSpan
+            /// Normalized, bottom-left origin, inside the window (with a little room for
+            /// its shadow).
+            var rect: CGRect
+            /// How much of the window it hid (0–1).
+            var share: Double
+        }
+
+        var appName: String
+        /// From the first piece to the last.
+        var span: TimeSpan
+        var pieces: [Piece]
+        var action: Action
+
+        /// The most of the window it hid at once.
+        var share: Double {
+            pieces.map { $0.share }.max() ?? 0
+        }
+    }
+
     var duration: TimeInterval
     /// Before the first action: waiting after the countdown, reaching for the app.
     var leadIn: TimeSpan?
@@ -66,8 +102,10 @@ struct TakeAnalysis: Equatable {
     var dead: [TimeSpan]
     /// Only the screen moves: something loading or playing out.
     var quiet: [TimeSpan]
-    /// Another app in front of the one the demo is about (a detour).
+    /// Another app in front of the one the demo is about (a detour), as cut.
     var offApp: [TimeSpan] = []
+    /// Other apps' windows over the app's window where it's kept, with what to do.
+    var covers: [Cover] = []
     /// The app the demo is about, when the take knows which apps were in front.
     var focusApp: String?
     /// How long each app was in front, most first.
@@ -78,7 +116,7 @@ struct TakeAnalysis: Equatable {
     var beats: [Beat]
     /// The demo itself: the take without its lead-in and tail.
     var kept: TimeSpan
-    /// Dead air and detours to cut, inside `kept`.
+    /// Dead air, detours and big covers to cut, inside `kept`.
     var cuts: [TimeSpan]
     /// Waits to speed through, inside `kept`.
     var speedUps: [SpeedUp]
@@ -137,6 +175,24 @@ struct TakeAnalyzer {
     /// (2–8×).
     var minimumSpeedUp: TimeInterval = 1.5
     var quietTarget: TimeInterval = 0.8
+    /// A detour's cut reaches this far past the other app's time in front on each side,
+    /// so none of it shows (app switches are noted as they happen)…
+    var detourPadding: TimeInterval = 0.05
+    /// …and shorter detours are left.
+    var minimumDetour: TimeInterval = 0.1
+    /// A window over the app's is cut when it hides at least this much of it (with
+    /// nobody talking), blurred otherwise…
+    var bigCover = 0.25
+    /// …and ignored when it hides less than this (a sliver along an edge).
+    var minimumCover = 0.002
+    /// Covers are looked for four times a second, so one may have come up this long
+    /// before it was seen.
+    var coverLag: TimeInterval = 0.25
+    /// A blur box reaches this far (of the recording) past the window it hides, for its
+    /// shadow.
+    var coverPadding: CGFloat = 0.006
+    /// Sightings of one app this close together are one cover.
+    var coverJoin: TimeInterval = 0.3
 
     func analyze(_ input: TakeAnalysisInput) -> TakeAnalysis {
         let duration = max(input.duration, 0)
@@ -191,7 +247,12 @@ struct TakeAnalyzer {
             let cut = TimeSpan(start: span.start + cutMargin, end: span.end - cutMargin)
             return cut.duration >= minimumCut - 1e-9 ? cut : nil
         }
-        let cuts = AgentEdits.merged(deadCuts + offApp)
+        let removed = AgentEdits.merged(deadCuts + offApp)
+        let covers = recordedApp.map {
+            self.covers(of: $0, focus: focusEvents, kept: kept, removed: removed, speech: speech ?? [], duration: duration)
+        } ?? []
+        let coverCuts = covers.filter { $0.action == .cut }.flatMap { cover in cover.pieces.map { $0.span } }
+        let cuts = AgentEdits.merged(removed + coverCuts)
         // A wait during a detour goes with the detour.
         let waits = quiet.flatMap { AgentEdits.gaps(between: cuts, within: $0) }
         let speedUps: [TakeAnalysis.SpeedUp] = waits.compactMap { span in
@@ -207,6 +268,7 @@ struct TakeAnalyzer {
             dead: dead,
             quiet: quiet,
             offApp: offApp,
+            covers: covers,
             focusApp: focusEvents.isEmpty ? nil : (recordedApp ?? wanted),
             apps: AppFocusTimeline.timeByApp(focusEvents, duration: duration).map {
                 TakeAnalysis.AppShare(appName: $0.appName, seconds: $0.seconds)
@@ -252,8 +314,9 @@ struct TakeAnalyzer {
         return TimeSpan(start: start, end: end)
     }
 
-    /// Where another app than `app` was in front, inside `kept`, at least `minimumCut`
-    /// long, never cutting into speech (it may be narrating the detour).
+    /// Where another app than `app` was in front, inside `kept`, reaching
+    /// `detourPadding` past it either side so none of it shows, and never cutting into
+    /// speech (it may be narrating the detour).
     func detours(
         from app: String,
         focus: [AppFocusEvent],
@@ -261,17 +324,113 @@ struct TakeAnalyzer {
         speech: [TimeSpan],
         duration: TimeInterval
     ) -> [TimeSpan] {
-        let talking = speech.map { TimeSpan(start: $0.start - speechPadding, end: $0.end + speechPadding) }
+        let talking = AgentEdits.merged(speech.map { TimeSpan(start: $0.start - speechPadding, end: $0.end + speechPadding) })
         var result: [TimeSpan] = []
-        for span in AppFocusTimeline.spans(focus, duration: duration) {
-            guard !span.isApp(app), let inside = span.span.intersection(kept) else { continue }
-            let margined = TimeSpan(start: inside.start + cutMargin, end: inside.end - cutMargin)
-            guard margined.duration > 0 else { continue }
-            for piece in AgentEdits.gaps(between: AgentEdits.merged(talking), within: margined) where piece.duration >= minimumCut - 1e-9 {
+        for span in AppFocusTimeline.spans(focus, duration: duration) where !span.isApp(app) {
+            let padded = TimeSpan(start: span.span.start - detourPadding, end: span.span.end + detourPadding)
+            guard let inside = padded.intersection(kept) else { continue }
+            for piece in AgentEdits.gaps(between: talking, within: inside) where piece.duration >= minimumDetour - 1e-9 {
                 result.append(piece)
             }
         }
-        return result
+        return AgentEdits.merged(result)
+    }
+
+    /// Other apps' windows over `app`'s window inside `kept`, outside `removed`: windows
+    /// over it while it was in front (cut when they hide a lot of it and nobody's talking,
+    /// blurred otherwise), and other apps brought in front of it that weren't cut
+    /// (while talking: kept).
+    func covers(
+        of app: String,
+        focus: [AppFocusEvent],
+        kept: TimeSpan,
+        removed: [TimeSpan],
+        speech: [TimeSpan],
+        duration: TimeInterval
+    ) -> [TakeAnalysis.Cover] {
+        struct Sighting {
+            var appName: String
+            var inFront: Bool
+            var piece: TakeAnalysis.Cover.Piece
+        }
+
+        let events = focus.sorted { $0.timestamp < $1.timestamp }
+        // Where the app's window is; before it's first seen, where it was first seen.
+        var window = events.first { $0.isApp(app) && $0.windowRect != nil }?.windowRect
+        var sightings: [Sighting] = []
+        for (index, event) in events.enumerated() {
+            let end = index + 1 < events.count ? events[index + 1].timestamp : duration
+            if event.isApp(app) {
+                window = event.windowRect ?? window
+            }
+            guard end > event.timestamp, let frame = window else { continue }
+            if event.isApp(app) {
+                let span = TimeSpan(start: max(event.timestamp - coverLag, 0), end: end)
+                for cover in event.covers {
+                    if let piece = coverPiece(cover.rect, over: frame, span: span) {
+                        sightings.append(Sighting(appName: cover.appName, inFront: false, piece: piece))
+                    }
+                }
+            } else if let other = event.windowRect,
+                      let piece = coverPiece(other, over: frame, span: TimeSpan(start: event.timestamp, end: end)) {
+                sightings.append(Sighting(appName: event.appName, inFront: true, piece: piece))
+            }
+        }
+
+        // Join sightings of one app close together into covers.
+        var grouped: [(appName: String, inFront: Bool, pieces: [TakeAnalysis.Cover.Piece])] = []
+        for sighting in sightings.sorted(by: { $0.piece.span.start < $1.piece.span.start }) {
+            if let index = grouped.lastIndex(where: { group in
+                group.appName == sighting.appName && group.inFront == sighting.inFront
+                    && (group.pieces.last?.span.end ?? -Double.infinity) >= sighting.piece.span.start - coverJoin
+            }) {
+                grouped[index].pieces.append(sighting.piece)
+            } else {
+                grouped.append((sighting.appName, sighting.inFront, [sighting.piece]))
+            }
+        }
+
+        let gone = AgentEdits.merged(removed)
+        let talking = AgentEdits.merged(speech.map { TimeSpan(start: $0.start - speechPadding, end: $0.end + speechPadding) })
+        var result: [TakeAnalysis.Cover] = []
+        for group in grouped {
+            // Only what's left in the video.
+            let pieces = group.pieces.flatMap { piece -> [TakeAnalysis.Cover.Piece] in
+                guard let inside = piece.span.intersection(kept) else { return [] }
+                return AgentEdits.gaps(between: gone, within: inside)
+                    .filter { $0.duration > 0.02 }
+                    .map { TakeAnalysis.Cover.Piece(span: $0, rect: piece.rect, share: piece.share) }
+            }
+            guard let first = pieces.first, let last = pieces.last else { continue }
+            let action: TakeAnalysis.Cover.Action
+            if group.inFront {
+                action = .keep
+            } else if (pieces.map { $0.share }.max() ?? 0) >= bigCover,
+                      !pieces.contains(where: { piece in talking.contains { $0.intersection(piece.span) != nil } }) {
+                action = .cut
+            } else {
+                action = .blur
+            }
+            result.append(TakeAnalysis.Cover(
+                appName: group.appName,
+                span: TimeSpan(start: first.span.start, end: last.span.end),
+                pieces: pieces,
+                action: action
+            ))
+        }
+        return result.sorted { $0.span.start < $1.span.start }
+    }
+
+    /// `rect` where it lies over `window`, with room for its shadow; `nil` when it hides
+    /// less than `minimumCover` of the window.
+    private func coverPiece(_ rect: CGRect, over window: CGRect, span: TimeSpan) -> TakeAnalysis.Cover.Piece? {
+        let windowArea = Double(WindowStack.area(window))
+        let hidden = rect.intersection(window)
+        guard windowArea > 0, !hidden.isNull else { return nil }
+        let share = Double(WindowStack.area(hidden)) / windowArea
+        guard share >= minimumCover else { return nil }
+        let padded = rect.insetBy(dx: -coverPadding, dy: -coverPadding).intersection(window)
+        return TakeAnalysis.Cover.Piece(span: span, rect: padded.isNull ? hidden : padded, share: min(share, 1))
     }
 
     /// Clicks close together, typing, and shortcuts, in order.

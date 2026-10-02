@@ -622,7 +622,8 @@ final class RecordingSession: ObservableObject {
             scaleFactor: screenRecorder.scaleFactor,
             trackCursor: preferences.cursorSmoothingEnabled,
             trackKeystrokes: preferences.recordKeystrokes,
-            trackedWindowID: screenRecorder.capturedWindowID
+            trackedWindowID: screenRecorder.capturedWindowID,
+            ignoredBundleIDs: screenRecorder.excludedBundleIDs
         )
 
         do {

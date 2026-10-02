@@ -31,8 +31,9 @@ enum AgentPrompts {
             five), each with at: the source time its step starts.
             4. Run make_launch_demo with the title, tagline, captions and aspect "\(aspect)" (add app with \
             \(product)'s app name if the take shows other apps). It trims, cuts pauses and detours, speeds \
-            through waits, crops to the app, zooms on clicks, tilts in in 3D, adds transitions and animates \
-            the text, then returns a rendered contact sheet.
+            through waits, crops to the app and follows its window, cuts or blurs other apps over it, zooms \
+            on clicks, tilts in in 3D, adds transitions and animates the text, then returns a rendered \
+            contact sheet.
             5. Check it: view_frames (rendered true) around the title, each caption and each cut. Text should \
             be readable and not cover the action, only \(product) should show, every zoom should land on the \
             right spot, and nothing private should be on screen (hide it with edit_blur). Fix what's off with \

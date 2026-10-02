@@ -160,11 +160,18 @@ struct LaunchDemoReport: Equatable {
     var changes: [String] = []
     /// What the recipe couldn't do, and how to finish it with the other tools.
     var suggestions: [String] = []
-    /// Source time cut inside the kept range: pauses and detours.
+    /// Source time cut inside the kept range: pauses, detours and other apps covering
+    /// the app.
     var cuts: [TimeSpan] = []
     var speedUps: [TakeAnalysis.SpeedUp] = []
     /// The app the video is cropped to.
     var croppedTo: String?
+    /// Whether the crop follows the app's window as it moves.
+    var cropFollows = false
+    /// Other apps' windows over the app's, and what was done about each.
+    var covers: [TakeAnalysis.Cover] = []
+    /// The blur boxes hiding them.
+    var coverBlurs: [UUID] = []
     var outputDuration: TimeInterval = 0
     var text: [PlacedText] = []
     /// Captions there wasn't room for.
@@ -177,9 +184,11 @@ struct LaunchDemoReport: Equatable {
 /// Turns a take into a launch demo in one go, from its analysis. In order:
 ///
 /// 1. Trims the lead-in and tail.
-/// 2. Cuts pauses (as long as the pace allows) and detours to other apps, never speech.
+/// 2. Cuts pauses (as long as the pace allows), detours to other apps and other apps'
+///    windows hiding much of the app's, never speech.
 /// 3. Speeds through waits, easing in and out of them.
-/// 4. Crops to the app's window, when the take knows where it was.
+/// 4. Crops to the app's window, following it as it moves, when the take knows where it
+///    was, and blurs smaller windows of other apps lying over it.
 /// 5. Remakes the auto zooms with the pace's feel (manual zooms stay).
 /// 6. Applies the look and shape, motion blur and the spring camera.
 /// 7. Opens with a 3D tilt-in, with transitions and audio fades at cuts.
@@ -233,6 +242,7 @@ struct LaunchDemoRecipe {
         let timeline = makeTimeline(take: take, analysis: analysis, report: &report)
         settings.setTimeline(timeline)
         cropToApp(&settings, take: take, analysis: analysis, report: &report)
+        hideCovers(&settings, analysis: analysis, report: &report)
 
         settings.zoomPreset = pace.zoomPreset
         let keyframes = ZoomKeyframeEditor.replacingAutoZooms(
@@ -292,16 +302,22 @@ struct LaunchDemoRecipe {
             let cut = TimeSpan(start: span.start + cutMargin, end: span.end - cutMargin)
             return cut.duration >= minimumCut - 1e-9 ? cut : nil
         }
+        let covered = analysis.covers.filter { $0.action == .cut }.flatMap { cover in cover.pieces.map { $0.span } }
         var pauseCount = 0
         var pauseTime: TimeInterval = 0
         var detourCount = 0
         var detourTime: TimeInterval = 0
-        for cut in AgentEdits.merged(pauses + analysis.offApp) where cut.duration > 0 {
+        var coverCount = 0
+        var coverTime: TimeInterval = 0
+        for cut in AgentEdits.merged(pauses + analysis.offApp + covered) where cut.duration > 0 {
             guard timeline.excludeSource(cut) else { continue }
             report.cuts.append(cut)
             if analysis.offApp.contains(where: { $0.intersection(cut) != nil }) {
                 detourCount += 1
                 detourTime += cut.duration
+            } else if covered.contains(where: { $0.intersection(cut) != nil }) {
+                coverCount += 1
+                coverTime += cut.duration
             } else {
                 pauseCount += 1
                 pauseTime += cut.duration
@@ -314,8 +330,14 @@ struct LaunchDemoRecipe {
         if detourCount > 0 {
             cutParts.append("\(detourCount) detour\(detourCount == 1 ? "" : "s") to other apps (\(Self.seconds(detourTime)))")
         }
+        if coverCount > 0 {
+            cutParts.append("\(coverCount) moment\(coverCount == 1 ? "" : "s") another app hid much of the window (\(Self.seconds(coverTime)))")
+        }
         if !cutParts.isEmpty {
-            report.changes.append("Cut \(cutParts.joined(separator: " and ")).")
+            let list = cutParts.count > 1
+                ? cutParts.dropLast().joined(separator: ", ") + " and " + (cutParts.last ?? "")
+                : cutParts[0]
+            report.changes.append("Cut \(list).")
         }
 
         let speeds = options.pace.waitSpeeds
@@ -340,7 +362,8 @@ struct LaunchDemoRecipe {
         return result
     }
 
-    /// Step 4: crop to everywhere the app's window was, when the take recorded it.
+    /// Step 4: crop to the app's window, following it as it moves, when the take
+    /// recorded where it was.
     func cropToApp(
         _ settings: inout ProjectEditSettings,
         take: AgentEditTake,
@@ -356,20 +379,62 @@ struct LaunchDemoRecipe {
         }
         guard let app = options.app ?? analysis.focusApp else { return }
         let name = take.appFocus.first(where: { $0.isApp(app) })?.appName ?? app
-        guard let window = AppFocusTimeline.windowUnion(of: app, in: take.appFocus) else {
+        guard let window = WindowCrop.following(app, in: take.appFocus, duration: take.duration) else {
             report.suggestions.append(
                 "\(name)'s window never showed in the recording, so it isn't cropped. Crop with set_crop rect if other apps show."
             )
             return
         }
-        guard let crop = SourceCrop.sanitized(window) else {
+        guard let crop = window.crop else {
             report.changes.append("\(name)'s window fills the recording, so it isn't cropped.")
             return
         }
         settings.sourceCrop = crop
+        settings.cropPath = window.path
         report.croppedTo = name
+        report.cropFollows = window.path != nil
         let pixels = SourceCrop.contentSize(source: take.sourceSize, crop: crop)
-        report.changes.append("Cropped to \(name)'s window (\(Int(pixels.width.rounded()))×\(Int(pixels.height.rounded())) px).")
+        let size = "\(Int(pixels.width.rounded()))×\(Int(pixels.height.rounded())) px"
+        if window.path != nil {
+            let moves = window.moves == 1 ? "once" : "\(window.moves) times"
+            report.changes.append("Cropped to \(name)'s window (\(size)), following it as it moves (it moved \(moves)).")
+        } else {
+            report.changes.append("Cropped to \(name)'s window (\(size)).")
+        }
+    }
+
+    /// Step 4, too: blur other apps' windows over the app's where they're left in (big
+    /// ones were cut with the timeline), and say which were left because of talking.
+    func hideCovers(_ settings: inout ProjectEditSettings, analysis: TakeAnalysis, report: inout LaunchDemoReport) {
+        report.covers = analysis.covers
+        guard !analysis.covers.isEmpty, let app = analysis.focusApp else { return }
+        var blurred: [String] = []
+        for cover in analysis.covers where cover.action == .blur {
+            for piece in cover.pieces {
+                // A box from an earlier run stays as it is.
+                if let same = settings.blurRegions.first(where: { $0.span == piece.span && Self.sameRect($0.rect, piece.rect) }) {
+                    report.coverBlurs.append(same.id)
+                    continue
+                }
+                let region = BlurRegion(span: piece.span, rect: piece.rect, kind: .blur, strength: TakeAnalysis.coverBlurStrength)
+                settings.blurRegions.append(region)
+                report.coverBlurs.append(region.id)
+            }
+            blurred.append("\(cover.appName) (\(Self.seconds(cover.span.duration)))")
+        }
+        if !blurred.isEmpty {
+            report.changes.append("Blurred other apps' windows over \(app): \(blurred.joined(separator: ", ")).")
+        }
+        for cover in analysis.covers where cover.action == .keep {
+            report.suggestions.append(
+                "\(cover.appName) was in front of \(app) for \(Self.seconds(cover.span.duration)) at \(Self.seconds(cover.span.start)) while you were talking, so it stays. If it shouldn't show, cut it with edit_timeline or hide it with edit_blur."
+            )
+        }
+    }
+
+    private static func sameRect(_ first: CGRect, _ second: CGRect) -> Bool {
+        abs(first.minX - second.minX) < 1e-6 && abs(first.minY - second.minY) < 1e-6
+            && abs(first.width - second.width) < 1e-6 && abs(first.height - second.height) < 1e-6
     }
 
     /// Step 7: tilt in over the first moments of the video, in its first segment.
@@ -558,6 +623,20 @@ extension LaunchDemoReport {
             ]
         })
         value["cropped_to"] = croppedTo.map { JSONValue.string($0) } ?? JSONValue.null
+        if croppedTo != nil {
+            value["crop_follows_window"] = .bool(cropFollows)
+        }
+        if !covers.isEmpty {
+            value["covers"] = .array(covers.map { cover -> JSONValue in
+                [
+                    "app": .string(cover.appName),
+                    "start": AgentTime.json(cover.span.start),
+                    "end": AgentTime.json(cover.span.end),
+                    "action": .string(cover.action.rawValue)
+                ]
+            })
+            value["cover_blur_ids"] = .array(coverBlurs.map { JSONValue.string($0.uuidString) })
+        }
         value["text"] = .array(text.map { placed -> JSONValue in
             [
                 "role": .string(placed.role.rawValue),

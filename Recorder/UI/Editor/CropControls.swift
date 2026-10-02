@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// The inspector's crop row: what the video shows, with buttons to draw a crop over the
-/// recording or go back to all of it.
+/// recording, follow an app's window, or go back to all of it.
 struct CropControls: View {
     @ObservedObject var editor: ProjectEditor
 
@@ -14,7 +14,17 @@ struct CropControls: View {
         guard isCropped else { return "Shows the whole recording" }
         let size = editor.contentSize
         // String(_:) keeps the digits ungrouped: "1920", not "1,920".
-        return "Shows \(String(Int(size.width.rounded()))) × \(String(Int(size.height.rounded()))) pixels of the recording"
+        let shown = "Shows \(String(Int(size.width.rounded()))) × \(String(Int(size.height.rounded()))) pixels of the recording"
+        guard let path = editor.editSettings.cropPath else { return shown }
+        return "\(shown), following \(path.app ?? "the window") as it moves"
+    }
+
+    /// Apps whose window showed in the recording, longest in front first.
+    private var windowApps: [String] {
+        let focus = editor.project.inputs.appFocus
+        return AppFocusTimeline.timeByApp(focus, duration: editor.duration)
+            .map { $0.appName }
+            .filter { app in focus.contains { $0.isApp(app) && $0.windowRect != nil } }
     }
 
     var body: some View {
@@ -31,7 +41,26 @@ struct CropControls: View {
                     .accessibilityLabel("Show the whole recording")
                 }
             }
+            followMenu
             InspectorHint(summary)
+        }
+    }
+
+    @ViewBuilder
+    private var followMenu: some View {
+        let apps = windowApps
+        if !apps.isEmpty {
+            Menu {
+                ForEach(apps, id: \.self) { app in
+                    Button(app) {
+                        _ = editor.cropToWindow(of: app)
+                    }
+                }
+            } label: {
+                Label("Follow a Window", systemImage: "macwindow")
+            }
+            .fixedSize()
+            .accessibilityHint("Crop to an app's window and follow it as it moves")
         }
     }
 
@@ -56,11 +85,12 @@ struct CropSelection: View {
     /// Smaller drags are taken as a slip, not a crop.
     private static let minimumSize: CGFloat = 24
 
-    /// The crop now in place, in view points.
+    /// The crop now in place (where it is at the playhead, when it follows a window), in
+    /// view points.
     private var currentFrame: CGRect? {
-        editor.editSettings.sourceCrop.map {
-            ZoomKeyframeEditor.viewRect(forSource: $0, contentFrame: contentFrame, visibleCrop: .fullFrame)
-        }
+        guard editor.editSettings.sourceCrop != nil else { return nil }
+        let crop = editor.editSettings.cropBase(at: editor.playheadSourceTime)
+        return ZoomKeyframeEditor.viewRect(forSource: crop, contentFrame: contentFrame, visibleCrop: .fullFrame)
     }
 
     /// The crop being drawn, in view points.

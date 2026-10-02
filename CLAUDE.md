@@ -44,7 +44,11 @@ the user-facing workflow.
   scaled by `CanvasLayout.referenceUnit`. Text layout is shared with the canvas through
   `TextPlateLayout`, so the selection box fits the drawn text. The source crop
   (`ProjectEditSettings.sourceCrop`, `SourceCrop`) comes first: it's where the zoom rests
-  (`ZoomInterpolator(base:)`) and sets the content size the canvas follows. `RenderFeatures`
+  (`ZoomInterpolator(base:)`) and sets the content size the canvas follows. A crop that
+  follows a window adds `cropPath` (`CropPath`, source time, built by
+  `WindowCrop.following`): every point keeps the crop's shape, so the canvas never changes
+  size, and the zoom rests on `CropMotion.base(at:)`; code that aims or draws a zoom asks
+  for the crop at that moment (`cropBase(at:)`), not `cropBase`. `RenderFeatures`
   gates the newer effects (animated text, cut transitions, 3D moves) so default settings
   take the old path. Transitions are timed in output time (the renderer takes
   `outputTime`); 3D moves warp the framed picture with `CIPerspectiveTransform` over a
@@ -76,7 +80,10 @@ the user-facing workflow.
   is saved with `ProjectStore.saveEdits` and its undo kept in `AgentEditJournal`, which
   hands it to the editor when the take opens. `TakeAnalyzer` (Core) finds what to cut
   from the recorded input plus `AgentMediaScanner`'s frame times, screen changes and mic
-  speech. New takes record which app was in front (`AppFocusSampler` → `InputLog.appFocus`).
+  speech. New takes record which app was in front, where its window was and which other
+  apps' windows lay over it (`AppFocusSampler` → `InputLog.appFocus`, `WindowStack`,
+  `WindowCover`); `TakeAnalyzer.covers` turns those into cuts (big, nobody talking) and
+  blur boxes, and detours are cut 0.05 s past each app switch so no other app flashes.
 - **UI map**: `UI/EditorView.swift` (layout and key commands), `UI/Editor/` (toolbar,
   inspector panels, selection inspector, canvas overlays, transport, export sheet),
   `UI/TimelineView.swift` + `UI/Timeline/` (tracks, thumbnails and waveform), `UI/Capture/`
@@ -165,6 +172,10 @@ Nothing below has run on real hardware. In rough order of risk:
 9. **App focus**: a take with a detour into another app has `appFocus` in `inputs.json`
    (no window titles), Trace's own panel doesn't count, and `set_crop app` frames exactly
    the window, on a Retina display and on a second display with a negative origin.
+   Dragging the window mid-take: the crop follows it smoothly in preview and export, with
+   no jump in the canvas size. A notification banner (with banners not hidden), another
+   app's floating window and a menu bar extra's menu over the window show up as `covers`
+   (Dock and full-screen overlay apps shouldn't swamp it); a window recording records none.
 10. **Crop and motion**: preview matches export for a crop, each text animation, smooth
     speed changes (audio in step), transitions with audio fades and muting, and 3D moves
     (the shadow follows the tilted picture, the spotlight the cursor). The preview lies
@@ -175,7 +186,10 @@ Nothing below has run on real hardware. In rough order of risk:
 
 Known limits: resizing a window mid-take isn't followed (the capture size is fixed at
 start); the cursor sprite ignores the Accessibility cursor-size setting; GIFs are capped
-at 30 s and 720 px wide. App focus follows only the frontmost app's front window. Text
+at 30 s and 720 px wide. App focus follows only the frontmost app's front window (a sheet
+counts as its document window), and covers only count windows in front of it. Zooms are
+aimed at fixed places in the recording, so a zoom held while its window is dragged is
+pushed along by the crop's edge rather than following the window. Text
 animations and 3D moves are timed in source time, so they play faster inside sped-up
 parts. A 3D tilt needs a look with a background. Agents edit and export; they don't
 record, and can't choose a picture background.

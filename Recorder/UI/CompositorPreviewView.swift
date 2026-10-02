@@ -25,6 +25,7 @@ struct CompositorPreviewView: NSViewRepresentable {
         shown.timeline = editor.playerTimeline ?? editor.timeline
         if showsWholeRecording {
             shown.sourceCrop = nil
+            shown.cropPath = nil
         }
         // Boxes drawn over the picture need it flat.
         if showsWholeRecording || editor.isManualZoomMode || editor.selectedBlur != nil {

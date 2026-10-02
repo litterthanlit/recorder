@@ -1,8 +1,9 @@
 import CoreGraphics
 import Foundation
 
-/// Which app was in front at a moment of a take, and where its front window sat in the
-/// recording. Window titles are left out: they can say private things.
+/// Which app was in front at a moment of a take, where its front window sat in the
+/// recording, and which other apps' windows lay over it. Window titles are left out:
+/// they can say private things.
 struct AppFocusEvent: Codable, Equatable {
     /// Source seconds.
     var timestamp: TimeInterval
@@ -11,12 +12,17 @@ struct AppFocusEvent: Codable, Equatable {
     /// The app's front window in the recording: normalized, bottom-left origin, clipped
     /// to the recording; `nil` when it isn't in the recording.
     var windowRect: CGRect?
+    /// Other apps' windows over that window (front to back), as far as the recording
+    /// shows them. Empty for window recordings, which show only the window, and for takes
+    /// from before Trace kept this.
+    var covers: [WindowCover]
 
-    init(timestamp: TimeInterval, bundleID: String?, appName: String, windowRect: CGRect?) {
+    init(timestamp: TimeInterval, bundleID: String?, appName: String, windowRect: CGRect?, covers: [WindowCover] = []) {
         self.timestamp = timestamp
         self.bundleID = bundleID
         self.appName = appName
         self.windowRect = windowRect
+        self.covers = covers
     }
 
     init(from decoder: Decoder) throws {
@@ -25,15 +31,56 @@ struct AppFocusEvent: Codable, Equatable {
         bundleID = try? container.decodeIfPresent(String.self, forKey: .bundleID)
         appName = (try? container.decodeIfPresent(String.self, forKey: .appName)) ?? "App"
         windowRect = try? container.decodeIfPresent(CGRect.self, forKey: .windowRect)
+        covers = (try? container.decodeIfPresent([WindowCover].self, forKey: .covers)) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encodeIfPresent(bundleID, forKey: .bundleID)
+        try container.encode(appName, forKey: .appName)
+        try container.encodeIfPresent(windowRect, forKey: .windowRect)
+        // Most moments have none: leave the key out.
+        if !covers.isEmpty {
+            try container.encode(covers, forKey: .covers)
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case timestamp, bundleID, appName, windowRect
+        case timestamp, bundleID, appName, windowRect, covers
     }
 
     /// Whether this is the app called `name` (its name or bundle ID, ignoring case).
     func isApp(_ name: String) -> Bool {
         AppFocusTimeline.matches(name, appName: appName, bundleID: bundleID)
+    }
+}
+
+/// Another app's window lying over the front app's window: something else in the
+/// picture where the product should be (a floating window, a menu bar extra's menu, the
+/// Dock). Named by its app only.
+struct WindowCover: Codable, Equatable {
+    var appName: String
+    var bundleID: String?
+    /// Where the window is in the recording: normalized, bottom-left origin, clipped to
+    /// the recording.
+    var rect: CGRect
+
+    init(appName: String, bundleID: String?, rect: CGRect) {
+        self.appName = appName
+        self.bundleID = bundleID
+        self.rect = rect
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        appName = (try? container.decodeIfPresent(String.self, forKey: .appName)) ?? "App"
+        bundleID = try? container.decodeIfPresent(String.self, forKey: .bundleID)
+        rect = try container.decode(CGRect.self, forKey: .rect)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case appName, bundleID, rect
     }
 }
 
@@ -66,10 +113,17 @@ enum AppFocusTimeline {
     /// Adds `event` unless nothing changed since the last one.
     static func append(_ event: AppFocusEvent, to events: inout [AppFocusEvent]) {
         if let last = events.last, last.appName == event.appName, last.bundleID == event.bundleID,
-           sameWindow(last.windowRect, event.windowRect) {
+           sameWindow(last.windowRect, event.windowRect), sameCovers(last.covers, event.covers) {
             return
         }
         events.append(event)
+    }
+
+    /// The same windows of the same apps, give or take `windowTolerance`.
+    static func sameCovers(_ first: [WindowCover], _ second: [WindowCover]) -> Bool {
+        first.count == second.count && zip(first, second).allSatisfy { a, b in
+            a.appName == b.appName && a.bundleID == b.bundleID && sameWindow(a.rect, b.rect)
+        }
     }
 
     static func sameWindow(_ first: CGRect?, _ second: CGRect?) -> Bool {

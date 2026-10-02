@@ -376,6 +376,9 @@ struct ProjectEditSettings: Codable, Equatable {
     /// The part of the recording to show, like an app's window (normalized, bottom-left
     /// origin); `nil` shows all of it. See `SourceCrop`.
     var sourceCrop: CGRect?
+    /// The crop moving with a window over the take, keeping `sourceCrop`'s shape; `nil`
+    /// holds it still. Only with a `sourceCrop`.
+    var cropPath: CropPath?
     /// A transition at every cut; `nil` cuts straight.
     var cutTransition: CutTransition?
     /// 3D moves of the recording's frame (source time).
@@ -589,6 +592,7 @@ extension ProjectEditSettings {
         case textOverlays
         case blurRegions
         case sourceCrop
+        case cropPath
         case cutTransition
         case cameraMoves
     }
@@ -621,6 +625,9 @@ extension ProjectEditSettings {
         blurRegions = (try? container.decodeIfPresent([BlurRegion].self, forKey: .blurRegions)) ?? []
         let crop = try? container.decodeIfPresent(CGRect.self, forKey: .sourceCrop)
         sourceCrop = crop.flatMap { SourceCrop.sanitized($0) }
+        if let crop = sourceCrop, let path = try? container.decodeIfPresent(CropPath.self, forKey: .cropPath) {
+            cropPath = path.sanitized(shape: crop.height / crop.width)
+        }
         cutTransition = try? container.decodeIfPresent(CutTransition.self, forKey: .cutTransition)
         cameraMoves = (try? container.decodeIfPresent([CameraMove].self, forKey: .cameraMoves)) ?? []
     }

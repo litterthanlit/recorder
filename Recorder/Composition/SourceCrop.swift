@@ -43,6 +43,41 @@ enum SourceCrop {
         return CGSize(width: source.width * shown.width, height: source.height * shown.height)
     }
 
+    /// The rect of `shape` (height over width, normalized) around `rect`'s centre that
+    /// holds all of it, kept inside the recording; one too big for the recording is shrunk
+    /// to the largest of its shape that fits. `nil` for a rect or shape that isn't one.
+    static func fitted(_ rect: CGRect, shape: CGFloat) -> CGRect? {
+        guard rect.minX.isFinite, rect.minY.isFinite, rect.width.isFinite, rect.height.isFinite,
+              shape.isFinite, shape > 0
+        else { return nil }
+        let standard = rect.standardized
+        var width = max(standard.width, minimumSide)
+        var height = width * shape
+        if abs(height - standard.height) <= 1e-9 {
+            // Already that shape: keep it exactly, so fitting twice changes nothing.
+            height = standard.height
+        } else if height < standard.height {
+            height = standard.height
+            width = height / shape
+        }
+        if width > 1 {
+            width = 1
+            height = shape
+        }
+        if height > 1 {
+            height = 1
+            width = 1 / shape
+        }
+        let x = width == standard.width ? standard.minX : standard.midX - width / 2
+        let y = height == standard.height ? standard.minY : standard.midY - height / 2
+        return CGRect(
+            x: min(max(x, 0), 1 - width),
+            y: min(max(y, 0), 1 - height),
+            width: width,
+            height: height
+        )
+    }
+
     /// The smallest box around all of `rects`, grown by `margin` (of the recording) on
     /// each side; `nil` without rects.
     static func union(_ rects: [CGRect], margin: CGFloat = 0) -> CGRect? {
@@ -54,9 +89,20 @@ enum SourceCrop {
 }
 
 extension ProjectEditSettings {
-    /// What the video shows at rest: the crop, or the whole recording.
+    /// What the video shows at rest when the crop holds still: the crop, or the whole
+    /// recording.
     var cropBase: CGRect {
         SourceCrop.base(sourceCrop)
+    }
+
+    /// The crop over the take: still, or following a window.
+    var cropMotion: CropMotion {
+        CropMotion(crop: sourceCrop, path: cropPath)
+    }
+
+    /// What the video shows at rest at `time` (source seconds): where the crop is then.
+    func cropBase(at time: TimeInterval) -> CGRect {
+        cropMotion.base(at: time)
     }
 
     /// Pixel size of the recording once cropped, for a recording of `source` pixels.

@@ -158,7 +158,7 @@ enum TakeDescription {
         detail["blur"] = .array(editSettings.blurRegions.map(blurJSON))
         detail["look"] = lookJSON(editSettings.exportStyle)
         detail["canvas"] = canvasJSON(editSettings.canvas, source: editSettings.contentSize(source: source))
-        detail["crop"] = cropJSON(editSettings.sourceCrop, source: source)
+        detail["crop"] = cropJSON(editSettings.sourceCrop, path: editSettings.cropPath, source: source)
         detail["motion"] = motionJSON(editSettings, timeline: timeline)
         detail["camera_moves"] = .array(editSettings.cameraMoves.map(cameraMoveJSON))
         let audio: JSONValue = [
@@ -335,14 +335,23 @@ enum TakeDescription {
         ]
     }
 
-    /// The crop, as agents read rects (origin top-left), with its size in pixels.
-    static func cropJSON(_ crop: CGRect?, source: CGSize) -> JSONValue {
+    /// The crop, as agents read rects (origin top-left), with its size in pixels and the
+    /// window it follows.
+    static func cropJSON(_ crop: CGRect?, path: CropPath? = nil, source: CGSize) -> JSONValue {
         guard let crop = crop.flatMap({ SourceCrop.sanitized($0) }) else { return .null }
         let size = SourceCrop.contentSize(source: source, crop: crop)
-        return [
+        var value: [String: JSONValue] = [
             "rect": AgentCoordinates.json(sourceRect: crop),
             "pixels": .string("\(Int(size.width.rounded()))x\(Int(size.height.rounded()))")
         ]
+        if let path, !path.points.isEmpty {
+            value["follows_window"] = [
+                "app": path.app.map { JSONValue.string($0) } ?? JSONValue.null,
+                "positions": .number(Double(path.points.count)),
+                "note": "The crop moves with the window; rect is where it rests."
+            ]
+        }
+        return .object(value)
     }
 
     /// - Parameter source: the picture's size once cropped.

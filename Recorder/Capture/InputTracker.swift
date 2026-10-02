@@ -35,6 +35,8 @@ final class InputTracker {
     /// In window mode, the recorded window: its position is followed during the take, and
     /// clicks on other windows covering it are ignored.
     private var trackedWindowID: UInt32?
+    /// Apps left out of the recording: their windows don't cover anything in it.
+    private var ignoredBundleIDs: Set<String> = []
     private var windowFrameTimer: Timer?
     private var lastCursorSampleTime: TimeInterval = 0
     private let cursorSampleInterval: TimeInterval = 1.0 / 60.0
@@ -49,7 +51,8 @@ final class InputTracker {
         scaleFactor: CGFloat,
         trackCursor: Bool = true,
         trackKeystrokes: Bool = false,
-        trackedWindowID: UInt32? = nil
+        trackedWindowID: UInt32? = nil,
+        ignoredBundleIDs: Set<String> = []
     ) {
         self.clock = clock
         self.captureOrigin = captureOrigin
@@ -58,6 +61,7 @@ final class InputTracker {
         self.trackCursor = trackCursor
         self.trackKeystrokes = trackKeystrokes
         self.trackedWindowID = trackedWindowID
+        self.ignoredBundleIDs = ignoredBundleIDs
         events = []
         cursorEvents = []
         keystrokes = []
@@ -103,7 +107,12 @@ final class InputTracker {
             cursorKindSampler.start(clock: clock)
         }
         if let clock {
-            appFocusSampler.start(clock: clock) { [weak self] window in
+            // A window recording shows only its window: nothing else can cover it.
+            appFocusSampler.start(
+                clock: clock,
+                recordsCovers: trackedWindowID == nil,
+                ignoredBundleIDs: ignoredBundleIDs
+            ) { [weak self] window in
                 self?.normalizedCaptureRect(forGlobal: window)
             }
         }

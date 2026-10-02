@@ -60,13 +60,15 @@ enum AgentToolCatalog {
         Reads a take's activity (clicks, typing, pointer movement, speech on the microphone, and how \
         much the screen changes) and finds the lead-in before the first action, the tail after the \
         last, dead air (nothing happening), waits (only the screen moving, like a page loading) and, \
-        for newer takes, detours to other apps. Returns them in source time with the beats (click \
-        groups, typing, shortcuts) and a suggested edit as edit_timeline operations. Speech is never cut. Reading a long recording takes a while: \
+        for newer takes, detours to other apps and other apps' windows over the app's (covers: cut \
+        when they hide much of it, blurred otherwise). Returns them in source time with the beats \
+        (click groups, typing, shortcuts), a suggested edit as edit_timeline operations and, for \
+        covers, edit_blur operations. Speech is never cut. Reading a long recording takes a while: \
         after wait_seconds (default 40) it returns status "running"; call it again for the result.
         """,
         inputSchema: Schema.object([
             ("take_id", takeID),
-            ("app", Schema.string("The app the demo is about, for finding detours to other apps (default: the one in front longest).")),
+            ("app", Schema.string("The app the demo is about, for finding detours to other apps and windows over it (default: the one in front longest).")),
             ("wait_seconds", Schema.number("How long to wait for the recording to be read (default 40).", minimum: 0, maximum: 600))
         ], required: ["take_id"]),
         annotations: MCPTool.Annotations(readOnly: true, idempotent: true)
@@ -127,8 +129,9 @@ enum AgentToolCatalog {
     in one step) → view_frames rendered true → refine with the edit tools → export_video.
 
     Step by step instead: analyze_take (what to cut) → edit_timeline (start from its suggested \
-    operations) → set_crop (only the product's window) → edit_zooms, edit_text, edit_blur, \
-    edit_camera_moves, set_style → view_frames rendered true → export_video.
+    operations) and edit_blur (its blur_operations) → set_crop app (only the product's window, \
+    following it) → edit_zooms, edit_text, edit_blur, edit_camera_moves, set_style → \
+    view_frames rendered true → export_video.
 
     Never leave private information on screen: hide it with edit_blur.
     """

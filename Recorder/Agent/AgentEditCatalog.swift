@@ -76,14 +76,17 @@ extension AgentToolCatalog {
         description: """
         Crops the recording to part of the screen, usually the product's window, so the video shows \
         only that: the crop is what plays at rest, zooms push in within it, and the canvas's auto \
-        shape and source size follow it. app crops to everywhere that app's window was during the \
-        take (newer takes record this; get_take lists apps_in_front). rect is {x, y, width, height} \
-        on the recording (0–1, origin top-left; read it off view_frames with grid true). margin grows \
-        it a little on each side. clear: true shows the whole recording again. One undo step.
+        shape and source size follow it. app crops to that app's window and follows it as it moves \
+        or resizes, keeping the crop's shape (newer takes record where it was; get_take lists \
+        apps_in_front); with follow false it's one still box around everywhere the window went. \
+        rect is a still crop {x, y, width, height} on the recording (0–1, origin top-left; read it \
+        off view_frames with grid true). margin grows it a little on each side. clear: true shows \
+        the whole recording again. One undo step.
         """,
         inputSchema: Schema.object([
             ("take_id", takeID),
             ("app", Schema.string("Crop to this app's window, by name (like \"Safari\") or bundle ID.")),
+            ("follow", Schema.boolean("With app: follow the window as it moves (default true); false holds one box around everywhere it went.")),
             ("rect", rect),
             ("margin", Schema.number("Grow the crop by this much of the recording on each side (0–0.2).", minimum: 0, maximum: 0.2)),
             ("clear", Schema.boolean("Remove the crop: show the whole recording."))
@@ -225,10 +228,11 @@ extension AgentToolCatalog {
         description: """
         Turns a take into a motion launch demo in one step (one undo step). It reads the recording \
         like analyze_take, then trims the lead-in and tail, cuts pauses and detours to other apps \
-        (never speech), speeds through waits with eased speed changes, crops to the app's window \
-        (newer takes), remakes the auto zooms, turns on motion blur and the spring camera, opens with \
-        a 3D tilt-in, adds transitions and audio fades at cuts, and places the title, tagline and \
-        captions, each up long enough to read. It rebuilds the timeline from the whole recording and \
+        (never speech), speeds through waits with eased speed changes, crops to the app's window and \
+        follows it as it moves (newer takes), cuts or blurs other apps' windows lying over it, remakes \
+        the auto zooms, turns on motion blur and the spring camera, opens with a 3D tilt-in, adds \
+        transitions and audio fades at cuts, and places the title, tagline and captions, each up long \
+        enough to read. It rebuilds the timeline from the whole recording and \
         replaces the text when given some; blur boxes and manual zooms stay. Returns what it did, \
         where each piece of text landed (output time), where the actions land (beats_output) and a \
         rendered contact sheet. Refine with the other edit tools. Reading a long recording takes a \
@@ -243,7 +247,7 @@ extension AgentToolCatalog {
                 "Short captions for the steps, in order. Without at, they're spread over the video and land on actions.",
                 maxItems: LaunchDemoOptions.maximumCaptions
             )),
-            ("app", Schema.string("The app the demo is about (default: the one in front longest). The video is cropped to its window and detours away from it are cut.")),
+            ("app", Schema.string("The app the demo is about (default: the one in front longest). The video is cropped to its window, detours away from it are cut and other apps over it are cut or blurred.")),
             ("look", Schema.string("A look's name, like \"Vivid\" or \"Midnight\" (default: keep the take's look).")),
             ("aspect", Schema.string("Video shape: \(AgentAspect.choices) (default: keep the take's).")),
             ("pace", Schema.string(

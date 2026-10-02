@@ -236,9 +236,10 @@ private struct ZoomFocusEditor: View {
         )
     }
 
-    /// What the video shows at rest (the crop); the zoom stays inside it.
+    /// What the video shows at rest while the zoom holds (the crop); the zoom stays
+    /// inside it.
     private var base: CGRect {
-        editor.editSettings.cropBase
+        editor.editSettings.cropBase(at: keyframe.peakTime)
     }
 
     var body: some View {

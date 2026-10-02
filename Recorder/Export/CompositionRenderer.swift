@@ -29,6 +29,8 @@ struct CompositionRenderSettings: Equatable {
     /// The part of the recording shown at rest (normalized, bottom-left origin); `nil`
     /// shows all of it. See `SourceCrop`.
     var sourceCrop: CGRect?
+    /// Where the crop moves when it follows a window (source time); `nil` holds it still.
+    var cropPath: CropPath?
     /// The edit the frames are timed by (output time), for transitions at its cuts.
     var timeline: EditTimeline?
     /// A transition at every cut; `nil` cuts straight.
@@ -58,6 +60,7 @@ extension CompositionRenderSettings {
             blurRegions: editSettings.blurRegions,
             backgroundImageURL: edited.backgroundImageURL,
             sourceCrop: editSettings.sourceCrop,
+            cropPath: editSettings.cropPath,
             timeline: editSettings.resolvedTimeline(sourceDuration: project.metadata.duration),
             cutTransition: editSettings.cutTransition,
             cameraMoves: editSettings.cameraMoves
@@ -126,7 +129,8 @@ final class CompositionRenderer {
             keyframes: keyframes,
             springEnabled: settings.exportStyle.springCameraEnabled,
             springSettings: settings.zoomPreset.motionFX.spring,
-            base: SourceCrop.base(settings.sourceCrop)
+            base: SourceCrop.base(settings.sourceCrop),
+            path: settings.cropPath
         )
         self.rippleEvaluator = ClickRippleEvaluator(settings: settings.zoomPreset.motionFX)
         self.smoothedCursorEvents = Self.cursorPath(for: settings, smoother: cursorSmoother)
@@ -156,7 +160,8 @@ final class CompositionRenderer {
             keyframes: keyframes,
             springEnabled: settings.exportStyle.springCameraEnabled,
             springSettings: settings.zoomPreset.motionFX.spring,
-            base: SourceCrop.base(settings.sourceCrop)
+            base: SourceCrop.base(settings.sourceCrop),
+            path: settings.cropPath
         )
         rippleEvaluator = ClickRippleEvaluator(settings: settings.zoomPreset.motionFX)
         if pointerChanged || settings.exportStyle.cursorSmoothingEnabled != previous.exportStyle.cursorSmoothingEnabled {

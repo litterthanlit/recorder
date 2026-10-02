@@ -75,6 +75,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     private(set) var fps: Int = 60
     private(set) var scaleFactor: CGFloat = 2
     private(set) var captureOrigin: CGPoint = .zero
+    /// Apps left out of a display or area recording (besides this one), like Notification
+    /// Center when banners are hidden.
+    private(set) var excludedBundleIDs: Set<String> = []
     /// Part of the display recorded, in display points (top-left origin); `nil` for all.
     private var displaySourceRect: CGRect?
     private(set) var captureSizePoints: CGSize = .zero
@@ -256,6 +259,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
             hideNotifications: options.hideNotifications
         )
         excludedFinderWindowIDs = plan.exceptedWindowIDs
+        excludedBundleIDs = plan.excludedBundleIDs
         let ownPID = ProcessInfo.processInfo.processIdentifier
         let excludedApps = content.applications.filter {
             plan.excludedBundleIDs.contains($0.bundleIdentifier) || $0.processID == ownPID

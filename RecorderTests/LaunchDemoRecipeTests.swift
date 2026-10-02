@@ -11,6 +11,7 @@ private func analysis(
     kept: TimeSpan = TimeSpan(start: 2, end: 27),
     dead: [TimeSpan] = [],
     offApp: [TimeSpan] = [],
+    covers: [TakeAnalysis.Cover] = [],
     focusApp: String? = nil,
     speedUps: [TakeAnalysis.SpeedUp] = [],
     beats: [TimeInterval] = []
@@ -22,6 +23,7 @@ private func analysis(
         dead: dead,
         quiet: speedUps.map(\.span),
         offApp: offApp,
+        covers: covers,
         focusApp: focusApp,
         speech: nil,
         screenActivity: nil,
@@ -160,6 +162,56 @@ struct LaunchDemoRecipeTests {
         options.cropToApp = false
         _ = try LaunchDemoRecipe(options: options).apply(to: &uncropped, take: take(focus: focus), analysis: findings)
         #expect(uncropped.editSettings.sourceCrop == nil)
+    }
+
+    @Test func followsTheWindowAsItMoves() throws {
+        let home = CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6)
+        let moved = CGRect(x: 0.4, y: 0.2, width: 0.5, height: 0.6)
+        let focus = [
+            AppFocusEvent(timestamp: 0, bundleID: "com.acme.app", appName: "Acme", windowRect: home),
+            AppFocusEvent(timestamp: 20, bundleID: "com.acme.app", appName: "Acme", windowRect: moved)
+        ]
+        var snapshot = blank()
+        let report = try LaunchDemoRecipe(options: LaunchDemoOptions())
+            .apply(to: &snapshot, take: take(focus: focus), analysis: analysis(focusApp: "Acme"))
+        let settings = snapshot.editSettings
+        #expect(settings.sourceCrop.map { isClose($0, home) } == true)
+        #expect(settings.cropPath?.app == "Acme")
+        #expect(isClose(settings.cropBase(at: 10), home) && isClose(settings.cropBase(at: 25), moved))
+        #expect(report.cropFollows)
+        #expect(report.changes.contains("Cropped to Acme's window (1000×600 px), following it as it moves (it moved once)."))
+        #expect(report.json["crop_follows_window"]?.boolValue == true)
+    }
+
+    @Test func hidesOtherAppsOverTheWindow() throws {
+        func piece(_ start: Double, _ end: Double, share: Double) -> TakeAnalysis.Cover.Piece {
+            TakeAnalysis.Cover.Piece(span: TimeSpan(start: start, end: end), rect: CGRect(x: 0.5, y: 0.6, width: 0.1, height: 0.1), share: share)
+        }
+        let covers = [
+            TakeAnalysis.Cover(appName: "Messages", span: TimeSpan(start: 4, end: 6), pieces: [piece(4, 5, share: 0.03), piece(5, 6, share: 0.03)], action: .blur),
+            TakeAnalysis.Cover(appName: "Zoom", span: TimeSpan(start: 8, end: 9.5), pieces: [piece(8, 9.5, share: 0.4)], action: .cut),
+            TakeAnalysis.Cover(appName: "Slack", span: TimeSpan(start: 12, end: 13), pieces: [piece(12, 13, share: 0.5)], action: .keep)
+        ]
+        let findings = analysis(covers: covers, focusApp: "Acme")
+        var snapshot = blank()
+        let report = try LaunchDemoRecipe(options: LaunchDemoOptions()).apply(to: &snapshot, take: take(), analysis: findings)
+
+        // The big one is cut…
+        #expect(pairs(report.cuts) == [[8, 9.5]])
+        #expect(report.changes.contains("Cut 1 moment another app hid much of the window (1.5 s)."))
+        // …the small one blurred heavily where it lay, one box per place…
+        let boxes = snapshot.editSettings.blurRegions
+        #expect(boxes.count == 2 && boxes.allSatisfy { $0.strength == TakeAnalysis.coverBlurStrength })
+        #expect(report.coverBlurs == boxes.map(\.id))
+        #expect(report.changes.contains("Blurred other apps' windows over Acme: Messages (2.0 s)."))
+        // …and the one talked over is left, with a word about it.
+        #expect(report.suggestions.contains { $0.hasPrefix("Slack was in front of Acme for 1.0 s at 12.0 s while you were talking") })
+        #expect(report.json["covers"]?.arrayValue?.compactMap { $0["action"]?.stringValue } == ["blur", "cut", "keep"])
+
+        // Running it again doesn't pile up boxes.
+        let again = try LaunchDemoRecipe(options: LaunchDemoOptions()).apply(to: &snapshot, take: take(), analysis: findings)
+        #expect(snapshot.editSettings.blurRegions.count == 2)
+        #expect(again.coverBlurs == boxes.map(\.id))
     }
 
     @Test func aWindowFillingTheRecordingIsNotCropped() throws {

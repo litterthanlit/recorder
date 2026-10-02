@@ -144,6 +144,8 @@
 		B20000000000000000000088 /* AppFocusSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008C /* AppFocusSampler.swift */; };
 		B20000000000000000000089 /* AgentLaunchDemoTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008D /* AgentLaunchDemoTools.swift */; };
 		B2000000000000000000008A /* LaunchDemoRecipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008E /* LaunchDemoRecipe.swift */; };
+		B2000000000000000000008B /* WindowStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008F /* WindowStack.swift */; };
+		B2000000000000000000008C /* CropPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000090 /* CropPath.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -288,6 +290,8 @@
 		A2000000000000000000008C /* AppFocusSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFocusSampler.swift; sourceTree = "<group>"; };
 		A2000000000000000000008D /* AgentLaunchDemoTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentLaunchDemoTools.swift; sourceTree = "<group>"; };
 		A2000000000000000000008E /* LaunchDemoRecipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchDemoRecipe.swift; sourceTree = "<group>"; };
+		A2000000000000000000008F /* WindowStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowStack.swift; sourceTree = "<group>"; };
+		A20000000000000000000090 /* CropPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropPath.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -399,6 +403,8 @@
 				A20000000000000000000084 /* TextMotion.swift */,
 				A20000000000000000000088 /* RenderFeatures.swift */,
 				A2000000000000000000008A /* CameraMoves.swift */,
+				A2000000000000000000008F /* WindowStack.swift */,
+				A20000000000000000000090 /* CropPath.swift */,
 			);
 			path = Composition;
 			sourceTree = "<group>";
@@ -664,6 +670,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2000000000000000000008C /* CropPath.swift in Sources */,
+				B2000000000000000000008B /* WindowStack.swift in Sources */,
 				B2000000000000000000008A /* LaunchDemoRecipe.swift in Sources */,
 				B20000000000000000000089 /* AgentLaunchDemoTools.swift in Sources */,
 				B20000000000000000000088 /* AppFocusSampler.swift in Sources */,

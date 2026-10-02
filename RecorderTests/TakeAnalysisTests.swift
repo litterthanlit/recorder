@@ -209,10 +209,12 @@ struct TakeAnalyzerTests {
         #expect(analysis.dead.isEmpty)
         #expect(analysis.focusApp == "Acme")
         #expect(analysis.apps.map(\.appName) == ["Acme", "Slack"])
-        #expect(pairs(analysis.offApp) == [[6.2, 9.8]])
-        #expect(pairs(analysis.cuts) == [[6.2, 9.8]])
-        #expect(isClose(analysis.suggestedTimeline().outputDuration, 9.7, tolerance: 1e-6))
-        #expect(analysis.summary.contains("1 detour away from Acme (3.6 s)"))
+        // Slack was in front 6–10 s: the cut reaches a moment past it either side, so none
+        // of it shows.
+        #expect(pairs(analysis.offApp) == [[5.95, 10.05]])
+        #expect(pairs(analysis.cuts) == [[5.95, 10.05]])
+        #expect(isClose(analysis.suggestedTimeline().outputDuration, 9.2, tolerance: 1e-6))
+        #expect(analysis.summary.contains("1 detour away from Acme (4.1 s)"))
 
         let report = analysis.json
         #expect(report["focus_app"]?.stringValue == "Acme")
@@ -223,17 +225,16 @@ struct TakeAnalyzerTests {
     }
 
     @Test func aDetourIsNotCutWhileTalking() {
-        // Explaining the detour: only after the talking stops is it cut, and what's left
-        // before it is too short.
+        // Explaining the detour: the talking (with a little room) stays, the rest goes.
         let analysis = detourTake(speech: [TimeSpan(start: 7, end: 8)])
-        #expect(pairs(analysis.offApp) == [[8.15, 9.8]])
+        #expect(pairs(analysis.offApp) == [[5.95, 6.85], [8.15, 10.05]])
     }
 
     @Test func theAppCanBeNamed() {
         // About Slack: the Acme stretches are the detours.
         let analysis = detourTake(focusApp: "slack")
         #expect(analysis.focusApp == "Slack")
-        #expect(pairs(analysis.offApp) == [[1.7, 5.8], [10.2, 14.6]])
+        #expect(pairs(analysis.offApp) == [[1.5, 6.05], [9.95, 14.8]])
         // An app that was never in front doesn't make the whole take a detour.
         let unknown = detourTake(focusApp: "Figma")
         #expect(unknown.offApp.isEmpty && unknown.cuts.isEmpty)
@@ -249,9 +250,77 @@ struct TakeAnalyzerTests {
 
         let events = [focus(0, "Acme"), focus(6, "Slack"), focus(10, "Acme")]
         let analysis = TakeAnalyzer().analyze(input(duration: 14, clicks: clicks, screen: screen, focus: events))
-        #expect(pairs(analysis.cuts) == [[6.2, 9.8]])
+        #expect(pairs(analysis.cuts) == [[5.95, 10.05]])
         // What's left of the wait either side of the cut is too short to speed up.
         #expect(analysis.speedUps.isEmpty)
+    }
+
+    private func coveredTake(speech: [TimeSpan]? = nil) -> TakeAnalysis {
+        let clicks = (0...15).map { click(2 + Double($0) * 0.8) }
+        let window = CGRect(x: 0.1, y: 0.1, width: 0.6, height: 0.6)
+        func acme(_ time: TimeInterval, _ covers: [WindowCover] = []) -> AppFocusEvent {
+            AppFocusEvent(timestamp: time, bundleID: "com.example.acme", appName: "Acme", windowRect: window, covers: covers)
+        }
+        let banner = WindowCover(appName: "Messages", bundleID: nil, rect: CGRect(x: 0.55, y: 0.6, width: 0.2, height: 0.08))
+        let call = WindowCover(appName: "Zoom", bundleID: nil, rect: CGRect(x: 0.2, y: 0.2, width: 0.4, height: 0.4))
+        let events = [
+            acme(0),
+            acme(4, [banner]),
+            acme(6),
+            acme(8, [call]),
+            acme(9),
+            AppFocusEvent(timestamp: 11, bundleID: nil, appName: "Slack", windowRect: CGRect(x: 0.3, y: 0.3, width: 0.5, height: 0.5)),
+            acme(12)
+        ]
+        return TakeAnalyzer().analyze(input(duration: 20, clicks: clicks, speech: speech, focus: events))
+    }
+
+    @Test func otherAppsOverTheWindowAreBlurredOrCut() throws {
+        let analysis = coveredTake()
+        try #require(analysis.covers.count == 2)
+        // A notification over a corner of the window: blurred where it lay over it (with
+        // room for its shadow), from a moment before it was seen.
+        let banner = analysis.covers[0]
+        #expect(banner.appName == "Messages" && banner.action == .blur)
+        #expect(pairs([banner.span]) == [[3.75, 6]])
+        #expect(isClose(banner.share, 0.012 / 0.36, tolerance: 1e-6))
+        #expect(banner.pieces.map { isClose($0.rect, CGRect(x: 0.544, y: 0.594, width: 0.156, height: 0.092)) } == [true])
+        // A call window over most of it, with nobody talking: cut.
+        let call = analysis.covers[1]
+        #expect(call.appName == "Zoom" && call.action == .cut)
+        #expect(isClose(call.share, 0.16 / 0.36, tolerance: 1e-6))
+        // Slack brought in front is a detour, cut as before; not a cover.
+        #expect(pairs(analysis.offApp) == [[10.95, 12.05]])
+        #expect(pairs(analysis.cuts) == [[7.75, 9], [10.95, 12.05]])
+
+        let report = analysis.json
+        #expect(report["covers"]?.arrayValue?.compactMap { $0["action"]?.stringValue } == ["blur", "cut"])
+        let blurs = try #require(report["suggested"]?["blur_operations"]?.arrayValue)
+        #expect(blurs.count == 1)
+        // Origin top-left for agents: the box's top is 1 - 0.686 from the top.
+        #expect(blurs.first?["rect"]?["y"]?.doubleValue.map { isClose($0, 0.314, tolerance: 1e-6) } == true)
+        #expect(analysis.summary.contains("2 other apps over Acme (1 cut, 1 blurred)"))
+
+        // edit_blur takes the suggested operations as they are.
+        var settings = ProjectEditSettings()
+        settings.setTimeline(EditTimeline(sourceDuration: 20))
+        var snapshot = EditorSnapshot(keyframes: [], editSettings: settings)
+        _ = try AgentEdits.editBlur(&snapshot, operations: blurs.map { AgentArguments($0) }, take: AgentEditTake(duration: 20, sourceSize: frame), timeBase: .source)
+        #expect(snapshot.editSettings.blurRegions.map { isClose($0.rect, banner.pieces[0].rect, tolerance: 1e-6) } == [true])
+    }
+
+    @Test func coversAreNotCutWhileTalking() throws {
+        // Talking over the call window, and while Slack is in front.
+        let analysis = coveredTake(speech: [TimeSpan(start: 8.2, end: 8.6), TimeSpan(start: 11.2, end: 11.6)])
+        try #require(analysis.covers.count == 3)
+        #expect(analysis.covers.map(\.action) == [.blur, .blur, .keep])
+        // What's left of Slack is the part being talked over.
+        let slack = analysis.covers[2]
+        #expect(slack.appName == "Slack")
+        #expect(pairs([slack.span]) == [[11.05, 11.75]])
+        #expect(pairs(analysis.offApp) == [[10.95, 11.05], [11.75, 12.05]])
+        #expect(!analysis.cuts.contains { $0.intersection(TimeSpan(start: 8, end: 9)) != nil })
+        #expect(analysis.summary.contains("3 other apps over Acme (2 blurred, 1 kept while talking)"))
     }
 
     @Test func aTakeWithNothingDoneIsKeptWhole() {
@@ -369,14 +438,94 @@ struct AppFocusTests {
     }
 
     @Test func isSavedWithTheInputs() throws {
-        let log = InputLog(appFocus: [focus(0, "Acme", window: CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6)), focus(3, "Slack")])
+        var covered = focus(0, "Acme", window: CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6))
+        covered.covers = [WindowCover(appName: "Messages", bundleID: "com.apple.MobileSMS", rect: CGRect(x: 0.4, y: 0.6, width: 0.2, height: 0.1))]
+        let log = InputLog(appFocus: [covered, focus(3, "Slack")])
         let decoded = try JSONDecoder().decode(InputLog.self, from: JSONEncoder().encode(log))
         #expect(decoded == log)
         // Older takes have none.
         let older = try JSONDecoder().decode(InputLog.self, from: Data(#"{"keystrokes":[]}"#.utf8))
         #expect(older.appFocus.isEmpty)
-        // An event without a window or bundle ID still reads.
+        // An event without a window, bundle ID or covers still reads…
         let sparse = try JSONDecoder().decode(AppFocusEvent.self, from: Data(#"{"timestamp":1.5,"appName":"Acme"}"#.utf8))
         #expect(sparse == AppFocusEvent(timestamp: 1.5, bundleID: nil, appName: "Acme", windowRect: nil))
+        // …and a moment without covers leaves the key out.
+        let plain = try #require(String(data: JSONEncoder().encode(focus(2, "Acme")), encoding: .utf8))
+        #expect(!plain.contains("covers"))
+    }
+
+    @Test func notesWhenSomethingCoversTheWindow() {
+        var events: [AppFocusEvent] = []
+        let window = CGRect(x: 0.1, y: 0.1, width: 0.6, height: 0.6)
+        var event = focus(0, "Acme", window: window)
+        AppFocusTimeline.append(event, to: &events)
+        let banner = WindowCover(appName: "Messages", bundleID: nil, rect: CGRect(x: 0.5, y: 0.6, width: 0.2, height: 0.1))
+        event.timestamp = 0.25
+        event.covers = [banner]
+        AppFocusTimeline.append(event, to: &events)
+        // Still there, give or take a pixel: nothing new.
+        event.timestamp = 0.5
+        event.covers = [WindowCover(appName: "Messages", bundleID: nil, rect: banner.rect.offsetBy(dx: 0.001, dy: 0))]
+        AppFocusTimeline.append(event, to: &events)
+        // It moved, then went.
+        event.timestamp = 0.75
+        event.covers = [WindowCover(appName: "Messages", bundleID: nil, rect: banner.rect.offsetBy(dx: 0, dy: -0.2))]
+        AppFocusTimeline.append(event, to: &events)
+        event.timestamp = 1
+        event.covers = []
+        AppFocusTimeline.append(event, to: &events)
+        #expect(events.map(\.timestamp) == [0, 0.25, 0.75, 1])
+    }
+}
+
+@Suite("Window stack")
+struct WindowStackTests {
+    private let acme: Int32 = 10
+    private let document = WindowSnapshot(windowID: 1, layer: 0, bounds: CGRect(x: 100, y: 100, width: 1200, height: 800), ownerPID: 10)
+
+    @Test func findsTheAppsWindowInFront() {
+        let palette = WindowSnapshot(windowID: 2, layer: 3, bounds: CGRect(x: 0, y: 0, width: 300, height: 600), ownerPID: acme)
+        let sliver = WindowSnapshot(windowID: 3, layer: 0, bounds: CGRect(x: 0, y: 0, width: 600, height: 20), ownerPID: acme)
+        let other = WindowSnapshot(windowID: 4, layer: 0, bounds: CGRect(x: 50, y: 50, width: 900, height: 700), ownerPID: 20)
+        let second = WindowSnapshot(windowID: 5, layer: 0, bounds: CGRect(x: 1400, y: 100, width: 800, height: 600), ownerPID: acme)
+        // Floating palettes and slivers don't count; other apps' windows aren't its own.
+        #expect(WindowStack.frontWindow(of: acme, frontToBack: [palette, sliver, other, document, second]) == document)
+        #expect(WindowStack.frontWindow(of: acme, frontToBack: [second, document]) == second)
+        #expect(WindowStack.frontWindow(of: 99, frontToBack: [document]) == nil)
+
+        // A sheet sits in its document window: the document window is the one shown.
+        let sheet = WindowSnapshot(windowID: 6, layer: 0, bounds: CGRect(x: 400, y: 130, width: 600, height: 400), ownerPID: acme)
+        #expect(WindowStack.frontWindow(of: acme, frontToBack: [sheet, document, second]) == document)
+        // A small window beside it is a window of its own.
+        let beside = WindowSnapshot(windowID: 7, layer: 0, bounds: CGRect(x: 1250, y: 100, width: 400, height: 300), ownerPID: acme)
+        #expect(WindowStack.frontWindow(of: acme, frontToBack: [beside, document]) == beside)
+    }
+
+    @Test func findsWhatCoversIt() {
+        func window(_ id: UInt32, layer: Int = 0, _ bounds: CGRect, pid: Int32 = 20, alpha: Double = 1, shared: Bool = true) -> WindowSnapshot {
+            WindowSnapshot(windowID: id, layer: layer, bounds: bounds, ownerPID: pid, alpha: alpha, isShared: shared)
+        }
+        let corner = CGRect(x: 1000, y: 120, width: 360, height: 80)
+        let banner = window(10, layer: 3, corner)
+        let menu = window(11, layer: 101, CGRect(x: 600, y: 0, width: 240, height: 300), pid: 21)
+        let menuBar = window(12, layer: 24, CGRect(x: 0, y: 0, width: 2000, height: 140), pid: 22)
+        let statusItem = window(13, layer: 25, CGRect(x: 700, y: 0, width: 40, height: 140), pid: 23)
+        let clear = window(14, layer: 3, corner, pid: 24, alpha: 0)
+        let unshared = window(15, layer: 3, corner, pid: 25, shared: false)
+        let overlay = window(16, layer: 20, CGRect(x: 0, y: 0, width: 2000, height: 1200), pid: 26)
+        let trace = window(17, layer: 3, corner, pid: 30)
+        let ownPanel = window(18, layer: 3, corner, pid: acme)
+        let elsewhere = window(19, layer: 3, CGRect(x: 1500, y: 1000, width: 100, height: 100))
+        let bigger = window(20, CGRect(x: 0, y: 0, width: 1600, height: 1000), pid: 27)
+        let behind = window(21, CGRect(x: 200, y: 200, width: 400, height: 400), pid: 28)
+        let stack = [banner, menu, menuBar, statusItem, clear, unshared, overlay, trace, ownPanel, elsewhere, bigger, document, behind]
+
+        let covers = WindowStack.covers(of: document, frontToBack: stack, ignoredPIDs: [30])
+        // In front and overlapping, seen in recordings: a banner, a menu and an ordinary
+        // window over all of it. Not the menu bar or status items, see-through, unshared or
+        // ignored windows, overlays over everything, its own windows, ones elsewhere or
+        // ones behind it.
+        #expect(covers.map(\.windowID) == [10, 11, 20])
+        #expect(WindowStack.covers(of: document, frontToBack: [banner]).isEmpty)
     }
 }

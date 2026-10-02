@@ -116,6 +116,10 @@ struct WindowSnapshot: Equatable {
     let bounds: CGRect
     /// The owning process.
     var ownerPID: Int32 = 0
+    /// 0 (see-through) to 1.
+    var alpha: Double = 1
+    /// Whether screen recordings can see it (an app can keep a window out of them).
+    var isShared = true
 }
 
 enum WindowHitTest {

@@ -200,7 +200,8 @@ enum ProjectFormat {
     /// 2: cuts, splits and speed (`ProjectEditSettings.timeline`).
     /// 3: cropping to part of the screen (`ProjectEditSettings.sourceCrop`) and motion:
     /// text animation, cut transitions, speed ramps and 3D camera moves.
-    static let current = 3
+    /// 4: a crop that follows a window (`ProjectEditSettings.cropPath`).
+    static let current = 4
 }
 
 enum ProjectStoreError: LocalizedError, Equatable {

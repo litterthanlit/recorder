@@ -22,8 +22,9 @@ speed up, annotate and export it in minutes.
   track, drag it to any corner while recording).
 - **Keystrokes** (optional, needs Input Monitoring) and the cursor's shape (arrow, I-beam,
   pointing hand) are recorded for the overlays.
-- **Which app is in front**, and where its window is, so a take can be cropped to your app
-  and detours into other apps found. Window titles are never kept.
+- **Which app is in front**, where its window is and which other apps' windows lie over
+  it, so a take can be cropped to your app (following its window), detours into other apps
+  cut, and notifications or floating windows over it blurred. Window titles are never kept.
 - 30 or 60 fps; 5K/6K displays export with HEVC.
 
 **After recording**
@@ -40,8 +41,8 @@ speed up, annotate and export it in minutes.
 - **Auto zoom** on every click (Subtle, Demo or Punch), with spring motion and optional
   motion blur. Add zooms by dragging on the preview (Z) or along the zoom track, and aim
   any zoom by dragging its focus frame.
-- **Crop** to part of the screen, like your app's window: zooms push in within it and the
-  canvas follows its shape.
+- **Crop** to part of the screen, or **follow a window** as it moves: zooms push in within
+  it and the canvas follows its shape.
 - **Text** (title, caption, callout) that fades, rises, pops, comes into focus or types
   on; **blur/pixelate** boxes that follow zooms; a **keystroke** overlay for shortcuts or
   typing.
@@ -84,9 +85,9 @@ export it.
 | Tool | What it does |
 |------|--------------|
 | `list_takes`, `get_take` | The library, and everything about one take's edit |
-| `analyze_take` | Finds the lead-in, tail, dead air, waits and detours into other apps, and suggests cuts. Speech is never cut |
+| `analyze_take` | Finds the lead-in, tail, dead air, waits, detours into other apps and other apps' windows over yours, and suggests cuts and blurs. Speech is never cut |
 | `view_frames` | Frames as images: the raw recording (with a coordinate grid) or rendered exactly as it will export |
-| `make_launch_demo` | The whole pass in one step: trim, cut, speed through waits, crop to the app, zooms, a 3D tilt-in, transitions, title and captions |
+| `make_launch_demo` | The whole pass in one step: trim, cut, speed through waits, crop to the app (following its window), hide other apps over it, zooms, a 3D tilt-in, transitions, title and captions |
 | `edit_timeline`, `set_crop`, `edit_zooms`, `edit_text`, `edit_blur`, `edit_camera_moves`, `set_style` | Precise edits |
 | `undo` | Takes back the agent's last edit |
 | `export_video`, `export_status` | MP4, HEVC, ProRes or GIF |

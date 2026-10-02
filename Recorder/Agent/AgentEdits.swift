@@ -229,8 +229,8 @@ enum AgentEdits {
         )
         var keyframes = snapshot.keyframes
         var settings = snapshot.editSettings
-        // Zooms push in within the crop.
-        let base = settings.cropBase
+        // Zooms push in within the crop, where it is while they hold.
+        let crop = settings.cropMotion
         let notes = try eachOperation(operations) { operation, arguments in
             switch operation {
             case "auto":
@@ -250,9 +250,11 @@ enum AgentEdits {
                     throw AgentToolError("A zoom needs at least \(ZoomKeyframeEditor.minimumSpan) s.")
                 }
                 let ease = settings.zoomPreset.settings
+                let peak = span.start + min(ease.easeInDuration, span.duration / 3)
+                let base = crop.base(at: peak)
                 let start = ZoomKeyframe(
                     startTime: span.start,
-                    peakTime: span.start + min(ease.easeInDuration, span.duration / 3),
+                    peakTime: peak,
                     endTime: span.end,
                     center: CGPoint(x: base.midX, y: base.midY),
                     scale: ease.zoomScale,
@@ -284,7 +286,7 @@ enum AgentEdits {
                     updated.peakTime = span.start + max(lead, 0)
                     updated.endTime = span.end
                 }
-                updated = try aimed(updated, arguments, requireTarget: false, base: base)
+                updated = try aimed(updated, arguments, requireTarget: false, base: crop.base(at: updated.peakTime))
                 keyframes[index] = ZoomKeyframeEditor.clampKeyframe(updated, duration: take.duration)
                 return "Updated zoom \(id.uuidString)."
             case "remove":
@@ -603,32 +605,59 @@ enum AgentEdits {
 
     // MARK: - Crop
 
-    /// set_crop: show only part of the recording (`rect`, origin top-left, optionally
-    /// grown by `margin`), or all of it (`clear`).
+    /// set_crop: show only part of the recording: an app's window, following it as it
+    /// moves (`app`), a fixed `rect` (origin top-left), optionally grown by `margin`, or
+    /// all of it (`clear`).
     static func setCrop(_ snapshot: inout EditorSnapshot, arguments: AgentArguments, take: AgentEditTake) throws -> [String] {
         if try arguments.bool("clear") == true {
             guard snapshot.editSettings.sourceCrop != nil else {
                 throw AgentToolError("The take isn't cropped; it already shows the whole recording.")
             }
             snapshot.editSettings.sourceCrop = nil
+            snapshot.editSettings.cropPath = nil
             return ["Showing the whole recording again."]
         }
         let margin = CGFloat(try arguments.double("margin", in: 0...0.2) ?? 0)
-        let target: CGRect
-        if let app = try arguments.string("app") {
-            target = try appWindow(app, take: take)
-        } else if let rectArguments = try arguments.object("rect") {
-            target = try AgentCoordinates.sourceRect(rectArguments)
+        var notes: [String]
+        if let app = try arguments.string("app"), try arguments.bool("follow") ?? true {
+            let window = try followedWindow(app, take: take)
+            let name = take.appFocus.first { $0.isApp(app) }?.appName ?? app
+            guard let home = window.crop, let crop = SourceCrop.sanitized(home.insetBy(dx: -margin, dy: -margin)) else {
+                throw AgentToolError("\(name)'s window fills the recording, so there's nothing to crop away.")
+            }
+            snapshot.editSettings.sourceCrop = crop
+            snapshot.editSettings.cropPath = window.path.flatMap { path in
+                CropPath(
+                    points: path.points.map { CropPath.Point(time: $0.time, rect: $0.rect.insetBy(dx: -margin, dy: -margin)) },
+                    app: path.app
+                ).sanitized(shape: crop.height / crop.width)
+            }
+            let size = SourceCrop.contentSize(source: take.sourceSize, crop: crop)
+            let pixels = "\(Int(size.width.rounded()))×\(Int(size.height.rounded())) px"
+            if snapshot.editSettings.cropPath != nil {
+                let moves = window.moves == 1 ? "once" : "\(window.moves) times"
+                notes = ["Cropped to \(name)'s window (\(pixels)), following it as it moves (it moved \(moves)); zooms push in within it."]
+            } else {
+                notes = ["Cropped to \(name)'s window (\(pixels)); it stayed put, so the crop holds still. Zooms push in within it."]
+            }
         } else {
-            throw AgentToolError("set_crop needs app (the app's name), rect {x, y, width, height} (0–1, origin top-left), or clear: true.")
+            let target: CGRect
+            if let app = try arguments.string("app") {
+                target = try appWindow(app, take: take)
+            } else if let rectArguments = try arguments.object("rect") {
+                target = try AgentCoordinates.sourceRect(rectArguments)
+            } else {
+                throw AgentToolError("set_crop needs app (the app's name), rect {x, y, width, height} (0–1, origin top-left), or clear: true.")
+            }
+            let rect = target.insetBy(dx: -margin, dy: -margin)
+            guard let crop = SourceCrop.sanitized(rect) else {
+                throw AgentToolError("That rect is the whole recording; pass clear: true to remove a crop.")
+            }
+            snapshot.editSettings.sourceCrop = crop
+            snapshot.editSettings.cropPath = nil
+            let size = SourceCrop.contentSize(source: take.sourceSize, crop: crop)
+            notes = ["Cropped to \(Int(size.width.rounded()))×\(Int(size.height.rounded())) px of the recording; zooms now push in within it."]
         }
-        let rect = target.insetBy(dx: -margin, dy: -margin)
-        guard let crop = SourceCrop.sanitized(rect) else {
-            throw AgentToolError("That rect is the whole recording; pass clear: true to remove a crop.")
-        }
-        snapshot.editSettings.sourceCrop = crop
-        let size = SourceCrop.contentSize(source: take.sourceSize, crop: crop)
-        var notes = ["Cropped to \(Int(size.width.rounded()))×\(Int(size.height.rounded())) px of the recording; zooms now push in within it."]
         if snapshot.editSettings.canvas.aspect != .auto {
             let shape = AgentAspect.name(snapshot.editSettings.canvas.aspect)
             notes.append("The canvas stays \(shape); set_style aspect \"auto\" matches the crop's shape.")
@@ -638,16 +667,32 @@ enum AgentEdits {
 
     /// The box around everywhere `app`'s front window was in the recording.
     static func appWindow(_ app: String, take: AgentEditTake) throws -> CGRect {
-        guard !take.appFocus.isEmpty else {
-            throw AgentToolError(
-                "This take doesn't record which app was in front (it's from before Trace kept that). Read the window off view_frames with grid true and pass rect."
-            )
-        }
+        try checkAppFocus(take)
         guard let window = AppFocusTimeline.windowUnion(of: app, in: take.appFocus) else {
-            let apps = AppFocusTimeline.quotedNames(take.appFocus, duration: take.duration)
-            throw AgentToolError("No window of \"\(app)\" showed in the recording. Apps in this take: \(apps).")
+            throw neverShowed(app, take: take)
         }
         return window
+    }
+
+    /// `app`'s window as a crop that follows it over the take.
+    static func followedWindow(_ app: String, take: AgentEditTake) throws -> WindowCrop {
+        try checkAppFocus(take)
+        guard let window = WindowCrop.following(app, in: take.appFocus, duration: take.duration) else {
+            throw neverShowed(app, take: take)
+        }
+        return window
+    }
+
+    private static func checkAppFocus(_ take: AgentEditTake) throws {
+        guard take.appFocus.isEmpty else { return }
+        throw AgentToolError(
+            "This take doesn't record which app was in front (it's from before Trace kept that). Read the window off view_frames with grid true and pass rect."
+        )
+    }
+
+    private static func neverShowed(_ app: String, take: AgentEditTake) -> AgentToolError {
+        let apps = AppFocusTimeline.quotedNames(take.appFocus, duration: take.duration)
+        return AgentToolError("No window of \"\(app)\" showed in the recording. Apps in this take: \(apps).")
     }
 
     // MARK: - Shared

@@ -210,7 +210,8 @@ final class ProjectEditor: ObservableObject {
             keyframes: keyframes,
             springEnabled: editSettings.exportStyle.springCameraEnabled,
             springSettings: editSettings.zoomPreset.motionFX.spring,
-            base: editSettings.cropBase
+            base: editSettings.cropBase,
+            path: editSettings.cropPath
         )
     }
 
@@ -595,7 +596,7 @@ final class ProjectEditor: ObservableObject {
                 source: .manual
             ),
             movingFocusTo: center,
-            base: editSettings.cropBase
+            base: editSettings.cropBase(at: span.start)
         )
         performEdit("Add Zoom") {
             keyframes.append(ZoomKeyframeEditor.clampKeyframe(keyframe, duration: duration))
@@ -746,7 +747,7 @@ final class ProjectEditor: ObservableObject {
             normalizedRect: normalizedRect,
             duration: duration,
             settings: editSettings.zoomPreset.settings,
-            base: editSettings.cropBase
+            base: editSettings.cropBase(at: playheadSourceTime)
         )
         performEdit("Add Zoom") {
             keyframes.append(keyframe)
@@ -795,15 +796,30 @@ final class ProjectEditor: ObservableObject {
 
     // MARK: - Crop
 
-    /// Shows only `rect` of the recording (normalized, bottom-left origin), or all of it
-    /// for `nil`, and leaves crop mode.
+    /// Shows only `rect` of the recording (normalized, bottom-left origin), holding
+    /// still, or all of it for `nil`, and leaves crop mode.
     func setSourceCrop(_ rect: CGRect?) {
         let crop = rect.flatMap { SourceCrop.sanitized($0) }
         isCropMode = false
-        guard crop != editSettings.sourceCrop else { return }
+        guard crop != editSettings.sourceCrop || editSettings.cropPath != nil else { return }
         performEdit(crop == nil ? "Remove Crop" : "Crop") {
             editSettings.sourceCrop = crop
+            editSettings.cropPath = nil
         }
+    }
+
+    /// Crops to `app`'s window, following it as it moves (see `WindowCrop`), and leaves
+    /// crop mode. Returns false when the window never showed in the recording.
+    @discardableResult
+    func cropToWindow(of app: String) -> Bool {
+        guard let window = WindowCrop.following(app, in: project.inputs.appFocus, duration: duration) else { return false }
+        isCropMode = false
+        guard window.crop != editSettings.sourceCrop || window.path != editSettings.cropPath else { return true }
+        performEdit("Crop to \(app)") {
+            editSettings.sourceCrop = window.crop
+            editSettings.cropPath = window.path
+        }
+        return true
     }
 
     // MARK: - Outside edits (AI agents)

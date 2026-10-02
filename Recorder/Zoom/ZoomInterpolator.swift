@@ -6,28 +6,41 @@ struct ZoomInterpolator {
     var springEnabled: Bool
     var springSettings: SpringSettings
     /// What the camera shows at rest (normalized, bottom-left origin): the source crop,
-    /// or the whole recording. A zoom's scale is relative to it and its view stays in it.
-    let base: CGRect
+    /// where it is at each moment when it follows a window, or the whole recording. A
+    /// zoom's scale is relative to it and its view stays in it.
+    let crop: CropMotion
 
     init(
         keyframes: [ZoomKeyframe],
         springEnabled: Bool = false,
         springSettings: SpringSettings = .demo,
-        base: CGRect = SourceCrop.full
+        base: CGRect = SourceCrop.full,
+        path: CropPath? = nil
     ) {
         self.keyframes = keyframes.sorted { $0.startTime < $1.startTime }
         self.springEnabled = springEnabled
         self.springSettings = springSettings
-        self.base = SourceCrop.base(base)
+        crop = CropMotion(crop: base, path: path)
     }
 
-    /// The camera at rest: the whole base.
-    var rest: NormalizedRect {
-        NormalizedRect(x: base.minX, y: base.minY, width: base.width, height: base.height)
+    /// Where the crop rests when it holds still.
+    var base: CGRect {
+        crop.rest
+    }
+
+    /// The crop at `time`.
+    func base(at time: TimeInterval) -> CGRect {
+        crop.base(at: time)
+    }
+
+    /// The camera at rest at `time`: the whole base.
+    func rest(at time: TimeInterval) -> NormalizedRect {
+        let shown = base(at: time)
+        return NormalizedRect(x: shown.minX, y: shown.minY, width: shown.width, height: shown.height)
     }
 
     func cropRect(at time: TimeInterval) -> NormalizedRect {
-        guard !keyframes.isEmpty else { return rest }
+        guard !keyframes.isEmpty else { return rest(at: time) }
 
         for (index, keyframe) in keyframes.enumerated() {
             if time >= keyframe.startTime && time <= keyframe.endTime {
@@ -42,14 +55,14 @@ struct ZoomInterpolator {
             }
         }
 
-        return rest
+        return rest(at: time)
     }
 
     /// How far the camera is zoomed in on the base (1 at rest).
     func scale(at time: TimeInterval) -> CGFloat {
         let width = cropRect(at: time).width
         guard width > 0 else { return 1 }
-        return base.width / width
+        return base(at: time).width / width
     }
 
     /// - Parameters:
@@ -66,7 +79,8 @@ struct ZoomInterpolator {
         let targetScale = keyframe.scale
         let targetCenter = keyframe.center
         let restScale: CGFloat = 1
-        let restCenter = CGPoint(x: base.midX, y: base.midY)
+        let frame = base(at: time)
+        let restCenter = CGPoint(x: frame.midX, y: frame.midY)
         let startScale = previous?.scale ?? restScale
         let startCenter = previous?.center ?? restCenter
         let holdUntil = chainsInto ? keyframe.endTime : holdEnd(for: keyframe)
@@ -103,7 +117,7 @@ struct ZoomInterpolator {
             currentCenter = center
         }
 
-        return makeRect(center: currentCenter, scale: currentScale)
+        return makeRect(center: currentCenter, scale: currentScale, base: frame)
     }
 
     private func interpolateMotion(
@@ -149,9 +163,9 @@ struct ZoomInterpolator {
         max(keyframe.peakTime, keyframe.endTime - 0.45)
     }
 
-    /// The view `scale` times closer than the base, centred on `center` as far as the
-    /// base allows.
-    private func makeRect(center: CGPoint, scale: CGFloat) -> NormalizedRect {
+    /// The view `scale` times closer than `base`, centred on `center` as far as the base
+    /// allows.
+    private func makeRect(center: CGPoint, scale: CGFloat, base: CGRect) -> NormalizedRect {
         let safeScale = max(scale, 1)
         let width = base.width / safeScale
         let height = base.height / safeScale
