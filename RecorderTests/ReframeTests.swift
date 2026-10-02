@@ -85,7 +85,8 @@ struct ReframeTests {
 
     @Test func whatTheVideoShowsFollowsTheReframing() throws {
         var settings = settings(aspect: .portrait)
-        settings.reframe = try #require(Reframer.reframe(settings, keyframes: [], take: leftThenRight()))
+        let reframing = try #require(Reframer.reframe(settings, keyframes: [], take: leftThenRight()))
+        settings.reframe = reframing
         // The picture is the reframing: its shape is the canvas's.
         let content = settings.contentSize(source: wide)
         #expect(isClose(content.width / content.height, 9.0 / 16.0, tolerance: 1e-3))
