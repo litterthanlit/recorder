@@ -271,6 +271,83 @@ extension AgentToolCatalog {
         annotations: MCPTool.Annotations(destructive: true)
     )
 
+    /// One shot of a storyboard.
+    static var storyboardShot: JSONValue {
+        let moves = Storyboard.Camera.Move.allCases.map(\.rawValue)
+        let camera = Schema.object([
+            ("move", Schema.string(
+                "hold: rest on the picture; auto: zoom onto clicks as they happen; zoom: in on the target as the shot starts; push: slowly closer over the shot; pull: start close, ease back to the whole picture; pan: from the target to `to`, close up (default zoom).",
+                oneOf: moves
+            )),
+            ("rect", Schema.object([
+                ("x", Schema.number("Left edge, 0–1 from the left.", minimum: 0, maximum: 1)),
+                ("y", Schema.number("Top edge, 0–1 from the top.", minimum: 0, maximum: 1)),
+                ("width", Schema.number("Width, 0–1.", minimum: 0, maximum: 1)),
+                ("height", Schema.number("Height, 0–1.", minimum: 0, maximum: 1))
+            ], required: ["x", "y", "width", "height"], description: "The target: a box on the recording to fit (origin top-left). Default: the shot's first click.")),
+            ("point", point),
+            ("to", rect),
+            ("scale", Schema.number("How close, 1.1–4 (default: fits rect, or the move's own).", minimum: 1.1, maximum: 4)),
+            ("three_d", Schema.string("A 3D move of the frame over the shot.", oneOf: CameraMoveKind.allCases.map(\.rawValue)))
+        ])
+        let text = Schema.object([
+            ("text", Schema.string("A few words, big.")),
+            ("style", Schema.string("title (hook and payoff default), caption (step default) or callout.", oneOf: TextOverlay.Style.allCases.map(\.rawValue))),
+            ("animation", Schema.string("How it comes on (default: hook rises, others pop).", oneOf: TextAnimation.allCases.map(\.rawValue))),
+            ("position", textPosition),
+            ("at", Schema.number("Seconds of video after the shot starts (default 0.15).", minimum: 0)),
+            ("hold", Schema.number("How long it stays (default: long enough to read).", minimum: 1.2))
+        ], required: ["text"])
+        return Schema.object([
+            ("start", Schema.time("Where the shot starts on the recording (source seconds).")),
+            ("end", Schema.time("Where it ends.")),
+            ("role", Schema.string(
+                "hook (the first shot's default), step, or payoff (the last shot's default): a result that rewards watching.",
+                oneOf: Storyboard.Shot.Role.allCases.map(\.rawValue)
+            )),
+            ("speed", Schema.number("How fast it plays, 0.25–16 (default 1).", minimum: 0.25, maximum: 16)),
+            ("duration", Schema.number("Or how long it lasts in the video; sets the speed.", minimum: 0.1)),
+            ("camera", [
+                "description": "The camera on this shot: a move's name, or {move, rect or point, to, scale, three_d}.",
+                "anyOf": .array([Schema.string("A move.", oneOf: moves), camera])
+            ]),
+            ("text", [
+                "description": "Kinetic type on this shot: the words, or {text, style, animation, position, at, hold}.",
+                "anyOf": .array([Schema.string("The words."), text])
+            ]),
+            ("payoff_at", Schema.time("When its result shows (source seconds), for checking the rhythm."))
+        ], required: ["start", "end"])
+    }
+
+    static let renderStoryboard = MCPTool(
+        name: "render_storyboard",
+        title: "Render a storyboard",
+        description: """
+        Turns a storyboard into the edit, as one undo step. Shots are moments of the recording in \
+        order (start–end in source seconds, each at its own speed), each with a camera move (hold, \
+        auto, zoom, push, pull or pan, plus an optional 3D move) and kinetic type. Open with a hook in \
+        the first 2 s (a short shot on the most striking moment, with a title and a push or zoom), \
+        then land a payoff every 3–5 s (a result, a caption, a zoom arriving). The recording plays \
+        forward only, so shots can't overlap or go back. Trace crops to the app's window (following \
+        it), hides other apps over it, reframes for the shape, adds transitions, and returns where \
+        each shot and its text landed in the video, warnings about the hook, the rhythm and timing, \
+        and a contact sheet of the shots. Zooms, text and 3D moves are replaced; blur boxes stay. \
+        Then score and fix it with critique_video.
+        """,
+        inputSchema: Schema.object([
+            ("take_id", takeID),
+            ("shots", Schema.array(of: storyboardShot, "The shots, in recording order.", maxItems: Storyboard.maximumShots)),
+            ("app", Schema.string("The app the demo is about (default: the one in front longest): the video is cropped to its window and other apps over it are hidden.")),
+            ("crop_to_app", Schema.boolean("Crop to the app's window when the take recorded it (default true).")),
+            ("look", Schema.string("A look's name, like \"Vivid\" or \"Midnight\" (default: keep the take's look).")),
+            ("aspect", Schema.string("Video shape: \(AgentAspect.choices) (default: keep the take's).")),
+            ("reframe", Schema.boolean("With aspect: fill the shape with a frame that follows the action (default true).")),
+            ("transition", Schema.string("Between shots (default zoom_blur).", oneOf: CutTransitionStyle.allCases.map(\.rawValue) + ["none"])),
+            ("preview", Schema.boolean("Return a contact sheet of the shots (default true)."))
+        ], required: ["take_id", "shots"]),
+        annotations: MCPTool.Annotations(destructive: true)
+    )
+
     static let setStyle = MCPTool(
         name: "set_style",
         title: "Look and shape",

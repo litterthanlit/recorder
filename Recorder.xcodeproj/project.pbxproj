@@ -147,6 +147,9 @@
 		B2000000000000000000008B /* WindowStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008F /* WindowStack.swift */; };
 		B2000000000000000000008C /* CropPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000090 /* CropPath.swift */; };
 		B2000000000000000000008D /* Reframe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000091 /* Reframe.swift */; };
+		B2000000000000000000008E /* Storyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000092 /* Storyboard.swift */; };
+		B2000000000000000000008F /* StoryboardRecipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000093 /* StoryboardRecipe.swift */; };
+		B20000000000000000000090 /* AgentStoryboardTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000094 /* AgentStoryboardTools.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -294,6 +297,9 @@
 		A2000000000000000000008F /* WindowStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowStack.swift; sourceTree = "<group>"; };
 		A20000000000000000000090 /* CropPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropPath.swift; sourceTree = "<group>"; };
 		A20000000000000000000091 /* Reframe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Reframe.swift; sourceTree = "<group>"; };
+		A20000000000000000000092 /* Storyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storyboard.swift; sourceTree = "<group>"; };
+		A20000000000000000000093 /* StoryboardRecipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoryboardRecipe.swift; sourceTree = "<group>"; };
+		A20000000000000000000094 /* AgentStoryboardTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStoryboardTools.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -588,6 +594,8 @@
 				A2000000000000000000007E /* TakeAnalyzer.swift */,
 				A2000000000000000000007F /* TakeAnalysisReport.swift */,
 				A2000000000000000000008E /* LaunchDemoRecipe.swift */,
+				A20000000000000000000092 /* Storyboard.swift */,
+				A20000000000000000000093 /* StoryboardRecipe.swift */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -605,6 +613,7 @@
 				A20000000000000000000080 /* AgentMediaScanner.swift */,
 				A20000000000000000000081 /* AgentAnalysisTools.swift */,
 				A2000000000000000000008D /* AgentLaunchDemoTools.swift */,
+				A20000000000000000000094 /* AgentStoryboardTools.swift */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -673,6 +682,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000090 /* AgentStoryboardTools.swift in Sources */,
+				B2000000000000000000008F /* StoryboardRecipe.swift in Sources */,
+				B2000000000000000000008E /* Storyboard.swift in Sources */,
 				B2000000000000000000008D /* Reframe.swift in Sources */,
 				B2000000000000000000008C /* CropPath.swift in Sources */,
 				B2000000000000000000008B /* WindowStack.swift in Sources */,

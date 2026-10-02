@@ -98,6 +98,8 @@ final class AgentToolHost: AgentBridgeHandler {
                 return try AgentTakeTools.openTake(arguments, context)
             case "make_launch_demo":
                 return try await AgentLaunchDemoTools.makeLaunchDemo(arguments, context)
+            case "render_storyboard":
+                return try await AgentStoryboardTools.renderStoryboard(arguments, context)
             case "edit_timeline":
                 return try AgentEditTools.editTimeline(arguments, context)
             case "edit_zooms":
