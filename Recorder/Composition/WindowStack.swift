@@ -47,7 +47,7 @@ enum WindowStack {
         return windows[..<index].filter { other in
             let seen = other.alpha >= minimumAlpha && other.isShared
             let layered = (other.layer >= normalLayer && other.layer < menuBarLayer) || other.layer == popUpMenuLayer
-            let overlay = other.layer != normalLayer && other.bounds.contains(window.bounds)
+            let overlay = other.layer != normalLayer && encloses(other.bounds, window.bounds)
             let overlap = other.bounds.intersection(window.bounds)
             return other.ownerPID != window.ownerPID
                 && !ignoredPIDs.contains(other.ownerPID)
@@ -68,5 +68,11 @@ enum WindowStack {
 
     static func area(_ rect: CGRect) -> CGFloat {
         rect.isNull ? 0 : max(rect.width, 0) * max(rect.height, 0)
+    }
+
+    /// Whether `inner` lies wholly inside `outer`, edges included, compared edge by edge
+    /// (the same on every platform, whatever rounding a library's own test does).
+    static func encloses(_ outer: CGRect, _ inner: CGRect) -> Bool {
+        outer.minX <= inner.minX && outer.minY <= inner.minY && outer.maxX >= inner.maxX && outer.maxY >= inner.maxY
     }
 }

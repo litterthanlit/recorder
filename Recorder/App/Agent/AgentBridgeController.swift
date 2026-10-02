@@ -100,6 +100,8 @@ final class AgentToolHost: AgentBridgeHandler {
                 return try await AgentLaunchDemoTools.makeLaunchDemo(arguments, context)
             case "render_storyboard":
                 return try await AgentStoryboardTools.renderStoryboard(arguments, context)
+            case "critique_video":
+                return try await AgentCritiqueTools.critiqueVideo(arguments, context)
             case "edit_timeline":
                 return try AgentEditTools.editTimeline(arguments, context)
             case "edit_zooms":

@@ -348,6 +348,32 @@ extension AgentToolCatalog {
         annotations: MCPTool.Annotations(destructive: true)
     )
 
+    static let critiqueVideo = MCPTool(
+        name: "critique_video",
+        title: "Critique and fix",
+        description: """
+        Judges the finished video the way a reviewer would. It renders stills where it matters (the \
+        opening, each shot, each piece of text, each zoom arriving) and scores each 0–100: text \
+        readable and up long enough, text clear of the action, the action in frame, not zoomed past \
+        sharp, something changing, no other app showing, the picture filling the frame. It also \
+        checks the hook (text and motion in the first 2 s) and the rhythm (something new every 3–5 \
+        s). Returns the worst stills as a contact sheet with what's wrong and the fix Trace would \
+        make. fix: true makes those fixes for the count worst stills (one undo step per round) and \
+        scores again; rounds repeats that. Fix what needs judgment yourself with the edit tools, \
+        then call it again. aspect critiques another shape the way export_video aspects makes it.
+        """,
+        inputSchema: Schema.object([
+            ("take_id", takeID),
+            ("count", Schema.integer("How many of the worst stills to show and fix (default 3).", minimum: 1, maximum: 6)),
+            ("fix", Schema.boolean("Make Trace's fixes for the worst stills, then score again (default false).")),
+            ("rounds", Schema.integer("With fix: how many rounds of fixing and scoring (default 1).", minimum: 1, maximum: 5)),
+            ("aspect", Schema.string("Critique the edit at another shape, reframed as export_video aspects makes it (not with fix).", oneOf: AgentAspect.names.map { $0.1 })),
+            ("reframe", Schema.boolean("With aspect: false fits the whole picture instead of reframing (default true).")),
+            ("app", Schema.string("The app the demo is about, for spotting other apps over it (default: the one in front longest)."))
+        ], required: ["take_id"]),
+        annotations: MCPTool.Annotations(destructive: true)
+    )
+
     static let setStyle = MCPTool(
         name: "set_style",
         title: "Look and shape",

@@ -5,7 +5,7 @@ import Foundation
 enum AgentToolCatalog {
     static var tools: [MCPTool] {
         [
-            listTakes, getTake, analyzeTake, viewFrames, makeLaunchDemo, renderStoryboard,
+            listTakes, getTake, analyzeTake, viewFrames, makeLaunchDemo, renderStoryboard, critiqueVideo,
             editTimeline, setCrop, editZooms, editText, editBlur, editCameraMoves, setStyle, undo,
             exportVideo, exportStatus, openTake
         ]
