@@ -18,7 +18,7 @@ enum MCPStdioServer {
             instructions: AgentToolCatalog.instructions,
             tools: AgentToolCatalog.tools,
             prompts: AgentPrompts.all,
-            executor: AgentShimExecutor(),
+            executor: AgentBridgeExecutor(),
             emit: { message in
                 let line = message.line()
                 output.async {
@@ -61,12 +61,5 @@ enum MCPStdioServer {
 
     static func log(_ message: String) {
         FileDescriptorIO.writeAll(Data("trace-mcp: \(message)\n".utf8), to: STDERR_FILENO)
-    }
-}
-
-/// Answers tool calls until the bridge to the app exists.
-final class AgentShimExecutor: MCPToolExecutor {
-    func callTool(name: String, arguments: JSONValue, progress: MCPProgress) async -> JSONValue {
-        MCPToolResult.error("Trace can't run \(name) yet: this build has no agent tools.")
     }
 }

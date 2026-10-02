@@ -107,6 +107,19 @@
 		B20000000000000000000063 /* AgentPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000067 /* AgentPrompts.swift */; };
 		B20000000000000000000064 /* TraceMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000068 /* TraceMain.swift */; };
 		B20000000000000000000065 /* MCPStdioServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000069 /* MCPStdioServer.swift */; };
+		B20000000000000000000066 /* UnixSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000006A /* UnixSocket.swift */; };
+		B20000000000000000000067 /* LineSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000006B /* LineSocket.swift */; };
+		B20000000000000000000068 /* AgentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000006C /* AgentBridge.swift */; };
+		B20000000000000000000069 /* AgentArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000006D /* AgentArguments.swift */; };
+		B2000000000000000000006A /* AgentCoordinates.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000006E /* AgentCoordinates.swift */; };
+		B2000000000000000000006B /* TakeDescription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000006F /* TakeDescription.swift */; };
+		B2000000000000000000006C /* FrameSampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000070 /* FrameSampling.swift */; };
+		B2000000000000000000006D /* AgentSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000071 /* AgentSetup.swift */; };
+		B2000000000000000000006E /* AgentBridgeExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000072 /* AgentBridgeExecutor.swift */; };
+		B2000000000000000000006F /* AgentBridgeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000073 /* AgentBridgeController.swift */; };
+		B20000000000000000000070 /* AgentTakeTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000074 /* AgentTakeTools.swift */; };
+		B20000000000000000000071 /* AgentFrameRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000075 /* AgentFrameRenderer.swift */; };
+		B20000000000000000000072 /* AgentsSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000076 /* AgentsSettingsPane.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -214,6 +227,19 @@
 		A20000000000000000000067 /* AgentPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPrompts.swift; sourceTree = "<group>"; };
 		A20000000000000000000068 /* TraceMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraceMain.swift; sourceTree = "<group>"; };
 		A20000000000000000000069 /* MCPStdioServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPStdioServer.swift; sourceTree = "<group>"; };
+		A2000000000000000000006A /* UnixSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnixSocket.swift; sourceTree = "<group>"; };
+		A2000000000000000000006B /* LineSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineSocket.swift; sourceTree = "<group>"; };
+		A2000000000000000000006C /* AgentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentBridge.swift; sourceTree = "<group>"; };
+		A2000000000000000000006D /* AgentArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentArguments.swift; sourceTree = "<group>"; };
+		A2000000000000000000006E /* AgentCoordinates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentCoordinates.swift; sourceTree = "<group>"; };
+		A2000000000000000000006F /* TakeDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeDescription.swift; sourceTree = "<group>"; };
+		A20000000000000000000070 /* FrameSampling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSampling.swift; sourceTree = "<group>"; };
+		A20000000000000000000071 /* AgentSetup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSetup.swift; sourceTree = "<group>"; };
+		A20000000000000000000072 /* AgentBridgeExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentBridgeExecutor.swift; sourceTree = "<group>"; };
+		A20000000000000000000073 /* AgentBridgeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentBridgeController.swift; sourceTree = "<group>"; };
+		A20000000000000000000074 /* AgentTakeTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTakeTools.swift; sourceTree = "<group>"; };
+		A20000000000000000000075 /* AgentFrameRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFrameRenderer.swift; sourceTree = "<group>"; };
+		A20000000000000000000076 /* AgentsSettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsSettingsPane.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -400,6 +426,7 @@
 			children = (
 				A20000000000000000000039 /* SettingsView.swift */,
 				A2000000000000000000003A /* ShortcutRecorderField.swift */,
+				A20000000000000000000076 /* AgentsSettingsPane.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -477,6 +504,14 @@
 				A20000000000000000000065 /* LineChannel.swift */,
 				A20000000000000000000066 /* AgentToolCatalog.swift */,
 				A20000000000000000000067 /* AgentPrompts.swift */,
+				A2000000000000000000006A /* UnixSocket.swift */,
+				A2000000000000000000006B /* LineSocket.swift */,
+				A2000000000000000000006C /* AgentBridge.swift */,
+				A2000000000000000000006D /* AgentArguments.swift */,
+				A2000000000000000000006E /* AgentCoordinates.swift */,
+				A2000000000000000000006F /* TakeDescription.swift */,
+				A20000000000000000000070 /* FrameSampling.swift */,
+				A20000000000000000000071 /* AgentSetup.swift */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -485,6 +520,10 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000069 /* MCPStdioServer.swift */,
+				A20000000000000000000072 /* AgentBridgeExecutor.swift */,
+				A20000000000000000000073 /* AgentBridgeController.swift */,
+				A20000000000000000000074 /* AgentTakeTools.swift */,
+				A20000000000000000000075 /* AgentFrameRenderer.swift */,
 			);
 			path = Agent;
 			sourceTree = "<group>";
@@ -553,6 +592,19 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000072 /* AgentsSettingsPane.swift in Sources */,
+				B20000000000000000000071 /* AgentFrameRenderer.swift in Sources */,
+				B20000000000000000000070 /* AgentTakeTools.swift in Sources */,
+				B2000000000000000000006F /* AgentBridgeController.swift in Sources */,
+				B2000000000000000000006E /* AgentBridgeExecutor.swift in Sources */,
+				B2000000000000000000006D /* AgentSetup.swift in Sources */,
+				B2000000000000000000006C /* FrameSampling.swift in Sources */,
+				B2000000000000000000006B /* TakeDescription.swift in Sources */,
+				B2000000000000000000006A /* AgentCoordinates.swift in Sources */,
+				B20000000000000000000069 /* AgentArguments.swift in Sources */,
+				B20000000000000000000068 /* AgentBridge.swift in Sources */,
+				B20000000000000000000067 /* LineSocket.swift in Sources */,
+				B20000000000000000000066 /* UnixSocket.swift in Sources */,
 				B20000000000000000000065 /* MCPStdioServer.swift in Sources */,
 				B20000000000000000000064 /* TraceMain.swift in Sources */,
 				B20000000000000000000063 /* AgentPrompts.swift in Sources */,

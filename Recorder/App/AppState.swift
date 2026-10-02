@@ -14,6 +14,8 @@ final class AppState: ObservableObject {
     let captureSelector = CaptureSelector()
     private var recordingOverlays: RecordingOverlays?
     private var quickAccess: QuickAccessController?
+    /// Serves AI agents while Settings › Agents › "Allow AI agents" is on.
+    private(set) lazy var agentBridge = AgentBridgeController(host: AgentToolHost(appState: self))
 
     /// Set by the status item: open and close the menu bar panel.
     var showPanelHandler: (() -> Void)?
@@ -82,6 +84,14 @@ final class AppState: ObservableObject {
             self?.settingsStore.settings.hasCompletedOnboarding = true
         }
 
+        settingsStore.$settings
+            .map(\.agentAccessEnabled)
+            .removeDuplicates()
+            .sink { [weak self] enabled in
+                self?.agentBridge.setEnabled(enabled)
+            }
+            .store(in: &cancellables)
+
         session.$state
             .receive(on: RunLoop.main)
             .sink { [weak self] state in
@@ -101,9 +111,15 @@ final class AppState: ObservableObject {
 
     func applicationDidFinishLaunching() {
         permissions.refresh()
-        if !settingsStore.settings.hasCompletedOnboarding || !permissions.hasRequiredPermissions {
+        // Started in the background for an agent: no windows; the agent reports problems.
+        let launchedForAgent = CommandLine.arguments.contains(TraceAppLauncher.argument)
+        if !launchedForAgent, !settingsStore.settings.hasCompletedOnboarding || !permissions.hasRequiredPermissions {
             showOnboarding()
         }
+    }
+
+    func applicationWillTerminate() {
+        agentBridge.stop()
     }
 
     // MARK: - Actions

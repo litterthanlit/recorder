@@ -22,6 +22,10 @@ enum SettingsWindow {
             hotkeys: appState.hotkeys
         )))
         tabs.addTabViewItem(item("Export", symbol: "square.and.arrow.up", ExportSettingsPane()))
+        tabs.addTabViewItem(item("Agents", symbol: "sparkles", AgentsSettingsPane(
+            settings: appState.settingsStore,
+            bridge: appState.agentBridge
+        )))
         return tabs
     }
 

@@ -48,10 +48,21 @@ struct LineBuffer {
     }
 }
 
-/// Blocking reads and writes on a file descriptor (stdin, stdout, a socket).
+/// Reads and writes on a file descriptor (stdin, stdout, a socket).
 enum FileDescriptorIO {
-    /// Writes all of `data`, retrying partial and interrupted writes. `false` when the
-    /// other end is gone.
+    enum ReadResult: Equatable {
+        case data(Data)
+        /// Nothing to read yet (a non-blocking descriptor).
+        case wouldBlock
+        /// End of file, or the descriptor failed.
+        case end
+    }
+
+    /// How long a write waits for a full non-blocking socket to drain before giving up.
+    static let writeTimeout: Int32 = 30_000
+
+    /// Writes all of `data`, retrying partial and interrupted writes, and waiting while a
+    /// non-blocking descriptor is full. `false` when the other end is gone.
     @discardableResult
     static func writeAll(_ data: Data, to descriptor: Int32) -> Bool {
         data.withUnsafeBytes { buffer -> Bool in
@@ -60,13 +71,37 @@ enum FileDescriptorIO {
             while remaining > 0 {
                 let written = Darwin.write(descriptor, pointer, remaining)
                 if written < 0 {
-                    if errno == EINTR { continue }
+                    let code = errno
+                    if code == EINTR { continue }
+                    if code == EAGAIN || code == EWOULDBLOCK {
+                        var waiting = pollfd(fd: descriptor, events: Int16(POLLOUT), revents: 0)
+                        if poll(&waiting, 1, writeTimeout) > 0 { continue }
+                    }
                     return false
                 }
                 pointer = pointer.advanced(by: written)
                 remaining -= written
             }
             return true
+        }
+    }
+
+    /// Reads what's there without waiting (for a non-blocking descriptor).
+    static func readAvailable(from descriptor: Int32, maximum: Int = 65_536) -> ReadResult {
+        var buffer = [UInt8](repeating: 0, count: maximum)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { raw in
+                Darwin.read(descriptor, raw.baseAddress, maximum)
+            }
+            if count > 0 {
+                return .data(Data(buffer[0..<count]))
+            }
+            if count == 0 {
+                return .end
+            }
+            let code = errno
+            if code == EINTR { continue }
+            return code == EAGAIN || code == EWOULDBLOCK ? .wouldBlock : .end
         }
     }
 
