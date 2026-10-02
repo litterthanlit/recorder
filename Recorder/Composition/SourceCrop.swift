@@ -17,7 +17,12 @@ enum SourceCrop {
     /// it's the whole recording or isn't a rect at all.
     static func sanitized(_ rect: CGRect) -> CGRect? {
         guard rect.minX.isFinite, rect.minY.isFinite, rect.width.isFinite, rect.height.isFinite else { return nil }
-        let clipped = rect.standardized.intersection(full)
+        let standard = rect.standardized
+        // A rect already inside is kept exactly: intersecting recomputes its size, which
+        // can come out a hair off (0.7 - 0.2 isn't 0.5), so saving and reading it back
+        // would change it.
+        let inside = standard.minX >= 0 && standard.minY >= 0 && standard.maxX <= 1 && standard.maxY <= 1
+        let clipped = inside ? standard : standard.intersection(full)
         guard !clipped.isNull else { return nil }
         let width = min(max(clipped.width, minimumSide), 1)
         let height = min(max(clipped.height, minimumSide), 1)
