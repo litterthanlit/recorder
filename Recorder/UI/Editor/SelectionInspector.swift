@@ -188,6 +188,14 @@ private struct TextInspector: View {
         )
     }
 
+    private var animationBinding: Binding<TextAnimation> {
+        let id = overlay.id
+        return Binding(
+            get: { overlay.animation },
+            set: { value in editor.updateText(id, actionName: "Text Animation") { $0.animation = value } }
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.lg) {
             InspectorSection("Text") {
@@ -197,6 +205,9 @@ private struct TextInspector: View {
                     .accessibilityLabel("Text")
                 InspectorLabeled("Style") {
                     InspectorSegmentedPicker("Style", selection: styleBinding, options: TextOverlay.Style.allCases) { $0.label }
+                }
+                InspectorLabeled("Animation") {
+                    InspectorSegmentedPicker("Animation", selection: animationBinding, options: TextAnimation.allCases) { $0.label }
                 }
                 EditorSlider(
                     editor: editor,

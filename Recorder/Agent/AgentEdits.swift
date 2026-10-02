@@ -373,7 +373,8 @@ enum AgentEdits {
                     span: span,
                     center: try position(arguments) ?? defaultCenter(for: style),
                     style: style,
-                    scale: try arguments.double("scale", in: 0.5...2) ?? 1
+                    scale: try arguments.double("scale", in: 0.5...2) ?? 1,
+                    animation: try arguments.choice("animation", TextAnimation.self) ?? .fade
                 )
                 overlays.append(overlay)
                 return "Added a \(style.rawValue) \"\(shortened(text))\" over \(describe(span)) (text_id \(overlay.id.uuidString))."
@@ -398,6 +399,9 @@ enum AgentEdits {
                 }
                 if let scale = try arguments.double("scale", in: 0.5...2) {
                     overlay.scale = scale
+                }
+                if let animation = try arguments.choice("animation", TextAnimation.self) {
+                    overlay.animation = animation
                 }
                 overlays[index] = overlay
                 return "Updated text \"\(shortened(overlay.text))\"."

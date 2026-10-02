@@ -133,6 +133,7 @@
 		B2000000000000000000007D /* AgentAnalysisTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000081 /* AgentAnalysisTools.swift */; };
 		B2000000000000000000007E /* SourceCrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000082 /* SourceCrop.swift */; };
 		B2000000000000000000007F /* CropControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000083 /* CropControls.swift */; };
+		B20000000000000000000080 /* TextMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000084 /* TextMotion.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -266,6 +267,7 @@
 		A20000000000000000000081 /* AgentAnalysisTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAnalysisTools.swift; sourceTree = "<group>"; };
 		A20000000000000000000082 /* SourceCrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceCrop.swift; sourceTree = "<group>"; };
 		A20000000000000000000083 /* CropControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropControls.swift; sourceTree = "<group>"; };
+		A20000000000000000000084 /* TextMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextMotion.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -372,6 +374,7 @@
 				A20000000000000000000040 /* CaptureExclusion.swift */,
 				A20000000000000000000049 /* CanvasLayout.swift */,
 				A20000000000000000000082 /* SourceCrop.swift */,
+				A20000000000000000000084 /* TextMotion.swift */,
 			);
 			path = Composition;
 			sourceTree = "<group>";
@@ -631,6 +634,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000080 /* TextMotion.swift in Sources */,
 				B2000000000000000000007F /* CropControls.swift in Sources */,
 				B2000000000000000000007E /* SourceCrop.swift in Sources */,
 				B2000000000000000000007D /* AgentAnalysisTools.swift in Sources */,

@@ -591,6 +591,10 @@ final class CompositionRenderer {
     private func compositeTextOverlays(onto image: CIImage, at time: TimeInterval, canvas: CGSize, unit: CGFloat) -> CIImage {
         var result = image
         for overlay in settings.textOverlays {
+            if overlay.animation != .fade {
+                result = compositeAnimatedText(overlay, onto: result, at: time, canvas: canvas, unit: unit)
+                continue
+            }
             let opacity = overlay.opacity(at: time)
             guard opacity > 0.001 else { continue }
             let text = overlay.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -612,8 +616,64 @@ final class CompositionRenderer {
         return result
     }
 
-    private func textPlate(text: String, style: TextOverlay.Style, scale: Double, unit: CGFloat, maxWidth: CGFloat) -> CIImage {
-        let key = "\(style.rawValue)|\(Int(scale * 100))|\(Int(unit * 1000))|\(Int(maxWidth))|\(text)"
+    /// Text that rises, pops, comes into focus or types on (`TextMotion`), placed on
+    /// the canvas like still text.
+    private func compositeAnimatedText(
+        _ overlay: TextOverlay,
+        onto image: CIImage,
+        at time: TimeInterval,
+        canvas: CGSize,
+        unit: CGFloat
+    ) -> CIImage {
+        let text = overlay.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return image }
+        let motion = TextMotion.state(overlay.animation, span: overlay.span, characters: text.count, at: time)
+        guard motion.isVisible else { return image }
+
+        let plate = textPlate(
+            text: text,
+            style: overlay.style,
+            scale: overlay.scale,
+            unit: unit,
+            maxWidth: canvas.width * 0.86,
+            revealed: motion.revealed
+        )
+        let size = plate.extent.size
+        let frame = OverlayLayout.centeredFrame(
+            size: size,
+            normalizedCenter: overlay.center,
+            canvas: canvas,
+            margin: 16 * unit
+        )
+        var placed = plate
+        if motion.blur > 0.05 {
+            placed = placed.applyingGaussianBlur(sigma: Double(motion.blur * unit / 2))
+        }
+        // Scaled about the plate's centre, then moved into place (risen).
+        let transform = CGAffineTransform(translationX: -size.width / 2, y: -size.height / 2)
+            .concatenating(CGAffineTransform(scaleX: motion.scale, y: motion.scale))
+            .concatenating(CGAffineTransform(translationX: frame.midX, y: frame.midY + motion.rise * unit))
+        placed = placed.transformed(by: transform)
+        if motion.opacity < 1 {
+            placed = fade(placed, opacity: motion.opacity)
+        }
+        return placed.composited(over: image)
+    }
+
+    /// - Parameter revealed: for text typing on, how many characters show (the rest are
+    ///   laid out but clear, so the plate keeps its size).
+    private func textPlate(
+        text: String,
+        style: TextOverlay.Style,
+        scale: Double,
+        unit: CGFloat,
+        maxWidth: CGFloat,
+        revealed: Int? = nil
+    ) -> CIImage {
+        var key = "\(style.rawValue)|\(Int(scale * 100))|\(Int(unit * 1000))|\(Int(maxWidth))|\(text)"
+        if let revealed {
+            key += "|r\(revealed)"
+        }
         if let cached = textCache[key] {
             return cached
         }
@@ -644,7 +704,8 @@ final class CompositionRenderer {
                 context.addPath(Self.roundedPath(plateRect, radius: min(size.height / 2, fontSize * 0.9)))
                 context.fillPath()
             }
-            layout.string.draw(in: CGRect(
+            let string = revealed.map { TextPlateLayout.revealing(layout.string, characters: $0) } ?? layout.string
+            string.draw(in: CGRect(
                 x: layout.padding.width,
                 y: layout.padding.height,
                 width: layout.textSize.width,

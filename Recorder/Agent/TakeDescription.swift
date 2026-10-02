@@ -247,7 +247,8 @@ enum TakeDescription {
             "start": AgentTime.json(overlay.span.start),
             "end": AgentTime.json(overlay.span.end),
             "position": AgentCoordinates.json(canvasPoint: overlay.center),
-            "scale": .finite(overlay.scale)
+            "scale": .finite(overlay.scale),
+            "animation": .string(overlay.animation.rawValue)
         ]
     }
 

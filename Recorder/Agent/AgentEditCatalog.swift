@@ -125,8 +125,8 @@ extension AgentToolCatalog {
         description: """
         Adds, changes and removes text on the video (titles, captions, callouts), as one undo step. \
         Ops: "add" {text, style?: title, caption (default) or callout, start, end or duration (default: \
-        long enough to read), position?, scale? 0.5–2}; "update" {text_id, …}; "remove" {text_id, or \
-        all: true}. position is top, upper_third, center, lower_third or bottom, or {x, y} on the \
+        long enough to read), position?, scale? 0.5–2, animation? fade, rise, pop, blur or typewriter}; \
+        "update" {text_id, …}; "remove" {text_id, or all: true}. position is top, upper_third, center, lower_third or bottom, or {x, y} on the \
         finished frame (0–1, origin top-left). Text is timed on the recording, so it moves with cuts.
         """,
         inputSchema: Schema.object([
@@ -142,7 +142,11 @@ extension AgentToolCatalog {
                 ("end", Schema.time("When it disappears.")),
                 ("duration", Schema.number("How long it shows, instead of end.", minimum: 0)),
                 ("position", textPosition),
-                ("scale", Schema.number("Size, 0.5–2 (1 is the style's own).", minimum: 0.5, maximum: 2))
+                ("scale", Schema.number("Size, 0.5–2 (1 is the style's own).", minimum: 0.5, maximum: 2)),
+                ("animation", Schema.string(
+                    "How it comes on and goes off: fade (default), rise (rises into place), pop (springs up), blur (comes into focus) or typewriter (types on).",
+                    oneOf: TextAnimation.allCases.map(\.rawValue)
+                ))
             ], required: ["op"]), "Text operations."))
         ], required: ["take_id", "operations"]),
         annotations: MCPTool.Annotations(destructive: true)
