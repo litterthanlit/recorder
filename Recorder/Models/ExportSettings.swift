@@ -327,25 +327,33 @@ struct AudioMixSettings: Codable, Equatable {
 
     var microphoneVolume: Double = 1
     var systemAudioVolume: Double = 1
+    /// Short fades either side of each cut, so the jump doesn't click.
+    var cutFades = false
+    /// Silence over parts played faster than 2.5×. See `AudioEnvelope`.
+    var muteSpedUp = false
 
     func volume(for role: AudioTrackRole) -> Double {
         let volume = role == .microphone ? microphoneVolume : systemAudioVolume
         return min(max(volume, Self.volumeRange.lowerBound), Self.volumeRange.upperBound)
     }
 
-    init(microphoneVolume: Double = 1, systemAudioVolume: Double = 1) {
+    init(microphoneVolume: Double = 1, systemAudioVolume: Double = 1, cutFades: Bool = false, muteSpedUp: Bool = false) {
         self.microphoneVolume = microphoneVolume
         self.systemAudioVolume = systemAudioVolume
+        self.cutFades = cutFades
+        self.muteSpedUp = muteSpedUp
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         microphoneVolume = try container.decodeIfPresent(Double.self, forKey: .microphoneVolume) ?? 1
         systemAudioVolume = try container.decodeIfPresent(Double.self, forKey: .systemAudioVolume) ?? 1
+        cutFades = (try? container.decodeIfPresent(Bool.self, forKey: .cutFades)) ?? false
+        muteSpedUp = (try? container.decodeIfPresent(Bool.self, forKey: .muteSpedUp)) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
-        case microphoneVolume, systemAudioVolume
+        case microphoneVolume, systemAudioVolume, cutFades, muteSpedUp
     }
 }
 
@@ -368,6 +376,8 @@ struct ProjectEditSettings: Codable, Equatable {
     /// The part of the recording to show, like an app's window (normalized, bottom-left
     /// origin); `nil` shows all of it. See `SourceCrop`.
     var sourceCrop: CGRect?
+    /// A transition at every cut; `nil` cuts straight.
+    var cutTransition: CutTransition?
 
     /// The edit to use: the saved one, or the old trim as a single segment.
     func resolvedTimeline(sourceDuration: TimeInterval) -> EditTimeline {
@@ -577,6 +587,7 @@ extension ProjectEditSettings {
         case textOverlays
         case blurRegions
         case sourceCrop
+        case cutTransition
     }
 
     /// Keys only read, to migrate older settings.
@@ -607,5 +618,6 @@ extension ProjectEditSettings {
         blurRegions = (try? container.decodeIfPresent([BlurRegion].self, forKey: .blurRegions)) ?? []
         let crop = try? container.decodeIfPresent(CGRect.self, forKey: .sourceCrop)
         sourceCrop = crop.flatMap { SourceCrop.sanitized($0) }
+        cutTransition = try? container.decodeIfPresent(CutTransition.self, forKey: .cutTransition)
     }
 }

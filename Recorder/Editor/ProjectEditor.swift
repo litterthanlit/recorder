@@ -564,11 +564,16 @@ final class ProjectEditor: ObservableObject {
     /// Splits the segment under the playhead there. Beeps when the playhead is at an edge.
     func splitAtPlayhead() {
         var updated = timeline
+        let splitTime = timeline.sourceTime(forOutput: playheadTime)
         guard updated.split(atOutput: playheadTime) else {
             NSSound.beep()
             return
         }
         editTimeline("Split") { $0 = updated }
+        // Ramps reshape both halves, which moves the split in output time: stay on it.
+        if updated.hasSpeedRamps {
+            seek(toSource: splitTime)
+        }
         if let segment = segmentAtPlayhead {
             select(.clip(segment.id))
         }
@@ -714,6 +719,18 @@ final class ProjectEditor: ObservableObject {
                 }
             }
         )
+    }
+
+    // MARK: - Motion
+
+    /// Whether sped-up parts ease in and out instead of jumping speed.
+    var smoothSpeedChanges: Bool {
+        timeline.hasSpeedRamps
+    }
+
+    func setSmoothSpeedChanges(_ on: Bool) {
+        let ramp: TimeInterval? = on ? SpeedRamp.defaultRamp : nil
+        editTimeline(on ? "Smooth Speed Changes" : "Sharp Speed Changes") { $0.speedRamp = ramp }
     }
 
     // MARK: - Crop

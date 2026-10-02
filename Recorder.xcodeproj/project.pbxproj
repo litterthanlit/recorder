@@ -134,6 +134,11 @@
 		B2000000000000000000007E /* SourceCrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000082 /* SourceCrop.swift */; };
 		B2000000000000000000007F /* CropControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000083 /* CropControls.swift */; };
 		B20000000000000000000080 /* TextMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000084 /* TextMotion.swift */; };
+		B20000000000000000000081 /* SpeedRamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000085 /* SpeedRamp.swift */; };
+		B20000000000000000000082 /* CutTransitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000086 /* CutTransitions.swift */; };
+		B20000000000000000000083 /* AudioEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000087 /* AudioEnvelope.swift */; };
+		B20000000000000000000084 /* RenderFeatures.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000088 /* RenderFeatures.swift */; };
+		B20000000000000000000085 /* MotionInspectors.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000089 /* MotionInspectors.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -268,6 +273,11 @@
 		A20000000000000000000082 /* SourceCrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceCrop.swift; sourceTree = "<group>"; };
 		A20000000000000000000083 /* CropControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropControls.swift; sourceTree = "<group>"; };
 		A20000000000000000000084 /* TextMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextMotion.swift; sourceTree = "<group>"; };
+		A20000000000000000000085 /* SpeedRamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedRamp.swift; sourceTree = "<group>"; };
+		A20000000000000000000086 /* CutTransitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CutTransitions.swift; sourceTree = "<group>"; };
+		A20000000000000000000087 /* AudioEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEnvelope.swift; sourceTree = "<group>"; };
+		A20000000000000000000088 /* RenderFeatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderFeatures.swift; sourceTree = "<group>"; };
+		A20000000000000000000089 /* MotionInspectors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionInspectors.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -375,6 +385,7 @@
 				A20000000000000000000049 /* CanvasLayout.swift */,
 				A20000000000000000000082 /* SourceCrop.swift */,
 				A20000000000000000000084 /* TextMotion.swift */,
+				A20000000000000000000088 /* RenderFeatures.swift */,
 			);
 			path = Composition;
 			sourceTree = "<group>";
@@ -488,6 +499,9 @@
 				A20000000000000000000051 /* EditorShortcuts.swift */,
 				A20000000000000000000052 /* TimelineGeometry.swift */,
 				A20000000000000000000053 /* Waveform.swift */,
+				A20000000000000000000085 /* SpeedRamp.swift */,
+				A20000000000000000000086 /* CutTransitions.swift */,
+				A20000000000000000000087 /* AudioEnvelope.swift */,
 			);
 			path = Timeline;
 			sourceTree = "<group>";
@@ -512,6 +526,7 @@
 				A2000000000000000000005A /* TransportBar.swift */,
 				A20000000000000000000060 /* ExportSheet.swift */,
 				A20000000000000000000083 /* CropControls.swift */,
+				A20000000000000000000089 /* MotionInspectors.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -634,6 +649,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000085 /* MotionInspectors.swift in Sources */,
+				B20000000000000000000084 /* RenderFeatures.swift in Sources */,
+				B20000000000000000000083 /* AudioEnvelope.swift in Sources */,
+				B20000000000000000000082 /* CutTransitions.swift in Sources */,
+				B20000000000000000000081 /* SpeedRamp.swift in Sources */,
 				B20000000000000000000080 /* TextMotion.swift in Sources */,
 				B2000000000000000000007F /* CropControls.swift in Sources */,
 				B2000000000000000000007E /* SourceCrop.swift in Sources */,

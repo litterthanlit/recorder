@@ -185,7 +185,8 @@ extension AgentToolCatalog {
         Sets how the video looks, as one undo step: a saved look first (look: "Midnight", "Studio Light", \
         "Vivid", "Minimal", "Vertical Social" or one the person saved), then any setting on top: background, \
         the canvas shape (aspect) and size (resolution), padding around the recording, corner radius, shadow, \
-        cursor, click effects, motion blur, the spring camera, keystrokes, a watermark and audio levels. \
+        cursor, click effects, motion blur, the spring camera, keystrokes, a watermark, audio levels, and \
+        motion at cuts: a transition, smooth speed changes, audio fades and muting sped-up parts. \
         Pass only what should change.
         """,
         inputSchema: Schema.object(styleProperties, required: ["take_id"]),
@@ -222,7 +223,15 @@ extension AgentToolCatalog {
             ("keystrokes", Schema.string("Show keys pressed.", oneOf: KeystrokeFilter.allCases.map(\.rawValue))),
             ("watermark", Schema.string("Corner text; \"\" removes it.")),
             ("microphone_volume", Schema.number("0–2 (1 is as recorded).", minimum: 0, maximum: 2)),
-            ("system_audio_volume", Schema.number("0–2 (1 is as recorded).", minimum: 0, maximum: 2))
+            ("system_audio_volume", Schema.number("0–2 (1 is as recorded).", minimum: 0, maximum: 2)),
+            ("cut_transition", Schema.string(
+                "A transition at every cut: zoom_blur (push in), whip (fast pan), blur_dip, or none.",
+                oneOf: CutTransitionStyle.allCases.map(\.rawValue) + ["none"]
+            )),
+            ("cut_transition_duration", Schema.number("How long each transition lasts, 0.15–1 s (default 0.4).", minimum: 0.15, maximum: 1)),
+            ("smooth_speed_changes", Schema.boolean("Ease into and out of sped-up parts instead of jumping speed.")),
+            ("cut_audio_fades", Schema.boolean("Short audio fades either side of each cut, so cuts don't click.")),
+            ("mute_sped_up_audio", Schema.boolean("Silence parts played faster than 2.5×."))
         ]
     }
 

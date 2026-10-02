@@ -193,6 +193,8 @@ enum AgentEdits {
                 return "Played \(describe(span)) at \(Timecode.speed(speed))."
             case "reset":
                 timeline = EditTimeline(sourceDuration: take.duration)
+                // Smooth speed changes are a style; they stay.
+                timeline.speedRamp = before.speedRamp
                 return "Reset the edit to the whole recording."
             default:
                 throw AgentToolError("Unknown op \"\(operation)\". Use cut, keep_only, trim, speed or reset.")

@@ -612,6 +612,7 @@ struct ZoomInspector: View {
                     isOn: editor.settingBinding(\.exportStyle.motionBlurEnabled, actionName: "Motion Blur")
                 )
             }
+            CutMotionSection(editor: editor)
             InspectorSection("Zooms") {
                 Text("\(editor.keyframes.count) zooms · \(manualCount) added by you")
                     .font(DS.Typeface.body)
@@ -633,6 +634,13 @@ struct AudioInspector: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.lg) {
+            levels
+            CutAudioSection(editor: editor)
+        }
+    }
+
+    private var levels: some View {
         InspectorSection("Levels") {
             if roles.contains(.microphone) {
                 EditorSlider(

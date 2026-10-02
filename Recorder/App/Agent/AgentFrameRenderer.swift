@@ -88,6 +88,7 @@ enum AgentFrameRenderer {
                     source: CIImage(cgImage: frame),
                     camera: camera,
                     at: moment.source,
+                    outputTime: moment.output,
                     outputWidth: width,
                     outputHeight: height
                 ), let image = context.createCGImage(

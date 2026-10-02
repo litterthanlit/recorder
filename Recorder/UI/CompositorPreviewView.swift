@@ -21,6 +21,8 @@ struct CompositorPreviewView: NSViewRepresentable {
 
     private var settings: CompositionRenderSettings {
         var shown = editor.renderSettings
+        // The player plays this edit until a rebuild catches up; transitions follow it.
+        shown.timeline = editor.playerTimeline ?? editor.timeline
         if showsWholeRecording {
             shown.sourceCrop = nil
         }
@@ -284,6 +286,7 @@ final class CompositorPreviewHost: NSView {
                   pixelBuffer: screenBuffer,
                   cameraBuffer: lastCameraBuffer,
                   at: renderTimeline?.sourceTime(forOutput: seconds) ?? seconds,
+                  outputTime: seconds,
                   outputWidth: pixelWidth,
                   outputHeight: pixelHeight,
                   pool: pool

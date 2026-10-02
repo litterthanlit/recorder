@@ -159,6 +159,7 @@ enum TakeDescription {
         detail["look"] = lookJSON(editSettings.exportStyle)
         detail["canvas"] = canvasJSON(editSettings.canvas, source: editSettings.contentSize(source: source))
         detail["crop"] = cropJSON(editSettings.sourceCrop, source: source)
+        detail["motion"] = motionJSON(editSettings, timeline: timeline)
         let audio: JSONValue = [
             "tracks": .array(metadata.audioTrackRoles.map { JSONValue.string($0.rawValue) }),
             "microphone_volume": .finite(editSettings.audio.microphoneVolume),
@@ -300,6 +301,20 @@ enum TakeDescription {
             "spring_camera": .bool(style.springCameraEnabled),
             "keystrokes": .string(style.keystrokes.filter.rawValue),
             "watermark": watermark
+        ]
+    }
+
+    /// Transitions, speed ramps and audio at cuts.
+    static func motionJSON(_ settings: ProjectEditSettings, timeline: EditTimeline) -> JSONValue {
+        var transition = JSONValue.null
+        if let cut = settings.cutTransition {
+            transition = ["style": .string(cut.style.rawValue), "duration": AgentTime.json(cut.duration)]
+        }
+        return [
+            "cut_transition": transition,
+            "smooth_speed_changes": .bool(timeline.hasSpeedRamps),
+            "cut_audio_fades": .bool(settings.audio.cutFades),
+            "mute_sped_up_audio": .bool(settings.audio.muteSpedUp)
         ]
     }
 

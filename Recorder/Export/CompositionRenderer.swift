@@ -29,6 +29,10 @@ struct CompositionRenderSettings: Equatable {
     /// The part of the recording shown at rest (normalized, bottom-left origin); `nil`
     /// shows all of it. See `SourceCrop`.
     var sourceCrop: CGRect?
+    /// The edit the frames are timed by (output time), for transitions at its cuts.
+    var timeline: EditTimeline?
+    /// A transition at every cut; `nil` cuts straight.
+    var cutTransition: CutTransition?
 }
 
 extension CompositionRenderSettings {
@@ -51,7 +55,18 @@ extension CompositionRenderSettings {
             textOverlays: editSettings.textOverlays,
             blurRegions: editSettings.blurRegions,
             backgroundImageURL: edited.backgroundImageURL,
-            sourceCrop: editSettings.sourceCrop
+            sourceCrop: editSettings.sourceCrop,
+            timeline: editSettings.resolvedTimeline(sourceDuration: project.metadata.duration),
+            cutTransition: editSettings.cutTransition
+        )
+    }
+
+    /// The optional effects these settings use.
+    var features: RenderFeatures {
+        RenderFeatures(
+            animatedText: textOverlays.contains { $0.animation != .fade },
+            cutTransitions: cutTransition != nil && timeline?.hasCuts == true,
+            speedRamps: timeline?.hasSpeedRamps ?? false
         )
     }
 }
@@ -88,6 +103,8 @@ final class CompositionRenderer {
     private var cachedBackgroundImage: (url: URL, image: CIImage?)?
     private var textCache: [String: CIImage] = [:]
     private var pillCache: [String: CIImage] = [:]
+    /// Output times of the edit's cuts, while there's a transition to draw at them.
+    private var cutTimes: [TimeInterval] = []
 
     private static let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
     /// Brand violet, for callouts.
@@ -114,6 +131,12 @@ final class CompositionRenderer {
             from: settings.keystrokes,
             filter: settings.exportStyle.keystrokes.filter
         )
+        self.cutTimes = Self.cutTimes(for: settings)
+    }
+
+    private static func cutTimes(for settings: CompositionRenderSettings) -> [TimeInterval] {
+        guard settings.features.cutTransitions, let timeline = settings.timeline else { return [] }
+        return CutTransitions.cutTimes(in: timeline)
     }
 
     func update(keyframes: [ZoomKeyframe], settings: CompositionRenderSettings) {
@@ -141,18 +164,24 @@ final class CompositionRenderer {
         if keystrokesChanged {
             keystrokePills = KeystrokeOverlayTimeline.pills(from: settings.keystrokes, filter: settings.exportStyle.keystrokes.filter)
         }
+        if settings.timeline != previous.timeline || settings.cutTransition != previous.cutTransition {
+            cutTimes = Self.cutTimes(for: settings)
+        }
     }
 
     func cropRect(at time: TimeInterval) -> NormalizedRect {
         interpolator.cropRect(at: time)
     }
 
-    /// - Parameter time: source seconds (everything the renderer draws is timed in the
-    ///   recording's own time).
+    /// - Parameters:
+    ///   - time: source seconds (everything the renderer draws is timed in the
+    ///     recording's own time).
+    ///   - outputTime: the same moment in the edited video, for transitions at cuts.
     func renderImage(
         source: CIImage,
         camera: CIImage? = nil,
         at time: TimeInterval,
+        outputTime: TimeInterval? = nil,
         outputWidth: Int,
         outputHeight: Int
     ) -> CIImage {
@@ -182,6 +211,10 @@ final class CompositionRenderer {
         var fitted = fitContent(cropped, croppedExtent: cropped.extent, canvas: canvas)
         if settings.exportStyle.motionBlurEnabled {
             fitted = applyMotionBlur(to: fitted, at: time, cropRect: cropRect, unit: unit)
+        }
+        if !cutTimes.isEmpty, let outputTime, let transition = settings.cutTransition,
+           let state = CutTransitions.state(atOutput: outputTime, cuts: cutTimes, duration: transition.duration) {
+            fitted = applyCutTransition(transition.style, state: state, to: fitted, unit: unit)
         }
 
         var finalImage: CIImage
@@ -230,6 +263,7 @@ final class CompositionRenderer {
         pixelBuffer: CVPixelBuffer,
         cameraBuffer: CVPixelBuffer? = nil,
         at time: TimeInterval,
+        outputTime: TimeInterval? = nil,
         outputWidth: Int,
         outputHeight: Int,
         pool: CVPixelBufferPool? = nil
@@ -239,6 +273,7 @@ final class CompositionRenderer {
             source: inputImage,
             camera: cameraBuffer.map { CIImage(cvPixelBuffer: $0) },
             at: time,
+            outputTime: outputTime,
             outputWidth: outputWidth,
             outputHeight: outputHeight
         )
@@ -510,6 +545,47 @@ final class CompositionRenderer {
             ])
         }
         return FittedContent(image: blurred.cropped(to: frame), frame: frame)
+    }
+
+    // MARK: - Cut transitions
+
+    /// The screen picture across a cut: pushed in with a zoom blur, whipped sideways, or
+    /// blurred and dimmed, most at the cut itself. Only the recording moves; the frame,
+    /// background and overlays stay put.
+    private func applyCutTransition(
+        _ style: CutTransitionStyle,
+        state: CutTransitionState,
+        to content: FittedContent,
+        unit: CGFloat
+    ) -> FittedContent {
+        let frame = content.frame
+        let intensity = CGFloat(min(max(state.intensity, 0), 1))
+        guard frame.width > 0, frame.height > 0, intensity > 0.01 else { return content }
+        let clamped = content.image.clampedToExtent()
+        let changed: CIImage
+        switch style {
+        case .zoomBlur:
+            let scale = 1 + 0.12 * intensity
+            let zoom = CGAffineTransform(translationX: -frame.midX, y: -frame.midY)
+                .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+                .concatenating(CGAffineTransform(translationX: frame.midX, y: frame.midY))
+            changed = clamped.transformed(by: zoom).applyingFilter("CIZoomBlur", parameters: [
+                kCIInputCenterKey: CIVector(x: frame.midX, y: frame.midY),
+                "inputAmount": 36 * unit * intensity
+            ])
+        case .whip:
+            // Leaving, the picture whips off to the left; arriving, it comes in from the right.
+            let shift = frame.width * 0.18 * intensity * (state.progress < 0 ? -1 : 1)
+            changed = clamped.transformed(by: CGAffineTransform(translationX: shift, y: 0))
+                .applyingFilter("CIMotionBlur", parameters: [
+                    kCIInputRadiusKey: 80 * unit * intensity,
+                    kCIInputAngleKey: 0
+                ])
+        case .blurDip:
+            changed = clamped.applyingGaussianBlur(sigma: Double(22 * unit * intensity))
+                .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -0.9 * intensity])
+        }
+        return FittedContent(image: changed.cropped(to: frame), frame: frame)
     }
 
     // MARK: - Blur regions

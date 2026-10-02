@@ -37,6 +37,7 @@ extension AgentEdits {
         try applyCanvas(arguments, to: &settings.canvas, notes: &notes)
         try applyLook(arguments, to: &settings.exportStyle, notes: &notes)
         try applyAudio(arguments, to: &settings.audio, notes: &notes)
+        try applyMotion(arguments, to: &settings, duration: take.duration, notes: &notes)
 
         guard !notes.isEmpty else {
             throw AgentToolError("Nothing to change: pass at least one setting (look, background, aspect, padding…).")
@@ -171,6 +172,70 @@ extension AgentEdits {
                 style[keyPath: keyPath] = on
                 notes.append("\(label) \(on ? "on" : "off").")
             }
+        }
+    }
+
+    /// What an agent asked for at cuts.
+    enum TransitionRequest: Equatable {
+        /// Straight cuts.
+        case straight
+        case style(CutTransitionStyle)
+    }
+
+    /// "zoom_blur", "whip", "blur_dip" (or "zoom", "blur"), or "none"; `nil` otherwise.
+    static func parseTransition(_ text: String) -> TransitionRequest? {
+        let normalized = text.trimmingCharacters(in: .whitespaces).lowercased().replacingOccurrences(of: "-", with: "_")
+        switch normalized {
+        case "none", "off", "cut":
+            return TransitionRequest.straight
+        case "zoom":
+            return TransitionRequest.style(CutTransitionStyle.zoomBlur)
+        case "blur":
+            return TransitionRequest.style(CutTransitionStyle.blurDip)
+        default:
+            return CutTransitionStyle(rawValue: normalized).map { TransitionRequest.style($0) }
+        }
+    }
+
+    private static func applyMotion(
+        _ arguments: AgentArguments,
+        to settings: inout ProjectEditSettings,
+        duration: TimeInterval,
+        notes: inout [String]
+    ) throws {
+        if let text = try arguments.string("cut_transition") {
+            switch parseTransition(text) {
+            case let .style(style)?:
+                var transition = settings.cutTransition ?? CutTransition()
+                transition.style = style
+                settings.cutTransition = transition
+                notes.append("A \(style.label.lowercased()) transition at every cut.")
+            case .straight?:
+                settings.cutTransition = nil
+                notes.append("Straight cuts.")
+            case nil:
+                throw AgentToolError("cut_transition must be zoom_blur, whip, blur_dip or none (got \"\(text)\").")
+            }
+        }
+        if let length = try arguments.double("cut_transition_duration", in: CutTransition.durationRange) {
+            var transition = settings.cutTransition ?? CutTransition()
+            transition.duration = length
+            settings.cutTransition = transition
+            notes.append("Transitions last \(AgentArguments.format(length)) s.")
+        }
+        if let smooth = try arguments.bool("smooth_speed_changes") {
+            var timeline = settings.resolvedTimeline(sourceDuration: duration)
+            timeline.speedRamp = smooth ? SpeedRamp.defaultRamp : nil
+            settings.setTimeline(timeline)
+            notes.append(smooth ? "Speed changes ease in and out." : "Speed changes jump.")
+        }
+        if let fades = try arguments.bool("cut_audio_fades") {
+            settings.audio.cutFades = fades
+            notes.append(fades ? "Audio fades at cuts." : "No audio fades at cuts.")
+        }
+        if let mute = try arguments.bool("mute_sped_up_audio") {
+            settings.audio.muteSpedUp = mute
+            notes.append(mute ? "Parts faster than 2.5× are silent." : "Sped-up parts keep their sound.")
         }
     }
 

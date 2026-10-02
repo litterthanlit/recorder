@@ -93,3 +93,124 @@ struct TextMotionTests {
         #expect(TakeDescription.textJSON(snapshot.editSettings.textOverlays[0])["animation"]?.stringValue == "typewriter")
     }
 }
+
+@Suite("Cut transitions and audio")
+struct CutMotionTests {
+    /// 0–4, then a cut to 6–10, then a split (no cut) to 10–12.
+    private let cutTimeline = EditTimeline(
+        segments: [
+            EditSegment(source: TimeSpan(start: 0, end: 4)),
+            EditSegment(source: TimeSpan(start: 6, end: 10)),
+            EditSegment(source: TimeSpan(start: 10, end: 12))
+        ],
+        sourceDuration: 12
+    )
+
+    @Test func transitionsPeakAtCuts() {
+        #expect(CutTransitions.cutTimes(in: cutTimeline) == [4])
+        let atCut = CutTransitions.state(atOutput: 4, cuts: [4], duration: 0.4)
+        #expect(atCut.map { isClose($0.progress, 0) && isClose($0.intensity, 1) } == true)
+        let before = CutTransitions.state(atOutput: 3.9, cuts: [4], duration: 0.4)
+        #expect(before.map { isClose($0.progress, -0.5, tolerance: 1e-9) && isClose($0.intensity, 0.5, tolerance: 1e-9) } == true)
+        #expect(CutTransitions.state(atOutput: 4.25, cuts: [4], duration: 0.4) == nil)
+        #expect(CutTransitions.state(atOutput: 4, cuts: [], duration: 0.4) == nil)
+    }
+
+    @Test func transitionsReadTolerantly() throws {
+        let odd = #"{ "style": "spin", "duration": 5 }"#
+        let transition = try JSONDecoder().decode(CutTransition.self, from: Data(odd.utf8))
+        #expect(transition.style == .zoomBlur)
+        #expect(transition.duration == CutTransition.durationRange.upperBound)
+
+        var settings = ProjectEditSettings()
+        settings.cutTransition = CutTransition(style: .whip, duration: 0.3)
+        settings.audio.cutFades = true
+        settings.audio.muteSpedUp = true
+        let decoded = try JSONDecoder().decode(ProjectEditSettings.self, from: JSONEncoder().encode(settings))
+        #expect(decoded == settings)
+    }
+
+    @Test func audioFadesAtCuts() {
+        let ramps = AudioEnvelope.ramps(for: cutTimeline, audio: AudioMixSettings(cutFades: true))
+        #expect(ramps.count == 2)
+        #expect(isClose(ramps[0].start, 3.96, tolerance: 1e-9) && ramps[0].from == 1 && ramps[0].to == 0)
+        #expect(isClose(ramps[1].start, 4, tolerance: 1e-9) && ramps[1].from == 0 && ramps[1].to == 1)
+        #expect(AudioEnvelope.initialGain(ramps) == 1)
+        #expect(AudioEnvelope.ramps(for: cutTimeline, audio: AudioMixSettings()).isEmpty)
+    }
+
+    @Test func fastPartsGoQuiet() {
+        let timeline = EditTimeline(
+            segments: [
+                EditSegment(source: TimeSpan(start: 0, end: 4)),
+                EditSegment(source: TimeSpan(start: 4, end: 12), speed: 4),
+                EditSegment(source: TimeSpan(start: 12, end: 16))
+            ],
+            sourceDuration: 16
+        )
+        #expect(AudioEnvelope.mutedSpans(in: timeline) == [TimeSpan(start: 4, end: 6)])
+        let ramps = AudioEnvelope.ramps(for: timeline, audio: AudioMixSettings(muteSpedUp: true))
+        #expect(ramps.count == 2)
+        #expect(isClose(ramps[0].start, 4) && isClose(ramps[0].duration, AudioEnvelope.muteRamp, tolerance: 1e-9) && ramps[0].to == 0)
+        #expect(isClose(ramps[1].start + ramps[1].duration, 6, tolerance: 1e-9) && ramps[1].to == 1)
+    }
+
+    @Test func newTakesUseNoOptionalEffects() {
+        var settings = ProjectEditSettings()
+        settings.setTimeline(EditTimeline(sourceDuration: 10))
+        #expect(RenderFeatures(settings: settings).isEmpty)
+        #expect(RenderFeatures(settings: ProjectEditSettings()).isEmpty)
+
+        settings.cutTransition = CutTransition()
+        settings.textOverlays = [TextOverlay(text: "Hi", span: TimeSpan(start: 0, end: 1), animation: .rise)]
+        settings.audio.cutFades = true
+        var timeline = settings.resolvedTimeline(sourceDuration: 10)
+        timeline.speedRamp = SpeedRamp.defaultRamp
+        settings.setTimeline(timeline)
+        let features = RenderFeatures(settings: settings)
+        #expect(features.cutTransitions && features.animatedText && features.audioEnvelope && features.speedRamps)
+        #expect(!features.cameraMoves)
+    }
+
+    @Test func agentsSetMotionThroughStyle() throws {
+        var settings = ProjectEditSettings()
+        settings.setTimeline(EditTimeline(sourceDuration: 20))
+        var snapshot = EditorSnapshot(keyframes: [], editSettings: settings)
+        let take = AgentEditTake(duration: 20, sourceSize: CGSize(width: 1920, height: 1080))
+        let notes = try AgentEdits.setStyle(
+            &snapshot,
+            arguments: AgentArguments([
+                "cut_transition": "whip",
+                "cut_transition_duration": 0.3,
+                "smooth_speed_changes": true,
+                "cut_audio_fades": true,
+                "mute_sped_up_audio": true
+            ]),
+            take: take
+        )
+        #expect(notes.count == 5)
+        #expect(snapshot.editSettings.cutTransition == CutTransition(style: .whip, duration: 0.3))
+        #expect(snapshot.editSettings.timeline?.speedRamp == SpeedRamp.defaultRamp)
+        #expect(snapshot.editSettings.audio.cutFades && snapshot.editSettings.audio.muteSpedUp)
+
+        let timeline = snapshot.editSettings.resolvedTimeline(sourceDuration: 20)
+        let motion = TakeDescription.motionJSON(snapshot.editSettings, timeline: timeline)
+        #expect(motion["cut_transition"]?["style"]?.stringValue == "whip")
+        #expect(motion["smooth_speed_changes"]?.boolValue == true)
+
+        _ = try AgentEdits.setStyle(&snapshot, arguments: AgentArguments(["cut_transition": "none"]), take: take)
+        #expect(snapshot.editSettings.cutTransition == nil)
+        let message: String?
+        do {
+            _ = try AgentEdits.setStyle(&snapshot, arguments: AgentArguments(["cut_transition": "spin"]), take: take)
+            message = nil
+        } catch let error as AgentToolError {
+            message = error.message
+        }
+        #expect(message?.hasPrefix("cut_transition must be") == true)
+
+        // Resetting the edit keeps smooth speed changes.
+        _ = try AgentEdits.editTimeline(&snapshot, operations: [AgentArguments(["op": "reset"])], take: take, timeBase: .source)
+        #expect(snapshot.editSettings.timeline?.speedRamp == SpeedRamp.defaultRamp)
+    }
+}
