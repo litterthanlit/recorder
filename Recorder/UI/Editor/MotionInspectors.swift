@@ -105,3 +105,31 @@ struct CutAudioSection: View {
         }
     }
 }
+
+/// Inspector › Zoom › 3D moves: add a move at the playhead.
+struct CameraMovesSection: View {
+    @ObservedObject var editor: ProjectEditor
+
+    private var summary: String {
+        let count = editor.editSettings.cameraMoves.count
+        let onTrack = count == 0 ? "None yet." : "\(count) on the 3D track."
+        return "\(onTrack) Tilt In opens a video, Tilt Out closes one; Float and Orbit bring a still screen to life."
+    }
+
+    var body: some View {
+        InspectorSection("3D moves") {
+            Menu {
+                ForEach(CameraMoveKind.allCases) { kind in
+                    Button(kind.label) {
+                        editor.addCameraMove(kind)
+                    }
+                }
+            } label: {
+                Label("Add at Playhead", systemImage: "rotate.3d")
+            }
+            .fixedSize()
+            .accessibilityLabel("Add a 3D move at the playhead")
+            InspectorHint(summary)
+        }
+    }
+}

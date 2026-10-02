@@ -9,6 +9,7 @@ enum EditorSelection: Equatable {
     case zoom(UUID)
     case text(UUID)
     case blur(UUID)
+    case cameraMove(UUID)
 }
 
 /// The playhead, published on its own so the ticks during playback (20 a second) only
@@ -109,6 +110,15 @@ final class ProjectEditor: ObservableObject {
     var selectedBlurID: UUID? {
         if case let .blur(id)? = selection { return id }
         return nil
+    }
+
+    var selectedCameraMoveID: UUID? {
+        if case let .cameraMove(id)? = selection { return id }
+        return nil
+    }
+
+    var selectedCameraMove: CameraMove? {
+        selectedCameraMoveID.flatMap { id in editSettings.cameraMoves.first { $0.id == id } }
     }
 
     var selectedKeyframe: ZoomKeyframe? {
@@ -283,6 +293,7 @@ final class ProjectEditor: ObservableObject {
         case .zoom?: deleteSelectedKeyframe()
         case let .text(id)?: deleteText(id)
         case let .blur(id)?: deleteBlur(id)
+        case let .cameraMove(id)?: deleteCameraMove(id)
         case nil: NSSound.beep()
         }
     }
@@ -296,6 +307,8 @@ final class ProjectEditor: ObservableObject {
             updateText(id, actionName: "Move Text", coalesce: true) { $0.span = shifted($0.span, by: delta) }
         case let .blur(id)?:
             updateBlur(id, actionName: "Move Blur", coalesce: true) { $0.span = shifted($0.span, by: delta) }
+        case let .cameraMove(id)?:
+            updateCameraMove(id, actionName: "Move 3D Move", coalesce: true) { $0.span = shifted($0.span, by: delta) }
         case .clip?, nil:
             NSSound.beep()
         }
@@ -416,8 +429,55 @@ final class ProjectEditor: ObservableObject {
             updateText(id, actionName: "Move Text", continuous: continuous) { $0.span = clamped }
         case let .blur(id):
             updateBlur(id, actionName: "Move Blur", continuous: continuous) { $0.span = clamped }
+        case let .cameraMove(id):
+            updateCameraMove(id, actionName: "Move 3D Move", continuous: continuous) { $0.span = clamped }
         case .clip, .zoom:
             break
+        }
+    }
+
+    // MARK: - 3D moves
+
+    /// Adds a 3D move of `kind` at the playhead and selects it.
+    func addCameraMove(_ kind: CameraMoveKind) {
+        let start = playheadSourceTime
+        let end = min(duration, start + kind.defaultDuration)
+        guard end - start > 0.2 else {
+            NSSound.beep()
+            return
+        }
+        let move = CameraMove(kind: kind, span: TimeSpan(start: start, end: end))
+        performEdit("Add 3D Move") {
+            editSettings.cameraMoves.append(move)
+        }
+        select(.cameraMove(move.id))
+    }
+
+    func updateCameraMove(
+        _ id: UUID,
+        actionName: String = "Edit 3D Move",
+        coalesce: Bool = false,
+        continuous: Bool = false,
+        _ change: (inout CameraMove) -> Void
+    ) {
+        guard let index = editSettings.cameraMoves.firstIndex(where: { $0.id == id }) else { return }
+        var updated = editSettings.cameraMoves[index]
+        change(&updated)
+        updated.intensity = min(max(updated.intensity, 0), 1)
+        guard updated != editSettings.cameraMoves[index] else { return }
+        performEdit(actionName, coalescingKey: coalesce ? AnyHashable("move-\(id)-\(actionName)") : nil, continuous: continuous) {
+            if let current = editSettings.cameraMoves.firstIndex(where: { $0.id == id }) {
+                editSettings.cameraMoves[current] = updated
+            }
+        }
+    }
+
+    func deleteCameraMove(_ id: UUID) {
+        performEdit("Delete 3D Move") {
+            editSettings.cameraMoves.removeAll { $0.id == id }
+        }
+        if selectedCameraMoveID == id {
+            select(nil)
         }
     }
 
@@ -877,6 +937,7 @@ final class ProjectEditor: ObservableObject {
         case let .zoom(id)?: return keyframes.contains { $0.id == id }
         case let .text(id)?: return editSettings.textOverlays.contains { $0.id == id }
         case let .blur(id)?: return editSettings.blurRegions.contains { $0.id == id }
+        case let .cameraMove(id)?: return editSettings.cameraMoves.contains { $0.id == id }
         case nil: return true
         }
     }

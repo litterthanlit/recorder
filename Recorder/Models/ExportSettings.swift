@@ -378,6 +378,8 @@ struct ProjectEditSettings: Codable, Equatable {
     var sourceCrop: CGRect?
     /// A transition at every cut; `nil` cuts straight.
     var cutTransition: CutTransition?
+    /// 3D moves of the recording's frame (source time).
+    var cameraMoves: [CameraMove] = []
 
     /// The edit to use: the saved one, or the old trim as a single segment.
     func resolvedTimeline(sourceDuration: TimeInterval) -> EditTimeline {
@@ -588,6 +590,7 @@ extension ProjectEditSettings {
         case blurRegions
         case sourceCrop
         case cutTransition
+        case cameraMoves
     }
 
     /// Keys only read, to migrate older settings.
@@ -619,5 +622,6 @@ extension ProjectEditSettings {
         let crop = try? container.decodeIfPresent(CGRect.self, forKey: .sourceCrop)
         sourceCrop = crop.flatMap { SourceCrop.sanitized($0) }
         cutTransition = try? container.decodeIfPresent(CutTransition.self, forKey: .cutTransition)
+        cameraMoves = (try? container.decodeIfPresent([CameraMove].self, forKey: .cameraMoves)) ?? []
     }
 }

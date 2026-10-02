@@ -160,6 +160,7 @@ enum TakeDescription {
         detail["canvas"] = canvasJSON(editSettings.canvas, source: editSettings.contentSize(source: source))
         detail["crop"] = cropJSON(editSettings.sourceCrop, source: source)
         detail["motion"] = motionJSON(editSettings, timeline: timeline)
+        detail["camera_moves"] = .array(editSettings.cameraMoves.map(cameraMoveJSON))
         let audio: JSONValue = [
             "tracks": .array(metadata.audioTrackRoles.map { JSONValue.string($0.rawValue) }),
             "microphone_volume": .finite(editSettings.audio.microphoneVolume),
@@ -301,6 +302,16 @@ enum TakeDescription {
             "spring_camera": .bool(style.springCameraEnabled),
             "keystrokes": .string(style.keystrokes.filter.rawValue),
             "watermark": watermark
+        ]
+    }
+
+    static func cameraMoveJSON(_ move: CameraMove) -> JSONValue {
+        [
+            "move_id": .string(move.id.uuidString),
+            "kind": .string(move.kind.rawValue),
+            "start": AgentTime.json(move.span.start),
+            "end": AgentTime.json(move.span.end),
+            "intensity": .finite(move.intensity)
         ]
     }
 

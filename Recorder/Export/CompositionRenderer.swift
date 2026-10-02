@@ -33,6 +33,8 @@ struct CompositionRenderSettings: Equatable {
     var timeline: EditTimeline?
     /// A transition at every cut; `nil` cuts straight.
     var cutTransition: CutTransition?
+    /// 3D moves of the recording's frame (source time).
+    var cameraMoves: [CameraMove] = []
 }
 
 extension CompositionRenderSettings {
@@ -57,7 +59,8 @@ extension CompositionRenderSettings {
             backgroundImageURL: edited.backgroundImageURL,
             sourceCrop: editSettings.sourceCrop,
             timeline: editSettings.resolvedTimeline(sourceDuration: project.metadata.duration),
-            cutTransition: editSettings.cutTransition
+            cutTransition: editSettings.cutTransition,
+            cameraMoves: editSettings.cameraMoves
         )
     }
 
@@ -66,7 +69,8 @@ extension CompositionRenderSettings {
         RenderFeatures(
             animatedText: textOverlays.contains { $0.animation != .fade },
             cutTransitions: cutTransition != nil && timeline?.hasCuts == true,
-            speedRamps: timeline?.hasSpeedRamps ?? false
+            speedRamps: timeline?.hasSpeedRamps ?? false,
+            cameraMoves: !cameraMoves.isEmpty
         )
     }
 }
@@ -217,8 +221,12 @@ final class CompositionRenderer {
             fitted = applyCutTransition(transition.style, state: state, to: fitted, unit: unit)
         }
 
+        // A 3D move warps the framed picture in perspective; otherwise it lies flat.
+        let move = settings.cameraMoves.isEmpty ? ScreenTransform3D.identity : CameraMoves.transform(at: time, moves: settings.cameraMoves)
         var finalImage: CIImage
-        if let layers = backdropLayers(contentFrame: fitted.frame, canvas: canvas) {
+        if !move.isIdentity {
+            finalImage = composite3D(fitted, transform: move, canvas: canvas, unit: unit)
+        } else if let layers = backdropLayers(contentFrame: fitted.frame, canvas: canvas) {
             finalImage = fitted.image
                 .applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: layers.contentMask])
                 .composited(over: layers.background)
@@ -228,14 +236,17 @@ final class CompositionRenderer {
 
         if settings.exportStyle.cursorSpotlightEnabled,
            let cursorLocation = cursorLocation(at: time),
-           let outputPoint = outputPoint(
+           let flatPoint = outputPoint(
                 forSource: cursorLocation,
                 cropRect: cropRect,
                 contentFrame: fitted.frame,
                 sourceWidth: sourceWidth,
                 sourceHeight: sourceHeight
            ) {
-            finalImage = applySpotlight(to: finalImage, at: outputPoint, canvas: canvas)
+            let point = move.isIdentity
+                ? flatPoint
+                : ScreenProjection(frame: fitted.frame, canvas: canvas, transform: move).project(flatPoint)
+            finalImage = applySpotlight(to: finalImage, at: point, canvas: canvas)
         }
 
         // The bubble stays put and sharp while the screen content moves underneath it.
@@ -359,20 +370,21 @@ final class CompositionRenderer {
         let background: BackgroundStyle
         let imageURL: URL?
 
-        init(canvas: CGSize, contentFrame: CGRect, cornerRadius: CGFloat, style: ExportStyle, imageURL: URL?) {
+        init(canvas: CGSize, contentFrame: CGRect, cornerRadius: CGFloat, style: ExportStyle, imageURL: URL?, shadow: Bool) {
             func quantized(_ value: CGFloat) -> Int { Int((value * 100).rounded()) }
             outputWidth = Int(canvas.width)
             outputHeight = Int(canvas.height)
             frame = [contentFrame.minX, contentFrame.minY, contentFrame.width, contentFrame.height].map(quantized)
             self.cornerRadius = quantized(cornerRadius)
-            shadowEnabled = style.shadowEnabled
+            shadowEnabled = style.shadowEnabled && shadow
             background = style.background
             self.imageURL = imageURL
         }
     }
 
     /// `nil` without a background: the recording fills the canvas edge to edge.
-    private func backdropLayers(contentFrame: CGRect, canvas: CGSize) -> BackdropLayers? {
+    /// - Parameter shadow: draw the frame's shadow (a 3D move draws its own).
+    private func backdropLayers(contentFrame: CGRect, canvas: CGSize, shadow: Bool = true) -> BackdropLayers? {
         let style = settings.exportStyle
         guard style.backgroundEnabled, contentFrame.width > 0, contentFrame.height > 0 else { return nil }
 
@@ -384,7 +396,8 @@ final class CompositionRenderer {
             contentFrame: contentFrame,
             cornerRadius: cornerRadius,
             style: style,
-            imageURL: settings.backgroundImageURL
+            imageURL: settings.backgroundImageURL,
+            shadow: shadow
         )
         if let cachedBackdrop, cachedBackdrop.key == key {
             return cachedBackdrop.layers
@@ -392,7 +405,7 @@ final class CompositionRenderer {
 
         let outputRect = CGRect(origin: .zero, size: canvas)
         var background = makeBackground(style.background, in: outputRect)
-        if style.shadowEnabled {
+        if key.shadowEnabled {
             // Core Image space is y-up, so a negative offset puts the shadow below.
             let shadowMask = roundedRectMask(
                 rect: contentFrame.offsetBy(dx: 0, dy: -8 * unit),
@@ -545,6 +558,42 @@ final class CompositionRenderer {
             ])
         }
         return FittedContent(image: blurred.cropped(to: frame), frame: frame)
+    }
+
+    // MARK: - 3D moves
+
+    /// The framed picture tilted, turned or moved in perspective (`transform`), with a
+    /// shadow that follows its shape, over the background.
+    private func composite3D(_ fitted: FittedContent, transform: ScreenTransform3D, canvas: CGSize, unit: CGFloat) -> CIImage {
+        let outputRect = CGRect(origin: .zero, size: canvas)
+        guard fitted.frame.width > 0, fitted.frame.height > 0 else {
+            return CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: outputRect)
+        }
+        let projection = ScreenProjection(frame: fitted.frame, canvas: canvas, transform: transform)
+        let layers = backdropLayers(contentFrame: fitted.frame, canvas: canvas, shadow: false)
+        var content = fitted.image
+        if let layers {
+            content = content.applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: layers.contentMask])
+        }
+        let warped = content.cropped(to: fitted.frame).applyingFilter("CIPerspectiveTransform", parameters: [
+            "inputTopLeft": CIVector(cgPoint: projection.topLeft),
+            "inputTopRight": CIVector(cgPoint: projection.topRight),
+            "inputBottomRight": CIVector(cgPoint: projection.bottomRight),
+            "inputBottomLeft": CIVector(cgPoint: projection.bottomLeft)
+        ])
+
+        var background = layers?.background ?? CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: outputRect)
+        if layers != nil, settings.exportStyle.shadowEnabled {
+            // Core Image space is y-up, so a negative offset puts the shadow below.
+            let shape = warped
+                .transformed(by: CGAffineTransform(translationX: 0, y: -8 * unit))
+                .applyingGaussianBlur(sigma: Double(20 * unit))
+            let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.32))
+                .cropped(to: outputRect)
+                .applyingFilter("CIBlendWithAlphaMask", parameters: [kCIInputMaskImageKey: shape])
+            background = shadow.composited(over: background)
+        }
+        return warped.composited(over: background)
     }
 
     // MARK: - Cut transitions

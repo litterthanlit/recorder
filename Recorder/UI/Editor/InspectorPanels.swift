@@ -613,6 +613,7 @@ struct ZoomInspector: View {
                 )
             }
             CutMotionSection(editor: editor)
+            CameraMovesSection(editor: editor)
             InspectorSection("Zooms") {
                 Text("\(editor.keyframes.count) zooms · \(manualCount) added by you")
                     .font(DS.Typeface.body)

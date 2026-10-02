@@ -139,6 +139,7 @@
 		B20000000000000000000083 /* AudioEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000087 /* AudioEnvelope.swift */; };
 		B20000000000000000000084 /* RenderFeatures.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000088 /* RenderFeatures.swift */; };
 		B20000000000000000000085 /* MotionInspectors.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000089 /* MotionInspectors.swift */; };
+		B20000000000000000000086 /* CameraMoves.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008A /* CameraMoves.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -278,6 +279,7 @@
 		A20000000000000000000087 /* AudioEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEnvelope.swift; sourceTree = "<group>"; };
 		A20000000000000000000088 /* RenderFeatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderFeatures.swift; sourceTree = "<group>"; };
 		A20000000000000000000089 /* MotionInspectors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionInspectors.swift; sourceTree = "<group>"; };
+		A2000000000000000000008A /* CameraMoves.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraMoves.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -386,6 +388,7 @@
 				A20000000000000000000082 /* SourceCrop.swift */,
 				A20000000000000000000084 /* TextMotion.swift */,
 				A20000000000000000000088 /* RenderFeatures.swift */,
+				A2000000000000000000008A /* CameraMoves.swift */,
 			);
 			path = Composition;
 			sourceTree = "<group>";
@@ -649,6 +652,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000086 /* CameraMoves.swift in Sources */,
 				B20000000000000000000085 /* MotionInspectors.swift in Sources */,
 				B20000000000000000000084 /* RenderFeatures.swift in Sources */,
 				B20000000000000000000083 /* AudioEnvelope.swift in Sources */,

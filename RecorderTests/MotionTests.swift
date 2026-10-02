@@ -214,3 +214,113 @@ struct CutMotionTests {
         #expect(snapshot.editSettings.timeline?.speedRamp == SpeedRamp.defaultRamp)
     }
 }
+
+@Suite("3D camera moves")
+struct CameraMoveTests {
+    private let frame = CGRect(x: 192, y: 108, width: 1536, height: 864)
+    private let canvas = CGSize(width: 1920, height: 1080)
+
+    @Test func flatIsExactlyFlat() {
+        let projection = ScreenProjection(frame: frame, canvas: canvas, transform: .identity)
+        #expect(projection.project(CGPoint(x: 400, y: 300)) == CGPoint(x: 400, y: 300))
+        #expect(projection.topLeft == CGPoint(x: frame.minX, y: frame.maxY))
+        #expect(projection.bottomRight == CGPoint(x: frame.maxX, y: frame.minY))
+        let moves = [CameraMove(kind: .orbit, span: TimeSpan(start: 2, end: 6))]
+        #expect(CameraMoves.transform(at: 1, moves: moves).isIdentity)
+        #expect(CameraMoves.transform(at: 6.5, moves: moves).isIdentity)
+        // Strength 0 doesn't move at all.
+        let still = [CameraMove(kind: .orbit, span: TimeSpan(start: 2, end: 6), intensity: 0)]
+        #expect(CameraMoves.transform(at: 4, moves: still).isIdentity)
+    }
+
+    @Test func tiltInSettlesAndTiltOutLeaves() {
+        let tiltIn = CameraMove(kind: .tiltIn, span: TimeSpan(start: 0, end: 1.4))
+        let start = CameraMoves.transform(of: tiltIn, at: 0)
+        #expect(start.rotationX < 0 && start.scale < 1)
+        let settled = CameraMoves.transform(of: tiltIn, at: 1.39)
+        #expect(abs(settled.rotationX) < 0.01 && abs(settled.scale - 1) < 0.01)
+
+        let tiltOut = CameraMove(kind: .tiltOut, span: TimeSpan(start: 8, end: 9.4))
+        #expect(CameraMoves.transform(of: tiltOut, at: 8).isIdentity)
+        #expect(CameraMoves.transform(of: tiltOut, at: 9.35).rotationX > 0.1)
+    }
+
+    @Test func floatsEaseInAndOut() {
+        for kind in [CameraMoveKind.float, .orbit] {
+            let move = CameraMove(kind: kind, span: TimeSpan(start: 2, end: 6))
+            #expect(CameraMoves.transform(of: move, at: 2).isIdentity)
+            #expect(!CameraMoves.transform(of: move, at: 4).isIdentity)
+        }
+        let push = CameraMove(kind: .pushIn, span: TimeSpan(start: 0, end: 3))
+        #expect(CameraMoves.transform(of: push, at: 2).scale > 1)
+    }
+
+    @Test func tiltingTheTopAwayNarrowsIt() {
+        let leaning = ScreenTransform3D(rotationX: -20 * .pi / 180)
+        let projection = ScreenProjection(frame: frame, canvas: canvas, transform: leaning)
+        let top = projection.topRight.x - projection.topLeft.x
+        let bottom = projection.bottomRight.x - projection.bottomLeft.x
+        #expect(top < bottom)
+        // The centre stays put.
+        let center = projection.project(CGPoint(x: frame.midX, y: frame.midY))
+        #expect(isClose(center.x, frame.midX, tolerance: 1e-6) && isClose(center.y, frame.midY, tolerance: 1e-6))
+    }
+
+    @Test func movesAreSavedAndReadTolerantly() throws {
+        var settings = ProjectEditSettings()
+        settings.cameraMoves = [CameraMove(kind: .tiltIn, span: TimeSpan(start: 0, end: 1.4), intensity: 0.8)]
+        let decoded = try JSONDecoder().decode(ProjectEditSettings.self, from: JSONEncoder().encode(settings))
+        #expect(decoded == settings)
+        #expect(RenderFeatures(settings: settings).cameraMoves)
+
+        let odd = #"{ "kind": "spin", "span": { "start": 1, "end": 2 }, "intensity": 7 }"#
+        let move = try JSONDecoder().decode(CameraMove.self, from: Data(odd.utf8))
+        #expect(move.kind == .float && move.intensity == 1)
+    }
+
+    @Test func agentsAddTiltsAtTheEnds() throws {
+        var settings = ProjectEditSettings()
+        settings.setTimeline(EditTimeline(
+            segments: [EditSegment(source: TimeSpan(start: 2, end: 18))],
+            sourceDuration: 20
+        ))
+        var snapshot = EditorSnapshot(keyframes: [], editSettings: settings)
+        let take = AgentEditTake(duration: 20, sourceSize: CGSize(width: 1920, height: 1080))
+        _ = try AgentEdits.editCameraMoves(
+            &snapshot,
+            operations: [
+                AgentArguments(["op": "add", "kind": "tilt-in"]),
+                AgentArguments(["op": "add", "kind": "tilt_out", "intensity": 0.4])
+            ],
+            take: take,
+            timeBase: .source
+        )
+        let moves = snapshot.editSettings.cameraMoves
+        #expect(moves.count == 2)
+        // The video opens on the tilt in and closes on the tilt out.
+        #expect(isClose(moves[0].span.start, 2) && isClose(moves[0].span.duration, 1.4, tolerance: 1e-9))
+        #expect(isClose(moves[1].span.end, 18, tolerance: 1e-9) && moves[1].intensity == 0.4)
+
+        _ = try AgentEdits.editCameraMoves(
+            &snapshot,
+            operations: [AgentArguments(["op": "update", "move_id": .string(moves[0].id.uuidString), "kind": "orbit", "duration": 4])],
+            take: take,
+            timeBase: .source
+        )
+        #expect(snapshot.editSettings.cameraMoves[0].kind == .orbit)
+        #expect(isClose(snapshot.editSettings.cameraMoves[0].span.duration, 4, tolerance: 1e-9))
+        #expect(TakeDescription.cameraMoveJSON(snapshot.editSettings.cameraMoves[0])["kind"]?.stringValue == "orbit")
+
+        let message: String?
+        do {
+            _ = try AgentEdits.editCameraMoves(&snapshot, operations: [AgentArguments(["op": "add"])], take: take, timeBase: .source)
+            message = nil
+        } catch let error as AgentToolError {
+            message = error.message
+        }
+        #expect(message == "operations[0] (add): kind is required: tilt_in, tilt_out, float, orbit or push_in.")
+
+        _ = try AgentEdits.editCameraMoves(&snapshot, operations: [AgentArguments(["op": "remove", "all": true])], take: take, timeBase: .source)
+        #expect(snapshot.editSettings.cameraMoves.isEmpty)
+    }
+}

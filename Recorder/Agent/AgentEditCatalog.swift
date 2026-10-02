@@ -178,6 +178,33 @@ extension AgentToolCatalog {
         annotations: MCPTool.Annotations(destructive: true)
     )
 
+    static let editCameraMoves = MCPTool(
+        name: "edit_camera_moves",
+        title: "3D camera moves",
+        description: """
+        Moves the recording's frame in 3D, as one undo step. Ops: "add" {kind, start?, end or duration, \
+        intensity? 0–1 (default 0.6)}; "update" {move_id, …}; "remove" {move_id, or all: true}. Kinds: \
+        tilt_in (starts tilted back and settles flat; without a start it opens the video), tilt_out \
+        (tilts away; without a start it closes the video), float (hovers, turning gently), orbit (swings \
+        from side to side) and push_in (moves slowly closer). Best on a background with some padding.
+        """,
+        inputSchema: Schema.object([
+            ("take_id", takeID),
+            ("time_base", timeBase),
+            ("operations", operations(Schema.object([
+                ("op", Schema.string("What to do.", oneOf: ["add", "update", "remove"])),
+                ("move_id", Schema.string("update, remove: which move (get_take lists them).")),
+                ("all", Schema.boolean("remove: every move.")),
+                ("kind", Schema.string("The move.", oneOf: CameraMoveKind.allCases.map(\.rawValue))),
+                ("start", Schema.time("When it starts.")),
+                ("end", Schema.time("When it ends.")),
+                ("duration", Schema.number("How long, instead of end.", minimum: 0)),
+                ("intensity", Schema.number("How strong, 0–1 (default 0.6).", minimum: 0, maximum: 1))
+            ], required: ["op"]), "3D move operations."))
+        ], required: ["take_id", "operations"]),
+        annotations: MCPTool.Annotations(destructive: true)
+    )
+
     static let setStyle = MCPTool(
         name: "set_style",
         title: "Look and shape",

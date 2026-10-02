@@ -517,6 +517,80 @@ enum AgentEdits {
         return notes
     }
 
+    // MARK: - 3D moves
+
+    static func editCameraMoves(
+        _ snapshot: inout EditorSnapshot,
+        operations: [AgentArguments],
+        take: AgentEditTake,
+        timeBase: AgentTimeBase
+    ) throws -> [String] {
+        let timeline = snapshot.editSettings.resolvedTimeline(sourceDuration: take.duration)
+        let clock = AgentClock(timeBase: timeBase, timeline: timeline, duration: take.duration)
+        var moves = snapshot.editSettings.cameraMoves
+        let notes = try eachOperation(operations) { operation, arguments in
+            switch operation {
+            case "add":
+                guard let kind = try arguments.choice("kind", CameraMoveKind.self) else {
+                    throw AgentToolError("kind is required: tilt_in, tilt_out, float, orbit or push_in.")
+                }
+                // Without a start, a tilt in opens the video and a tilt out closes it.
+                let length = min(kind.defaultDuration, timeline.outputDuration)
+                let defaultStart: TimeInterval?
+                switch kind {
+                case .tiltIn:
+                    defaultStart = timeline.sourceTime(forOutput: 0)
+                case .tiltOut:
+                    defaultStart = timeline.sourceTime(forOutput: max(0, timeline.outputDuration - length))
+                case .float, .orbit, .pushIn:
+                    defaultStart = nil
+                }
+                let span = try clock.span(arguments, defaultStart: defaultStart, defaultDuration: kind.defaultDuration)
+                let move = CameraMove(
+                    kind: kind,
+                    span: span,
+                    intensity: try arguments.double("intensity", in: 0...1) ?? CameraMove.defaultIntensity
+                )
+                moves.append(move)
+                return "Added \(kind.label) over \(describe(span)) (move_id \(move.id.uuidString))."
+            case "update":
+                let id = try identifier(arguments, "move_id")
+                guard let index = moves.firstIndex(where: { $0.id == id }) else {
+                    throw AgentToolError("No 3D move has the move_id \(id.uuidString).")
+                }
+                var move = moves[index]
+                if let kind = try arguments.choice("kind", CameraMoveKind.self) {
+                    move.kind = kind
+                }
+                if arguments.has("start") || arguments.has("end") || arguments.has("duration") {
+                    let length = clock.clockTime(forSource: move.span.end) - clock.clockTime(forSource: move.span.start)
+                    move.span = try clock.span(arguments, defaultStart: move.span.start, defaultDuration: max(length, 0.5))
+                }
+                if let intensity = try arguments.double("intensity", in: 0...1) {
+                    move.intensity = intensity
+                }
+                moves[index] = move
+                return "Updated the \(move.kind.label) move."
+            case "remove":
+                if try arguments.bool("all") == true {
+                    let count = moves.count
+                    moves.removeAll()
+                    return "Removed all \(count) 3D moves."
+                }
+                let id = try identifier(arguments, "move_id")
+                guard moves.contains(where: { $0.id == id }) else {
+                    throw AgentToolError("No 3D move has the move_id \(id.uuidString).")
+                }
+                moves.removeAll { $0.id == id }
+                return "Removed 3D move \(id.uuidString)."
+            default:
+                throw AgentToolError("Unknown op \"\(operation)\". Use add, update or remove.")
+            }
+        }
+        snapshot.editSettings.cameraMoves = moves
+        return notes
+    }
+
     // MARK: - Crop
 
     /// set_crop: show only part of the recording (`rect`, origin top-left, optionally

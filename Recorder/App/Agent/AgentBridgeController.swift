@@ -104,6 +104,8 @@ final class AgentToolHost: AgentBridgeHandler {
                 return try AgentEditTools.editText(arguments, context)
             case "edit_blur":
                 return try AgentEditTools.editBlur(arguments, context)
+            case "edit_camera_moves":
+                return try AgentEditTools.editCameraMoves(arguments, context)
             case "set_crop":
                 return try AgentEditTools.setCrop(arguments, context)
             case "set_style":

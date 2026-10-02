@@ -26,6 +26,10 @@ struct CompositorPreviewView: NSViewRepresentable {
         if showsWholeRecording {
             shown.sourceCrop = nil
         }
+        // Boxes drawn over the picture need it flat.
+        if showsWholeRecording || editor.isManualZoomMode || editor.selectedBlur != nil {
+            shown.cameraMoves = []
+        }
         return shown
     }
 

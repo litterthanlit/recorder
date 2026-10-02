@@ -67,6 +67,14 @@ enum AgentEditTools {
         }
     }
 
+    static func editCameraMoves(_ arguments: AgentArguments, _ context: AgentToolContext) throws -> JSONValue {
+        let timeBase = try AgentTimeBase.read(arguments)
+        let operations = try requiredOperations(arguments)
+        return try apply("3D Moves", arguments, context) { snapshot, take in
+            try AgentEdits.editCameraMoves(&snapshot, operations: operations, take: take, timeBase: timeBase)
+        }
+    }
+
     static func setCrop(_ arguments: AgentArguments, _ context: AgentToolContext) throws -> JSONValue {
         try apply("Crop", arguments, context) { snapshot, take in
             try AgentEdits.setCrop(&snapshot, arguments: arguments, take: take)

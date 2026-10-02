@@ -31,7 +31,7 @@ struct RenderFeatures: Equatable {
             cutTransitions: settings.cutTransition != nil,
             speedRamps: settings.timeline?.hasSpeedRamps ?? false,
             audioEnvelope: settings.audio.cutFades || settings.audio.muteSpedUp,
-            cameraMoves: false
+            cameraMoves: !settings.cameraMoves.isEmpty
         )
     }
 
