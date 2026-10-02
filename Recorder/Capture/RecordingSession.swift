@@ -476,7 +476,11 @@ final class RecordingSession: ObservableObject {
                 cursorEvents: trackingResult.cursor,
                 keyframes: keyframes,
                 editSettings: editSettings,
-                inputs: InputLog(keystrokes: trackingResult.keystrokes, cursorKinds: trackingResult.cursorKinds)
+                inputs: InputLog(
+                    keystrokes: trackingResult.keystrokes,
+                    cursorKinds: trackingResult.cursorKinds,
+                    appFocus: trackingResult.appFocus
+                )
             )
 
             try ProjectStore.save(project)

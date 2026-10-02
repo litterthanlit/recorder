@@ -251,6 +251,19 @@ struct TakeDescriptionTests {
         #expect(entry["capture"]?.stringValue == "area")
     }
 
+    @Test func listsTheAppsInFront() {
+        var take = project()
+        #expect(TakeDescription.detail(project: take, keyframes: [], editSettings: take.editSettings, isOpen: false)["apps_in_front"] == nil)
+        take.inputs.appFocus = [
+            AppFocusEvent(timestamp: 0, bundleID: "com.acme.app", appName: "Acme", windowRect: nil),
+            AppFocusEvent(timestamp: 15, bundleID: "com.apple.Safari", appName: "Safari", windowRect: nil)
+        ]
+        let detail = TakeDescription.detail(project: take, keyframes: [], editSettings: take.editSettings, isOpen: false)
+        let apps = detail["apps_in_front"]?.arrayValue ?? []
+        #expect(apps.compactMap { $0["name"]?.stringValue } == ["Acme", "Safari"])
+        #expect(apps.first?["seconds"]?.doubleValue == 15)
+    }
+
     @Test func anUntouchedTakeIsNotEdited() {
         let take = project()
         let settings = take.editSettings

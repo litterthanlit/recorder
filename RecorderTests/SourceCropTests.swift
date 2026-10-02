@@ -177,10 +177,33 @@ struct AgentCropTests {
         #expect(notes == ["Showing the whole recording again."])
     }
 
+    @Test func cropsToEverywhereAnAppsWindowWas() throws {
+        let focus = [
+            AppFocusEvent(timestamp: 0, bundleID: "com.acme.app", appName: "Acme", windowRect: CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6)),
+            AppFocusEvent(timestamp: 4, bundleID: "com.tinyspeck.slackmacgap", appName: "Slack", windowRect: CGRect(x: 0.5, y: 0, width: 0.5, height: 1)),
+            AppFocusEvent(timestamp: 8, bundleID: "com.acme.app", appName: "Acme", windowRect: CGRect(x: 0.2, y: 0.2, width: 0.5, height: 0.6))
+        ]
+        let focused = AgentEditTake(duration: 20, sourceSize: CGSize(width: 2000, height: 1000), appFocus: focus)
+        var edited = snapshot()
+        _ = try AgentEdits.setCrop(&edited, arguments: AgentArguments(["app": "acme"]), take: focused)
+        // Both places the window was: x 0.1–0.7, y 0.2–0.8. Slack's window doesn't count.
+        #expect(edited.editSettings.sourceCrop.map { isClose($0, CGRect(x: 0.1, y: 0.2, width: 0.6, height: 0.6)) } == true)
+
+        // By bundle ID, with a margin.
+        _ = try AgentEdits.setCrop(&edited, arguments: AgentArguments(["app": "com.acme.app", "margin": 0.05]), take: focused)
+        #expect(edited.editSettings.sourceCrop.map { isClose($0, CGRect(x: 0.05, y: 0.15, width: 0.7, height: 0.7)) } == true)
+
+        let unknown = failure { _ = try AgentEdits.setCrop(&edited, arguments: AgentArguments(["app": "Figma"]), take: focused) }
+        #expect(unknown == "No window of \"Figma\" showed in the recording. Apps in this take: \"Acme\", \"Slack\".")
+        // Takes from before Trace kept which app was in front.
+        let older = failure { _ = try AgentEdits.setCrop(&edited, arguments: AgentArguments(["app": "Acme"]), take: take) }
+        #expect(older?.hasPrefix("This take doesn't record which app was in front") == true)
+    }
+
     @Test func explainsBadCrops() {
         var edited = snapshot()
         let nothing = failure { _ = try AgentEdits.setCrop(&edited, arguments: AgentArguments(["take_id": "latest"]), take: take) }
-        #expect(nothing?.hasPrefix("set_crop needs rect") == true)
+        #expect(nothing?.hasPrefix("set_crop needs app") == true)
         let notCropped = failure { _ = try AgentEdits.setCrop(&edited, arguments: AgentArguments(["clear": true]), take: take) }
         #expect(notCropped?.hasPrefix("The take isn't cropped") == true)
         let whole: JSONValue = ["x": 0, "y": 0, "width": 1, "height": 1]

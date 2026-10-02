@@ -59,13 +59,14 @@ enum AgentToolCatalog {
         description: """
         Reads a take's activity (clicks, typing, pointer movement, speech on the microphone, and how \
         much the screen changes) and finds the lead-in before the first action, the tail after the \
-        last, dead air (nothing happening) and waits (only the screen moving, like a page loading). \
-        Returns them in source time with the beats (click groups, typing, shortcuts) and a suggested \
-        edit as edit_timeline operations. Speech is never cut. Reading a long recording takes a while: \
+        last, dead air (nothing happening), waits (only the screen moving, like a page loading) and, \
+        for newer takes, detours to other apps. Returns them in source time with the beats (click \
+        groups, typing, shortcuts) and a suggested edit as edit_timeline operations. Speech is never cut. Reading a long recording takes a while: \
         after wait_seconds (default 40) it returns status "running"; call it again for the result.
         """,
         inputSchema: Schema.object([
             ("take_id", takeID),
+            ("app", Schema.string("The app the demo is about, for finding detours to other apps (default: the one in front longest).")),
             ("wait_seconds", Schema.number("How long to wait for the recording to be read (default 40).", minimum: 0, maximum: 600))
         ], required: ["take_id"]),
         annotations: MCPTool.Annotations(readOnly: true, idempotent: true)

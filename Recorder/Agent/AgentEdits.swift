@@ -9,12 +9,21 @@ struct AgentEditTake {
     var clicks: [ClickEvent]
     /// Built-in and saved looks.
     var looks: [StylePreset]
+    /// Which app was in front (empty for takes from before Trace kept it).
+    var appFocus: [AppFocusEvent]
 
-    init(duration: TimeInterval, sourceSize: CGSize, clicks: [ClickEvent] = [], looks: [StylePreset] = StylePreset.builtIn) {
+    init(
+        duration: TimeInterval,
+        sourceSize: CGSize,
+        clicks: [ClickEvent] = [],
+        looks: [StylePreset] = StylePreset.builtIn,
+        appFocus: [AppFocusEvent] = []
+    ) {
         self.duration = duration
         self.sourceSize = sourceSize
         self.clicks = clicks
         self.looks = looks
+        self.appFocus = appFocus
     }
 
     init(project: RecorderProject, looks: [StylePreset]) {
@@ -22,7 +31,8 @@ struct AgentEditTake {
             duration: project.metadata.duration,
             sourceSize: CGSize(width: project.metadata.width, height: project.metadata.height),
             clicks: project.clickEvents,
-            looks: looks
+            looks: looks,
+            appFocus: project.inputs.appFocus
         )
     }
 }
@@ -603,11 +613,16 @@ enum AgentEdits {
             snapshot.editSettings.sourceCrop = nil
             return ["Showing the whole recording again."]
         }
-        guard let rectArguments = try arguments.object("rect") else {
-            throw AgentToolError("set_crop needs rect {x, y, width, height} (0–1, origin top-left), or clear: true.")
-        }
         let margin = CGFloat(try arguments.double("margin", in: 0...0.2) ?? 0)
-        let rect = try AgentCoordinates.sourceRect(rectArguments).insetBy(dx: -margin, dy: -margin)
+        let target: CGRect
+        if let app = try arguments.string("app") {
+            target = try appWindow(app, take: take)
+        } else if let rectArguments = try arguments.object("rect") {
+            target = try AgentCoordinates.sourceRect(rectArguments)
+        } else {
+            throw AgentToolError("set_crop needs app (the app's name), rect {x, y, width, height} (0–1, origin top-left), or clear: true.")
+        }
+        let rect = target.insetBy(dx: -margin, dy: -margin)
         guard let crop = SourceCrop.sanitized(rect) else {
             throw AgentToolError("That rect is the whole recording; pass clear: true to remove a crop.")
         }
@@ -619,6 +634,20 @@ enum AgentEdits {
             notes.append("The canvas stays \(shape); set_style aspect \"auto\" matches the crop's shape.")
         }
         return notes
+    }
+
+    /// The box around everywhere `app`'s front window was in the recording.
+    static func appWindow(_ app: String, take: AgentEditTake) throws -> CGRect {
+        guard !take.appFocus.isEmpty else {
+            throw AgentToolError(
+                "This take doesn't record which app was in front (it's from before Trace kept that). Read the window off view_frames with grid true and pass rect."
+            )
+        }
+        guard let window = AppFocusTimeline.windowUnion(of: app, in: take.appFocus) else {
+            let apps = AppFocusTimeline.quotedNames(take.appFocus, duration: take.duration)
+            throw AgentToolError("No window of \"\(app)\" showed in the recording. Apps in this take: \(apps).")
+        }
+        return window
     }
 
     // MARK: - Shared

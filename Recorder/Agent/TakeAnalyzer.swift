@@ -24,6 +24,10 @@ struct TakeAnalysisInput {
     var screen: [VisualChangeSample]?
     /// `nil` without a microphone.
     var speech: [TimeSpan]?
+    /// Which app was in front; `nil` for takes from before Trace kept it.
+    var focus: [AppFocusEvent]? = nil
+    /// The app the demo is about; the one in front the longest when `nil`.
+    var focusApp: String? = nil
 }
 
 /// A take's activity: where the demo really starts and ends, the dead air and the waits
@@ -48,6 +52,11 @@ struct TakeAnalysis: Equatable {
         var speed: Double
     }
 
+    struct AppShare: Equatable {
+        var appName: String
+        var seconds: TimeInterval
+    }
+
     var duration: TimeInterval
     /// Before the first action: waiting after the countdown, reaching for the app.
     var leadIn: TimeSpan?
@@ -57,13 +66,19 @@ struct TakeAnalysis: Equatable {
     var dead: [TimeSpan]
     /// Only the screen moves: something loading or playing out.
     var quiet: [TimeSpan]
+    /// Another app in front of the one the demo is about (a detour).
+    var offApp: [TimeSpan] = []
+    /// The app the demo is about, when the take knows which apps were in front.
+    var focusApp: String?
+    /// How long each app was in front, most first.
+    var apps: [AppShare] = []
     var speech: [TimeSpan]?
     /// Where the screen changes; `nil` when it wasn't scanned.
     var screenActivity: [TimeSpan]?
     var beats: [Beat]
     /// The demo itself: the take without its lead-in and tail.
     var kept: TimeSpan
-    /// Dead air to cut, inside `kept`.
+    /// Dead air and detours to cut, inside `kept`.
     var cuts: [TimeSpan]
     /// Waits to speed through, inside `kept`.
     var speedUps: [SpeedUp]
@@ -163,11 +178,23 @@ struct TakeAnalyzer {
         dead.sort { $0.start < $1.start }
         quiet.sort { $0.start < $1.start }
 
-        let cuts: [TimeSpan] = dead.compactMap { span in
+        let focusEvents = input.focus ?? []
+        let wanted = input.focusApp ?? AppFocusTimeline.dominantApp(focusEvents, duration: duration)
+        // The app as recorded ("Slack" for "slack"). One that was never in front would
+        // make the whole take a detour, so it finds none.
+        let recordedApp = wanted.flatMap { name in focusEvents.first(where: { $0.isApp(name) })?.appName }
+        let offApp = recordedApp.map {
+            detours(from: $0, focus: focusEvents, kept: kept, speech: speech ?? [], duration: duration)
+        } ?? []
+
+        let deadCuts: [TimeSpan] = dead.compactMap { span in
             let cut = TimeSpan(start: span.start + cutMargin, end: span.end - cutMargin)
             return cut.duration >= minimumCut - 1e-9 ? cut : nil
         }
-        let speedUps: [TakeAnalysis.SpeedUp] = quiet.compactMap { span in
+        let cuts = AgentEdits.merged(deadCuts + offApp)
+        // A wait during a detour goes with the detour.
+        let waits = quiet.flatMap { AgentEdits.gaps(between: cuts, within: $0) }
+        let speedUps: [TakeAnalysis.SpeedUp] = waits.compactMap { span in
             guard span.duration >= minimumSpeedUp - 1e-9 else { return nil }
             let speed = min(max((span.duration / quietTarget * 2).rounded() / 2, 2), 8)
             return TakeAnalysis.SpeedUp(span: span, speed: speed)
@@ -179,6 +206,11 @@ struct TakeAnalyzer {
             tail: kept.end < duration ? TimeSpan(start: kept.end, end: duration) : nil,
             dead: dead,
             quiet: quiet,
+            offApp: offApp,
+            focusApp: focusEvents.isEmpty ? nil : (recordedApp ?? wanted),
+            apps: AppFocusTimeline.timeByApp(focusEvents, duration: duration).map {
+                TakeAnalysis.AppShare(appName: $0.appName, seconds: $0.seconds)
+            },
             speech: speech,
             screenActivity: screenSpans,
             beats: beats(clicks: clicks, keys: keys, frameSize: input.frameSize),
@@ -218,6 +250,28 @@ struct TakeAnalyzer {
             return TimeSpan(start: 0, end: duration)
         }
         return TimeSpan(start: start, end: end)
+    }
+
+    /// Where another app than `app` was in front, inside `kept`, at least `minimumCut`
+    /// long, never cutting into speech (it may be narrating the detour).
+    func detours(
+        from app: String,
+        focus: [AppFocusEvent],
+        kept: TimeSpan,
+        speech: [TimeSpan],
+        duration: TimeInterval
+    ) -> [TimeSpan] {
+        let talking = speech.map { TimeSpan(start: $0.start - speechPadding, end: $0.end + speechPadding) }
+        var result: [TimeSpan] = []
+        for span in AppFocusTimeline.spans(focus, duration: duration) {
+            guard !span.isApp(app), let inside = span.span.intersection(kept) else { continue }
+            let margined = TimeSpan(start: inside.start + cutMargin, end: inside.end - cutMargin)
+            guard margined.duration > 0 else { continue }
+            for piece in AgentEdits.gaps(between: AgentEdits.merged(talking), within: margined) where piece.duration >= minimumCut - 1e-9 {
+                result.append(piece)
+            }
+        }
+        return result
     }
 
     /// Clicks close together, typing, and shortcuts, in order.

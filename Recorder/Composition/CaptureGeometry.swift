@@ -27,6 +27,22 @@ enum CaptureGeometry {
         return CGPoint(x: x, y: pixelHeight - yFromTop)
     }
 
+    /// Where a window (global points, top-left origin) sits in the capture, normalized
+    /// with a bottom-left origin and clipped to it; `nil` if it's outside.
+    static func normalizedCaptureRect(global rect: CGRect, origin: CGPoint, scale: CGFloat, pixelSize: CGSize) -> CGRect? {
+        guard pixelSize.width > 0, pixelSize.height > 0, rect.width.isFinite, rect.height.isFinite else { return nil }
+        let left = (rect.minX - origin.x) * scale
+        let top = (rect.minY - origin.y) * scale
+        let pixels = CGRect(x: left, y: pixelSize.height - top - rect.height * scale, width: rect.width * scale, height: rect.height * scale)
+        let normalized = CGRect(
+            x: pixels.minX / pixelSize.width,
+            y: pixels.minY / pixelSize.height,
+            width: pixels.width / pixelSize.width,
+            height: pixels.height / pixelSize.height
+        ).intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        return normalized.isNull || normalized.isEmpty ? nil : normalized
+    }
+
     /// The part of a display to record, in the display's own points with a top-left
     /// origin (what `SCStreamConfiguration.sourceRect` takes), leaving out a strip of
     /// `topInset` points at the top (the menu bar). The inset is capped at half the

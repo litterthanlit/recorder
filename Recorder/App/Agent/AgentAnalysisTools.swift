@@ -13,6 +13,12 @@ enum AgentAnalysisTools {
         let take = try context.load(summary)
         let project = take.project
         let wait = try arguments.double("wait_seconds", in: 0...600) ?? defaultWait
+        let focus = project.inputs.appFocus
+        let app = try arguments.string("app")
+        if let app, !focus.isEmpty, !focus.contains(where: { $0.isApp(app) }) {
+            let apps = AppFocusTimeline.quotedNames(focus, duration: project.metadata.duration)
+            throw AgentToolError("\"\(app)\" wasn't in front during this take. Apps in this take: \(apps).")
+        }
 
         let key = context.scanner.start(project)
         let state = try await context.scanner.wait(key, timeout: wait, progress: context.progress)
@@ -38,7 +44,9 @@ enum AgentAnalysisTools {
                 keystrokes: project.inputs.keystrokes,
                 cursor: project.cursorEvents,
                 screen: scan.screen,
-                speech: scan.speech
+                speech: scan.speech,
+                focus: focus.isEmpty ? nil : focus,
+                focusApp: app
             )
             let analysis = TakeAnalyzer().analyze(input)
             var value = analysis.json.objectValue ?? [:]

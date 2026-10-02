@@ -15,7 +15,9 @@ private func input(
     keys: [KeystrokeEvent] = [],
     cursor: [CursorEvent] = [],
     screen: [VisualChangeSample]? = nil,
-    speech: [TimeSpan]? = nil
+    speech: [TimeSpan]? = nil,
+    focus: [AppFocusEvent]? = nil,
+    focusApp: String? = nil
 ) -> TakeAnalysisInput {
     TakeAnalysisInput(
         duration: duration,
@@ -24,8 +26,14 @@ private func input(
         keystrokes: keys,
         cursor: cursor,
         screen: screen,
-        speech: speech
+        speech: speech,
+        focus: focus,
+        focusApp: focusApp
     )
+}
+
+private func focus(_ time: TimeInterval, _ app: String, window: CGRect? = nil) -> AppFocusEvent {
+    AppFocusEvent(timestamp: time, bundleID: "com.example.\(app.lowercased())", appName: app, windowRect: window)
 }
 
 /// Spans as [start, end] rounded to microseconds, for exact comparisons.
@@ -188,6 +196,64 @@ struct TakeAnalyzerTests {
         #expect(location.map { isClose($0.x, 0.25) && isClose($0.y, 0.25) } == true)
     }
 
+    /// Busy all along (a click every 0.8 s), with Slack in front from 6 s to 10 s.
+    private func detourTake(speech: [TimeSpan]? = nil, focusApp: String? = nil) -> TakeAnalysis {
+        let clicks = (0...15).map { click(2 + Double($0) * 0.8) }
+        let events = [focus(0, "Acme"), focus(6, "Slack"), focus(10, "Acme")]
+        return TakeAnalyzer().analyze(input(duration: 20, clicks: clicks, speech: speech, focus: events, focusApp: focusApp))
+    }
+
+    @Test func detoursToOtherAppsAreCut() throws {
+        let analysis = detourTake()
+        #expect(pairs([analysis.kept]) == [[1.5, 14.8]])
+        #expect(analysis.dead.isEmpty)
+        #expect(analysis.focusApp == "Acme")
+        #expect(analysis.apps.map(\.appName) == ["Acme", "Slack"])
+        #expect(pairs(analysis.offApp) == [[6.2, 9.8]])
+        #expect(pairs(analysis.cuts) == [[6.2, 9.8]])
+        #expect(isClose(analysis.suggestedTimeline().outputDuration, 9.7, tolerance: 1e-6))
+        #expect(analysis.summary.contains("1 detour away from Acme (3.6 s)"))
+
+        let report = analysis.json
+        #expect(report["focus_app"]?.stringValue == "Acme")
+        #expect(report["off_app"]?.arrayValue?.count == 1)
+        #expect(report["apps"]?.arrayValue?.first?["name"]?.stringValue == "Acme")
+        let operations = try #require(report["suggested"]?["operations"]?.arrayValue)
+        #expect(operations.compactMap { $0["op"]?.stringValue } == ["reset", "trim", "cut"])
+    }
+
+    @Test func aDetourIsNotCutWhileTalking() {
+        // Explaining the detour: only after the talking stops is it cut, and what's left
+        // before it is too short.
+        let analysis = detourTake(speech: [TimeSpan(start: 7, end: 8)])
+        #expect(pairs(analysis.offApp) == [[8.15, 9.8]])
+    }
+
+    @Test func theAppCanBeNamed() {
+        // About Slack: the Acme stretches are the detours.
+        let analysis = detourTake(focusApp: "slack")
+        #expect(analysis.focusApp == "Slack")
+        #expect(pairs(analysis.offApp) == [[1.7, 5.8], [10.2, 14.6]])
+        // An app that was never in front doesn't make the whole take a detour.
+        let unknown = detourTake(focusApp: "Figma")
+        #expect(unknown.offApp.isEmpty && unknown.cuts.isEmpty)
+    }
+
+    @Test func aWaitDuringADetourGoesWithIt() {
+        // A page loading in Slack from 6 s to 10 s, with nobody acting.
+        let clicks = [2, 2.8, 3.6, 4.4, 5.2, 10.4, 11.2, 12].map { click($0) }
+        let screen = busyScreen(from: 6, to: 9.75)
+        let alone = TakeAnalyzer().analyze(input(duration: 14, clicks: clicks, screen: screen))
+        #expect(pairs(alone.quiet) == [[5.8, 10.1]])
+        #expect(alone.speedUps.map(\.speed) == [5.5])
+
+        let events = [focus(0, "Acme"), focus(6, "Slack"), focus(10, "Acme")]
+        let analysis = TakeAnalyzer().analyze(input(duration: 14, clicks: clicks, screen: screen, focus: events))
+        #expect(pairs(analysis.cuts) == [[6.2, 9.8]])
+        // What's left of the wait either side of the cut is too short to speed up.
+        #expect(analysis.speedUps.isEmpty)
+    }
+
     @Test func aTakeWithNothingDoneIsKeptWhole() {
         let analysis = TakeAnalyzer().analyze(input(duration: 6))
         #expect(pairs([analysis.kept]) == [[0, 6]])
@@ -205,6 +271,8 @@ struct TakeAnalyzerTests {
         #expect(operations.compactMap { $0["op"]?.stringValue } == ["reset", "trim", "cut", "cut", "speed"])
         #expect(report["speech"]?.stringValue == "No microphone was recorded.")
         #expect(report["screen_scanned"]?.boolValue == true)
+        #expect(report["focus_app"]?.stringValue?.hasPrefix("Unknown") == true)
+        #expect(report["off_app"] == nil)
         #expect(report["beats"]?.arrayValue?.first?["point"]?["y"]?.doubleValue == 0.5)
 
         // Through edit_timeline's own code, they give the edit the analysis described.
@@ -219,5 +287,96 @@ struct TakeAnalyzerTests {
         )
         let edited = snapshot.editSettings.resolvedTimeline(sourceDuration: 13).outputDuration
         #expect(isClose(edited, analysis.suggestedTimeline().outputDuration, tolerance: 0.01))
+    }
+}
+
+@Suite("App focus")
+struct AppFocusTests {
+    @Test func notesOnlyChanges() {
+        var events: [AppFocusEvent] = []
+        let window = CGRect(x: 0.1, y: 0.1, width: 0.5, height: 0.5)
+        AppFocusTimeline.append(focus(0, "Acme", window: window), to: &events)
+        // The same window, give or take a pixel: nothing new.
+        AppFocusTimeline.append(focus(0.25, "Acme", window: window.offsetBy(dx: 0.001, dy: 0)), to: &events)
+        // The window moved.
+        AppFocusTimeline.append(focus(0.5, "Acme", window: window.offsetBy(dx: 0.2, dy: 0)), to: &events)
+        AppFocusTimeline.append(focus(0.75, "Slack"), to: &events)
+        AppFocusTimeline.append(focus(1, "Slack"), to: &events)
+        #expect(events.map(\.timestamp) == [0, 0.5, 0.75])
+    }
+
+    @Test func readsWhoWasInFrontAndWhere() throws {
+        let events = [
+            focus(0, "Acme", window: CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6)),
+            focus(2, "Acme", window: CGRect(x: 0.2, y: 0.2, width: 0.5, height: 0.6)),
+            focus(5, "Slack", window: CGRect(x: 0, y: 0, width: 1, height: 1)),
+            focus(9, "Acme")
+        ]
+        let spans = AppFocusTimeline.spans(events, duration: 12)
+        #expect(spans.map(\.appName) == ["Acme", "Slack", "Acme"])
+        #expect(pairs(spans.map(\.span)) == [[0, 5], [5, 9], [9, 12]])
+
+        let shares = AppFocusTimeline.timeByApp(events, duration: 12)
+        try #require(shares.count == 2)
+        #expect(shares[0].appName == "Acme" && isClose(shares[0].seconds, 8))
+        #expect(shares[1].appName == "Slack" && isClose(shares[1].seconds, 4))
+        #expect(AppFocusTimeline.dominantApp(events, duration: 12) == "Acme")
+        #expect(AppFocusTimeline.dominantApp([], duration: 12) == nil)
+        #expect(AppFocusTimeline.quotedNames(events, duration: 12) == "\"Acme\", \"Slack\"")
+
+        // Everywhere Acme's window was, by name or bundle ID, ignoring case and spaces.
+        let union = try #require(AppFocusTimeline.windowUnion(of: " acme ", in: events))
+        #expect(isClose(union, CGRect(x: 0.1, y: 0.2, width: 0.6, height: 0.6)))
+        #expect(AppFocusTimeline.windowUnion(of: "COM.EXAMPLE.ACME", in: events) == union)
+        #expect(AppFocusTimeline.windowUnion(of: "Figma", in: events) == nil)
+        #expect(!AppFocusTimeline.matches("", appName: "Acme", bundleID: nil))
+    }
+
+    @Test func placesWindowsInTheRecording() throws {
+        // A Retina capture of the main display: 100, 50 points from the top-left is
+        // 200, 100 pixels; the window's bottom edge is 380 pixels from the bottom.
+        let window = try #require(CaptureGeometry.normalizedCaptureRect(
+            global: CGRect(x: 100, y: 50, width: 400, height: 300),
+            origin: .zero,
+            scale: 2,
+            pixelSize: CGSize(width: 1920, height: 1080)
+        ))
+        #expect(isClose(window, CGRect(x: 200.0 / 1920, y: 380.0 / 1080, width: 800.0 / 1920, height: 600.0 / 1080)))
+
+        // A display left of the main one has a negative origin.
+        let left = try #require(CaptureGeometry.normalizedCaptureRect(
+            global: CGRect(x: -1000, y: 100, width: 200, height: 100),
+            origin: CGPoint(x: -1440, y: 0),
+            scale: 1,
+            pixelSize: CGSize(width: 1440, height: 900)
+        ))
+        #expect(isClose(left, CGRect(x: 440.0 / 1440, y: 700.0 / 900, width: 200.0 / 1440, height: 100.0 / 900)))
+
+        // Partly outside: clipped. Wholly outside: not in the recording.
+        let clipped = try #require(CaptureGeometry.normalizedCaptureRect(
+            global: CGRect(x: -100, y: 0, width: 400, height: 300),
+            origin: .zero,
+            scale: 1,
+            pixelSize: CGSize(width: 1000, height: 500)
+        ))
+        #expect(isClose(clipped, CGRect(x: 0, y: 0.4, width: 0.3, height: 0.6)))
+        #expect(CaptureGeometry.normalizedCaptureRect(
+            global: CGRect(x: 2000, y: 0, width: 100, height: 100),
+            origin: .zero,
+            scale: 1,
+            pixelSize: CGSize(width: 1000, height: 500)
+        ) == nil)
+    }
+
+    @Test func isSavedWithTheInputs() throws {
+        let log = InputLog(appFocus: [focus(0, "Acme", window: CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6)), focus(3, "Slack")])
+        let decoded = try JSONDecoder().decode(InputLog.self, from: JSONEncoder().encode(log))
+        #expect(decoded == log)
+        // Older takes have none.
+        let older = try JSONDecoder().decode(InputLog.self, from: Data(#"{"keystrokes":[]}"#.utf8))
+        #expect(older.appFocus.isEmpty)
+        // An event without a window or bundle ID still reads.
+        let sparse = try JSONDecoder().decode(AppFocusEvent.self, from: Data(#"{"timestamp":1.5,"appName":"Acme"}"#.utf8))
+        #expect(sparse == AppFocusEvent(timestamp: 1.5, bundleID: nil, appName: "Acme", windowRect: nil))
     }
 }

@@ -48,20 +48,25 @@ enum CursorKindTimeline {
 struct InputLog: Codable, Equatable {
     var keystrokes: [KeystrokeEvent] = []
     var cursorKinds: [CursorKindEvent] = []
+    /// Which app was in front, and where its window was (takes from before this have none).
+    var appFocus: [AppFocusEvent] = []
 
-    init(keystrokes: [KeystrokeEvent] = [], cursorKinds: [CursorKindEvent] = []) {
+    init(keystrokes: [KeystrokeEvent] = [], cursorKinds: [CursorKindEvent] = [], appFocus: [AppFocusEvent] = []) {
         self.keystrokes = keystrokes
         self.cursorKinds = cursorKinds
+        self.appFocus = appFocus
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         keystrokes = (try? container.decodeIfPresent([KeystrokeEvent].self, forKey: .keystrokes)) ?? []
         cursorKinds = (try? container.decodeIfPresent([CursorKindEvent].self, forKey: .cursorKinds)) ?? []
+        appFocus = (try? container.decodeIfPresent([AppFocusEvent].self, forKey: .appFocus)) ?? []
     }
 
     private enum CodingKeys: String, CodingKey {
         case keystrokes
         case cursorKinds
+        case appFocus
     }
 }

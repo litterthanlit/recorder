@@ -10,6 +10,7 @@ struct InputTrackingResult {
     var cursor: [CursorEvent] = []
     var keystrokes: [KeystrokeEvent] = []
     var cursorKinds: [CursorKindEvent] = []
+    var appFocus: [AppFocusEvent] = []
 }
 
 final class InputTracker {
@@ -22,6 +23,7 @@ final class InputTracker {
     private var trackKeystrokes = false
     private var keystrokes: [KeystrokeEvent] = []
     private let cursorKindSampler = CursorKindSampler()
+    private let appFocusSampler = AppFocusSampler()
     private var clock: RecordingClock?
     private var captureOrigin: CGPoint = .zero
     private var captureSize: CGSize = .zero
@@ -100,6 +102,11 @@ final class InputTracker {
         if trackCursor, let clock {
             cursorKindSampler.start(clock: clock)
         }
+        if let clock {
+            appFocusSampler.start(clock: clock) { [weak self] window in
+                self?.normalizedCaptureRect(forGlobal: window)
+            }
+        }
         if trackKeystrokes {
             startKeyTap()
         }
@@ -136,10 +143,17 @@ final class InputTracker {
         keyTap = nil
         keyRunLoopSource = nil
         let cursorKinds = cursorKindSampler.stop()
+        let appFocus = appFocusSampler.stop()
 
         lock.lock()
         defer { lock.unlock() }
-        return InputTrackingResult(clicks: events, cursor: cursorEvents, keystrokes: keystrokes, cursorKinds: cursorKinds)
+        return InputTrackingResult(
+            clicks: events,
+            cursor: cursorEvents,
+            keystrokes: keystrokes,
+            cursorKinds: cursorKinds,
+            appFocus: appFocus
+        )
     }
 
     private func startKeyTap() {
@@ -278,6 +292,11 @@ final class InputTracker {
     private static func bounds(of info: [String: Any]) -> CGRect? {
         guard let dictionary = info[kCGWindowBounds as String] as? NSDictionary else { return nil }
         return CGRect(dictionaryRepresentation: dictionary as CFDictionary)
+    }
+
+    /// Where a window (global points) is in the capture, normalized; main thread.
+    private func normalizedCaptureRect(forGlobal window: CGRect) -> CGRect? {
+        CaptureGeometry.normalizedCaptureRect(global: window, origin: captureOrigin, scale: scaleFactor, pixelSize: captureSize)
     }
 
     private func convertToCaptureCoordinates(global: CGPoint) -> CGPoint {

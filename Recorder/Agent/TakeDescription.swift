@@ -173,6 +173,12 @@ enum TakeDescription {
             "cursor_samples": .number(Double(project.cursorEvents.count))
         ]
         detail["recorded_input"] = input
+        let apps = AppFocusTimeline.timeByApp(project.inputs.appFocus, duration: metadata.duration)
+        if !apps.isEmpty {
+            detail["apps_in_front"] = .array(apps.map { share -> JSONValue in
+                ["name": .string(share.appName), "seconds": AgentTime.json(share.seconds)]
+            })
+        }
         if let app = metadata.appName, !app.isEmpty {
             detail["app"] = .string(app)
         }

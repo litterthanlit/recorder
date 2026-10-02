@@ -20,6 +20,15 @@ extension TakeAnalysis {
             value["speech"] = "No microphone was recorded."
         }
         value["screen_scanned"] = .bool(screenActivity != nil)
+        if let focusApp {
+            value["focus_app"] = .string(focusApp)
+            value["off_app"] = .array(offApp.map { Self.json($0) })
+            value["apps"] = .array(apps.map { share -> JSONValue in
+                ["name": .string(share.appName), "seconds": AgentTime.json(share.seconds)]
+            })
+        } else {
+            value["focus_app"] = "Unknown: this take doesn't record which app was in front."
+        }
         value["suggested"] = .object([
             "operations": .array(suggestedOperations),
             "output_duration": AgentTime.json(suggested.outputDuration),
@@ -64,6 +73,10 @@ extension TakeAnalysis {
         if !quiet.isEmpty {
             let total = quiet.reduce(0) { $0 + $1.duration }
             parts.append("\(quiet.count) wait\(quiet.count == 1 ? "" : "s") (\(Self.seconds(total)))")
+        }
+        if !offApp.isEmpty, let focusApp {
+            let total = offApp.reduce(0) { $0 + $1.duration }
+            parts.append("\(offApp.count) detour\(offApp.count == 1 ? "" : "s") away from \(focusApp) (\(Self.seconds(total)))")
         }
         if let speech, !speech.isEmpty {
             let total = speech.reduce(0) { $0 + $1.duration }
