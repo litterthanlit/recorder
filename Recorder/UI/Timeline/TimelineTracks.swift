@@ -308,7 +308,7 @@ private struct ClipBlock: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
-                    .background(Capsule().fill(DS.Palette.accent))
+                    .background(Capsule().fill(DS.Palette.accentFill))
                     .padding(5)
                     .allowsHitTesting(false)
             }

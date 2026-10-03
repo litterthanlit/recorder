@@ -58,10 +58,13 @@ AVFoundation, Core Image. README.md lists features; DEMO.md is the user-facing w
   `UI/TimelineView.swift` + `UI/Timeline/` (tracks, thumbnails and waveform), `UI/Capture/`
   (selector, HUD, Quick Access), `UI/Library/`, `UI/Settings/`, `UI/Design/DesignSystem.swift`
   (tokens and button styles) and `UI/Design/SegmentedPicker.swift` (the pill segmented
-  control). Buttons follow the litterthanlit/components design system: an iPod classic
-  silver primary (`PrimaryButtonStyle(.recording)` for red record/stop), hairline-ring
-  secondary, ghost icon buttons; `size: .small` (28 pt) for editor chrome, `.regular`
-  (36 pt) for a sheet's or panel's main actions. The editor window's toolbar is an `NSToolbar` whose items
+  control). Buttons follow the litterthanlit/components design system (its `main`
+  branch): primary and secondary are keys (`KeyFinish`: 2 pt corners, engraved lettering,
+  a 2 pt base the face sinks onto), the primary in iPod classic silver and
+  `PrimaryButtonStyle(.recording)` in red for record/stop; icon buttons are ghosts.
+  `size: .small` (28 pt) is for editor chrome, `.regular` (36 pt) for a sheet's or panel's
+  main actions. The accent is the repo's blue: `DS.Palette.accent` for text and strokes
+  (lifted in dark mode), `accentFill` (the AccentColor asset) under white content. The editor window's toolbar is an `NSToolbar` whose items
   host SwiftUI views (`EditorToolbarController`).
 - **Storage**: `ProjectStore` in `Models/Project.swift`. Projects live in
   `~/Movies/Trace/<uuid>.recorder/`; `LibraryMigration` moves bundles from the old

@@ -160,10 +160,10 @@ struct InspectorDeleteButton: View {
     var body: some View {
         Button(role: .destructive, action: action) {
             Label(title, systemImage: "trash")
+                .foregroundStyle(DS.Palette.recording)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(SecondaryButtonStyle())
-        .foregroundStyle(DS.Palette.recording)
     }
 }
 
