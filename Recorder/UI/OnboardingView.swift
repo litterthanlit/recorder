@@ -123,7 +123,7 @@ struct OnboardingView: View {
                     appState.showPanel()
                 }
             }
-            .buttonStyle(PrimaryButtonStyle())
+            .buttonStyle(PrimaryButtonStyle(size: .regular))
             .keyboardShortcut(.defaultAction)
         }
     }
