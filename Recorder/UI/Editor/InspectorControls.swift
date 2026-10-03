@@ -139,8 +139,6 @@ struct InspectorSegmentedPicker<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [Value]
     let label: (Value) -> String
-    @Namespace private var namespace
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(_ title: String, selection: Binding<Value>, options: [Value], label: @escaping (Value) -> String) {
         self.title = title
@@ -150,62 +148,7 @@ struct InspectorSegmentedPicker<Value: Hashable>: View {
     }
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(options, id: \.self) { option in
-                InspectorSegment(title: label(option), isSelected: option == selection, namespace: namespace) {
-                    selection = option
-                }
-            }
-        }
-        .padding(2)
-        .background(
-            RoundedRectangle(cornerRadius: DS.Radius.medium, style: .continuous)
-                .fill(DS.Palette.raisedSurface)
-        )
-        .animation(DS.animation(reduceMotion: reduceMotion), value: selection)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(title)
-    }
-}
-
-private struct InspectorSegment: View {
-    let title: String
-    let isSelected: Bool
-    let namespace: Namespace.ID
-    let action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        let tint: Color = isSelected ? DS.Palette.accent : DS.Palette.secondaryText
-        let weight: Font.Weight = isSelected ? .semibold : .regular
-        return Button(action: action) {
-            Text(title)
-                .font(DS.Typeface.footnote.weight(weight))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .foregroundStyle(tint)
-                .padding(.horizontal, DS.Spacing.xxs)
-                .frame(maxWidth: .infinity, minHeight: 24)
-                .background { highlight }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    /// The selected segment's fill slides to the new choice.
-    @ViewBuilder
-    private var highlight: some View {
-        let shape = RoundedRectangle(cornerRadius: DS.Radius.small, style: .continuous)
-        if isSelected {
-            shape
-                .fill(DS.Palette.accent.opacity(0.16))
-                .matchedGeometryEffect(id: "selection", in: namespace)
-        } else if isHovering {
-            shape.fill(DS.Palette.hover)
-        }
+        SegmentedPicker(title, selection: $selection, options: options, fillsWidth: true, label: label)
     }
 }
 
@@ -217,10 +160,10 @@ struct InspectorDeleteButton: View {
     var body: some View {
         Button(role: .destructive, action: action) {
             Label(title, systemImage: "trash")
+                .foregroundStyle(DS.Palette.recording)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(SecondaryButtonStyle())
-        .foregroundStyle(DS.Palette.recording)
     }
 }
 

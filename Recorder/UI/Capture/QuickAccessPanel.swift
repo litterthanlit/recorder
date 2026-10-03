@@ -326,31 +326,7 @@ private struct QuickAccessView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 40)
         }
-        .buttonStyle(QuickActionStyle())
+        .buttonStyle(GhostTileButtonStyle())
         .accessibilityLabel(title)
-    }
-}
-
-private struct QuickActionStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        QuickActionBody(configuration: configuration)
-    }
-
-    private struct QuickActionBody: View {
-        let configuration: ButtonStyleConfiguration
-        @State private var isHovering = false
-        @Environment(\.isEnabled) private var isEnabled
-
-        var body: some View {
-            configuration.label
-                .foregroundStyle(isHovering ? DS.Palette.accent : Color.primary)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.Radius.medium, style: .continuous)
-                        .fill(configuration.isPressed ? DS.Palette.pressed : (isHovering ? DS.Palette.hover : .clear))
-                )
-                .opacity(isEnabled ? 1 : 0.4)
-                .contentShape(Rectangle())
-                .onHover { isHovering = $0 }
-        }
     }
 }

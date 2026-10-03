@@ -98,6 +98,7 @@
 		B2000000000000000000005A /* GIFWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005E /* GIFWriter.swift */; };
 		B2000000000000000000005B /* ExportOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000005F /* ExportOptions.swift */; };
 		B2000000000000000000005C /* ExportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000060 /* ExportSheet.swift */; };
+		B2000000000000000000005D /* SegmentedPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000061 /* SegmentedPicker.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -196,6 +197,7 @@
 		A2000000000000000000005E /* GIFWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GIFWriter.swift; sourceTree = "<group>"; };
 		A2000000000000000000005F /* ExportOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportOptions.swift; sourceTree = "<group>"; };
 		A20000000000000000000060 /* ExportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportSheet.swift; sourceTree = "<group>"; };
+		A20000000000000000000061 /* SegmentedPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SegmentedPicker.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -387,6 +389,7 @@
 			isa = PBXGroup;
 			children = (
 				A2000000000000000000003B /* DesignSystem.swift */,
+				A20000000000000000000061 /* SegmentedPicker.swift */,
 			);
 			path = Design;
 			sourceTree = "<group>";
@@ -510,6 +513,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2000000000000000000005D /* SegmentedPicker.swift in Sources */,
 				B2000000000000000000005C /* ExportSheet.swift in Sources */,
 				B2000000000000000000005B /* ExportOptions.swift in Sources */,
 				B2000000000000000000005A /* GIFWriter.swift in Sources */,

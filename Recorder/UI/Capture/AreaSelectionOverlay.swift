@@ -678,11 +678,11 @@ struct CaptureSelectorToolbar: View {
                 selector.confirm()
             } label: {
                 HStack(spacing: 6) {
-                    Circle().fill(Color.white).frame(width: 8, height: 8)
+                    Circle().fill(.foreground).frame(width: 8, height: 8)
                     Text("Record")
                 }
             }
-            .buttonStyle(PrimaryButtonStyle(tint: DS.Palette.recording))
+            .buttonStyle(PrimaryButtonStyle(.recording))
             .disabled(selector.mode == .area && selector.selection == nil)
             .help("Record (⏎)")
         }
@@ -708,7 +708,7 @@ private struct ModeButton: View {
 
     var body: some View {
         let foreground: Color = isSelected ? .white : Color.white.opacity(0.75)
-        let fill: Color = isSelected ? DS.Palette.accent : .clear
+        let fill: Color = isSelected ? DS.Palette.accentFill : .clear
         return Button(action: action) {
             Label(mode.label, systemImage: mode.icon)
                 .labelStyle(.titleAndIcon)
