@@ -13,8 +13,9 @@ struct ExportSheet: View {
     private var options: ExportOptions { preferences.options }
     private var duration: TimeInterval { editor.outputDuration }
     private var canvasSize: CGSize { editor.exportOutputSize }
-    private var outputSize: CGSize { options.outputSize(canvas: canvasSize) }
-    private var frameRate: Int { options.outputFrameRate(source: editor.project.metadata.fps) }
+    private var plan: ExportPlan {
+        options.plan(canvas: canvasSize, sourceFrameRate: editor.project.metadata.fps, duration: duration)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -57,7 +58,7 @@ struct ExportSheet: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Export")
                 .font(DS.Typeface.largeTitle)
-            Text("\(String(Int(outputSize.width))) × \(String(Int(outputSize.height))) · \(frameRate) fps · \(Timecode.short(duration))")
+            Text("\(Self.sizeText(plan.size)) · \(plan.frameRate) fps · \(Timecode.short(duration))")
                 .font(DS.Typeface.footnote.monospacedDigit())
                 .foregroundStyle(DS.Palette.secondaryText)
         }
@@ -116,10 +117,10 @@ struct ExportSheet: View {
                 .buttonStyle(SecondaryButtonStyle(size: .regular))
                 .keyboardShortcut(.cancelAction)
                 Spacer()
-                if let bytes = options.estimatedBytes(size: outputSize, fps: frameRate, duration: duration) {
+                if let bytes = plan.estimatedBytes {
                     Text("About \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))")
                         .font(DS.Typeface.footnote)
-                        .foregroundStyle(DS.Palette.secondaryText)
+                        .foregroundStyle(plan.exceedsSizeLimit ? DS.Palette.warning : DS.Palette.secondaryText)
                 }
                 Button {
                     startExport()
@@ -171,6 +172,10 @@ struct ExportSheet: View {
                 }
             }
 
+            if options.usesSizeLimit {
+                sizeLimitSection
+            }
+
             InspectorLabeled("Size") {
                 SegmentedPicker(
                     "Size",
@@ -179,7 +184,7 @@ struct ExportSheet: View {
                 ) {
                     $0.label
                 }
-                if options.format == .gif, outputSize != canvasSize {
+                if options.format == .gif, plan.size != canvasSize {
                     InspectorHint("GIFs are scaled down to \(Int(ExportOptions.gifMaximumWidth)) pixels wide.")
                 }
             }
@@ -213,6 +218,42 @@ struct ExportSheet: View {
                     .font(DS.Typeface.footnote)
             }
         }
+    }
+
+    /// A cap on the file size, for chat apps and agents that refuse big uploads.
+    private var sizeLimitSection: some View {
+        InspectorLabeled("Size limit") {
+            SegmentedPicker("Size limit", selection: $preferences.options.maxMegabytes, options: Self.sizeLimitOptions) {
+                Self.sizeLimitLabel($0)
+            }
+            .accessibilityHint("Keeps the exported file under this size")
+            if let hint = sizeLimitHint {
+                InspectorHint(hint)
+            }
+        }
+    }
+
+    private static let sizeLimitOptions: [Int?] = [nil] + ExportOptions.sizeLimitChoices.map { Optional($0) }
+
+    private static func sizeLimitLabel(_ megabytes: Int?) -> String {
+        guard let megabytes else { return "None" }
+        return "\(megabytes) MB"
+    }
+
+    private var sizeLimitHint: String? {
+        guard let megabytes = options.maxMegabytes else { return nil }
+        if plan.exceedsSizeLimit {
+            return "Too long to fit in \(megabytes) MB, even at \(Self.sizeText(plan.size)). Trim it, or choose a larger limit."
+        }
+        let fullFrameRate = options.outputFrameRate(source: editor.project.metadata.fps)
+        if plan.size != canvasSize || plan.frameRate != fullFrameRate {
+            return "Exports at \(Self.sizeText(plan.size)), \(plan.frameRate) fps to stay under \(megabytes) MB."
+        }
+        return "Fits under \(megabytes) MB at full size."
+    }
+
+    private static func sizeText(_ size: CGSize) -> String {
+        "\(String(Int(size.width))) × \(String(Int(size.height)))"
     }
 
     private static func displayPath(_ url: URL) -> String {

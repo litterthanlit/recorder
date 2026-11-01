@@ -15,16 +15,16 @@ struct ExportConfiguration {
     /// Output frame rate. The export runs on this fixed clock regardless of how often
     /// the (variable frame rate) source recording changed.
     let frameRate: Int
+    /// Bits per second for MP4 and HEVC (from `ExportOptions.plan`).
+    let videoBitrate: Int
+    /// AAC bits per second for MP4 and HEVC.
+    let audioBitrate: Int
     let options: ExportOptions
     /// Separately recorded camera track, if any.
     let cameraURL: URL?
     /// What each audio track holds, and their levels.
     let audioTrackRoles: [AudioTrackRole]
     let audio: AudioMixSettings
-
-    var bitrate: Int {
-        options.bitrate(size: outputSize, fps: frameRate)
-    }
 }
 
 /// Writes an export: composited frames from `ExportFrameSource` into a movie (H.264 or
@@ -106,7 +106,7 @@ final class VideoExporter {
                 format: format,
                 width: outputWidth,
                 height: outputHeight,
-                bitrate: configuration.bitrate,
+                bitrate: configuration.videoBitrate,
                 frameRate: configuration.frameRate
             )
         )
@@ -129,7 +129,7 @@ final class VideoExporter {
         var audioWriterInput: AVAssetWriterInput?
         if audioReaderOutput != nil {
             // ProRes movies carry uncompressed audio, like the editors they're made for.
-            let settings = format == .prores ? Self.mixedPCMSettings : Self.mixedAACSettings
+            let settings = format == .prores ? Self.mixedPCMSettings : Self.aacSettings(bitrate: configuration.audioBitrate)
             let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
             input.expectsMediaDataInRealTime = false
             if writer.canAdd(input) {
@@ -272,12 +272,14 @@ final class VideoExporter {
         AVLinearPCMIsNonInterleaved: false
     ]
 
-    private static let mixedAACSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatMPEG4AAC,
-        AVSampleRateKey: 48_000,
-        AVNumberOfChannelsKey: 2,
-        AVEncoderBitRateKey: 192_000
-    ]
+    private static func aacSettings(bitrate: Int) -> [String: Any] {
+        [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 48_000,
+            AVNumberOfChannelsKey: 2,
+            AVEncoderBitRateKey: bitrate
+        ]
+    }
 
     private func finishWriting(_ writer: AVAssetWriter) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in

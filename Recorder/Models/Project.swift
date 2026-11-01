@@ -566,30 +566,75 @@ enum ProjectSort: String, CaseIterable, Identifiable {
     }
 }
 
+/// A project bundle in the library that this build can't open.
+struct UnreadableProject: Identifiable, Equatable {
+    enum Reason: Equatable {
+        /// Saved by a newer build of the app (this format version).
+        case newerFormat(Int)
+        /// Its `meta.json` is there but can't be read.
+        case damaged
+    }
+
+    let bundleURL: URL
+    let reason: Reason
+
+    var id: URL { bundleURL }
+
+    /// The recording itself, which plays in QuickTime whatever the project's format.
+    var videoURL: URL {
+        bundleURL.appendingPathComponent(ProjectStore.File.video)
+    }
+}
+
+/// What's in the library folder.
+struct LibraryScan: Equatable {
+    /// Projects that open, newest first.
+    var projects: [ProjectSummary] = []
+    /// Projects that are there but can't be opened by this build, so the library can say
+    /// so instead of looking empty.
+    var unreadable: [UnreadableProject] = []
+}
+
 extension ProjectStore {
     /// Projects in the library, newest first. Bundles that can't be read are skipped.
     static func listProjects(in root: URL = projectsDirectory, limit: Int? = nil) -> [ProjectSummary] {
+        let projects = scanLibrary(in: root).projects
+        if let limit {
+            return Array(projects.prefix(limit))
+        }
+        return projects
+    }
+
+    /// Every project bundle in `root`: the ones that open, and the ones that don't.
+    /// A bundle without `meta.json` is a take still recording (or one that never
+    /// finished), and isn't listed at all.
+    static func scanLibrary(in root: URL = projectsDirectory) -> LibraryScan {
         let fileManager = FileManager.default
         guard let urls = try? fileManager.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         ) else {
-            return []
+            return LibraryScan()
         }
 
-        let summaries = urls
+        var scan = LibraryScan()
+        let bundles = urls
             .filter { $0.pathExtension == RecorderProject.bundleExtension }
-            .compactMap { url -> ProjectSummary? in
-                guard let metadata = try? loadMetadata(from: url) else { return nil }
-                return ProjectSummary(metadata: metadata, bundleURL: url, latestExport: latestExport(in: url))
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for url in bundles {
+            do {
+                let metadata = try loadMetadata(from: url)
+                scan.projects.append(ProjectSummary(metadata: metadata, bundleURL: url, latestExport: latestExport(in: url)))
+            } catch let ProjectStoreError.newerFormat(version) {
+                scan.unreadable.append(UnreadableProject(bundleURL: url, reason: .newerFormat(version)))
+            } catch {
+                guard fileManager.fileExists(atPath: url.appendingPathComponent(File.meta).path) else { continue }
+                scan.unreadable.append(UnreadableProject(bundleURL: url, reason: .damaged))
             }
-            .sorted { $0.createdAt > $1.createdAt }
-
-        if let limit {
-            return Array(summaries.prefix(limit))
         }
-        return summaries
+        scan.projects.sort { $0.createdAt > $1.createdAt }
+        return scan
     }
 }
 

@@ -40,8 +40,24 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
             window.center()
             self.window = window
         }
-        window?.makeKeyAndOrderFront(nil)
+        WindowPresenter.bringForward(window)
+    }
+
+    /// Shows `window` in front and asks to make the app active. A menu bar app is often
+    /// not the active app when it opens a window, and since macOS 14 activation is a
+    /// request the system may turn down, so the window is also ordered front on its own
+    /// and the app becomes a regular (Dock) app first, which is what lets it take focus.
+    static func bringForward(_ window: NSWindow?) {
+        guard let window else { return }
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
         NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
     }
 
     func close() {
@@ -143,8 +159,6 @@ final class EditorPresenter: NSObject, NSWindowDelegate {
                 self?.onRename?()
             }
         windowController?.showWindow(nil)
-        window.makeKeyAndOrderFront(nil)
-
-        NSApp.activate()
+        WindowPresenter.bringForward(window)
     }
 }
