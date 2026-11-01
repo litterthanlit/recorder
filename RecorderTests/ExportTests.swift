@@ -29,11 +29,81 @@ struct ExportOptionsTests {
         let web = ExportOptions(format: .mp4, quality: .web).bitrate(size: size, fps: 60)
         #expect(hevc < h264)
         #expect(web < h264)
-        let bytes = ExportOptions(format: .mp4).estimatedBytes(size: size, fps: 60, duration: 10) ?? 0
+        let bytes = ExportOptions(format: .mp4).plan(canvas: size, sourceFrameRate: 60, duration: 10).estimatedBytes ?? 0
         #expect(bytes > 10_000_000 && bytes < 20_000_000)
-        #expect(ExportOptions(format: .gif).estimatedBytes(size: size, fps: 15, duration: 10) == nil)
-        let prores = ExportOptions(format: .prores).estimatedBytes(size: size, fps: 30, duration: 10) ?? 0
+        #expect(ExportOptions(format: .gif).plan(canvas: size, sourceFrameRate: 60, duration: 10).estimatedBytes == nil)
+        let prores = ExportOptions(format: .prores).plan(canvas: size, sourceFrameRate: 30, duration: 10).estimatedBytes ?? 0
         #expect(prores > bytes)
+    }
+
+    @Test func withoutALimitThePlanFollowsTheQuality() {
+        let canvas = CGSize(width: 1920, height: 1080)
+        let options = ExportOptions(format: .mp4, quality: .high)
+        let plan = options.plan(canvas: canvas, sourceFrameRate: 60, duration: 600)
+        #expect(plan.size == canvas)
+        #expect(plan.frameRate == 60)
+        #expect(plan.videoBitrate == options.bitrate(size: canvas, fps: 60))
+        #expect(plan.audioBitrate == ExportOptions.audioBitrate)
+        #expect(!plan.exceedsSizeLimit)
+    }
+
+    @Test func aShortEditFitsAtFullSizeAndQuality() {
+        let canvas = CGSize(width: 1920, height: 1080)
+        let options = ExportOptions(format: .mp4, quality: .high, maxMegabytes: 25)
+        let plan = options.plan(canvas: canvas, sourceFrameRate: 60, duration: 5)
+        #expect(plan.size == canvas)
+        #expect(plan.frameRate == 60)
+        // Never more than the quality asks for, even with room to spare.
+        #expect(plan.videoBitrate == options.bitrate(size: canvas, fps: 60))
+    }
+
+    @Test func aLongerEditShrinksToStayUnderTheLimit() {
+        let canvas = CGSize(width: 1920, height: 1080)
+        let plan = ExportOptions(format: .mp4, quality: .high, maxMegabytes: 25)
+            .plan(canvas: canvas, sourceFrameRate: 60, duration: 180)
+        #expect(plan.size.height < canvas.height)
+        #expect(plan.frameRate == 30)
+        #expect(Int(plan.size.width) % 2 == 0 && Int(plan.size.height) % 2 == 0)
+        #expect(isClose(plan.size.width / plan.size.height, canvas.width / canvas.height, tolerance: 0.01))
+        #expect(!plan.exceedsSizeLimit)
+        #expect((plan.estimatedBytes ?? .max) <= 25_000_000)
+    }
+
+    @Test func editsUpToFiveMinutesFitTwentyFiveMegabytes() {
+        let canvases = [CGSize(width: 1920, height: 1080), CGSize(width: 1080, height: 1920), CGSize(width: 2560, height: 1440)]
+        for format in [ExportFormat.mp4, .hevc] {
+            for canvas in canvases {
+                var previousPixels = CGFloat.infinity
+                for seconds in stride(from: 1.0, through: 300, by: 7) {
+                    let plan = ExportOptions(format: format, quality: .studio, maxMegabytes: 25)
+                        .plan(canvas: canvas, sourceFrameRate: 60, duration: seconds)
+                    let bytes = plan.estimatedBytes ?? .max
+                    #expect(!plan.exceedsSizeLimit, "\(format) \(canvas) \(seconds) s")
+                    #expect(bytes <= 25_000_000, "\(format) \(canvas) \(seconds) s: \(bytes) bytes")
+                    // Longer edits never get a bigger picture than shorter ones.
+                    let pixels = plan.size.width * plan.size.height
+                    #expect(pixels <= previousPixels)
+                    previousPixels = pixels
+                }
+            }
+        }
+    }
+
+    @Test func anEditTooLongForTheLimitIsFlagged() {
+        let canvas = CGSize(width: 1920, height: 1080)
+        let plan = ExportOptions(format: .mp4, maxMegabytes: 10).plan(canvas: canvas, sourceFrameRate: 60, duration: 3_600)
+        #expect(plan.exceedsSizeLimit)
+        #expect(plan.size == CGSize(width: 640, height: 360))
+        #expect(plan.frameRate == 30)
+    }
+
+    @Test func theLimitOnlyAppliesToCompressedFormats() {
+        let canvas = CGSize(width: 1920, height: 1080)
+        let prores = ExportOptions(format: .prores, maxMegabytes: 10).plan(canvas: canvas, sourceFrameRate: 30, duration: 60)
+        #expect(prores.size == canvas)
+        #expect(prores.sizeLimitBytes == nil)
+        #expect(!ExportOptions(format: .gif, maxMegabytes: 10).usesSizeLimit)
+        #expect(ExportOptions(format: .hevc, maxMegabytes: 10).usesSizeLimit)
     }
 
     @Test func longEditsCantBeGIFs() {
@@ -48,6 +118,12 @@ struct ExportOptionsTests {
         #expect(options.format == .mp4)
         #expect(options.quality == .high)
         #expect(options.frameRate == nil)
+        #expect(options.maxMegabytes == nil)
+
+        let limited = try JSONDecoder().decode(ExportOptions.self, from: Data(#"{ "maxMegabytes": 25 }"#.utf8))
+        #expect(limited.maxMegabytes == 25)
+        let negative = try JSONDecoder().decode(ExportOptions.self, from: Data(#"{ "maxMegabytes": -3 }"#.utf8))
+        #expect(negative.maxMegabytes == nil)
 
         let preferences = try JSONDecoder().decode(ExportPreferences.self, from: Data("{}".utf8))
         #expect(preferences == ExportPreferences())

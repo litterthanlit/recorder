@@ -186,6 +186,32 @@ struct ProjectFormatTests {
 
         try Self.rewrite(bundleURL.appendingPathComponent(ProjectStore.File.meta)) { $0["formatVersion"] = 99 }
         #expect(ProjectStore.listProjects(in: directory.url).isEmpty)
+        // Not opened, but not hidden either: the library says it's there.
+        let scan = ProjectStore.scanLibrary(in: directory.url)
+        #expect(scan.unreadable.map(\.bundleURL.lastPathComponent) == [bundleURL.lastPathComponent])
+        #expect(scan.unreadable.map(\.reason) == [.newerFormat(99)])
+    }
+
+    @Test func theLibraryScanSortsOutWhatItCantOpen() throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.cleanup() }
+        let good = ProjectModelTests.sampleProject()
+        let goodURL = ProjectStore.bundleURL(for: good.metadata.id, in: directory.url)
+        try ProjectStore.save(good, to: goodURL)
+
+        // meta.json there but unreadable: damaged.
+        let damagedURL = ProjectStore.bundleURL(for: UUID(), in: directory.url)
+        try FileManager.default.createDirectory(at: damagedURL, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: damagedURL.appendingPathComponent(ProjectStore.File.meta))
+
+        // No meta.json yet: a take still recording. Not listed at all.
+        let recordingURL = ProjectStore.bundleURL(for: UUID(), in: directory.url)
+        try FileManager.default.createDirectory(at: recordingURL, withIntermediateDirectories: true)
+
+        let scan = ProjectStore.scanLibrary(in: directory.url)
+        #expect(scan.projects.map(\.id) == [good.metadata.id])
+        #expect(scan.unreadable.map(\.bundleURL.lastPathComponent) == [damagedURL.lastPathComponent])
+        #expect(scan.unreadable.map(\.reason) == [.damaged])
     }
 
     private static func rewrite(_ url: URL, _ change: (inout [String: Any]) -> Void) throws {

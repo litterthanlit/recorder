@@ -8,13 +8,17 @@ enum ExportService {
         let settings = project.editSettings
         let sourceSize = CGSize(width: project.metadata.width, height: project.metadata.height)
         let canvasSize = settings.canvas.pixelSize(source: sourceSize)
+        let timeline = settings.resolvedTimeline(sourceDuration: project.metadata.duration)
+        let plan = options.plan(canvas: canvasSize, sourceFrameRate: project.metadata.fps, duration: timeline.outputDuration)
         let audioTrackCount = try await AVURLAsset(url: project.videoURL).loadTracks(withMediaType: .audio).count
         return ExportConfiguration(
             keyframes: project.keyframes,
-            outputSize: options.outputSize(canvas: canvasSize),
-            timeline: settings.resolvedTimeline(sourceDuration: project.metadata.duration),
+            outputSize: plan.size,
+            timeline: timeline,
             render: CompositionRenderSettings(project: project, editSettings: settings),
-            frameRate: options.outputFrameRate(source: project.metadata.fps),
+            frameRate: plan.frameRate,
+            videoBitrate: plan.videoBitrate,
+            audioBitrate: plan.audioBitrate,
             options: options,
             cameraURL: project.hasCameraTrack ? project.cameraURL : nil,
             audioTrackRoles: project.metadata.resolvedAudioTrackRoles(trackCount: audioTrackCount),

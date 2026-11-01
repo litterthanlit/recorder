@@ -27,7 +27,8 @@ speed up, annotate and export it in minutes.
 **After recording**
 - A **Quick Access** card with Edit, Export, Copy (paste the video into Slack or Mail) and
   Show in Finder; drag the card's file straight into any app. Or open the editor directly.
-- A **Library** of every take: search, sort, rename, open, reveal, move to Trash.
+- A **Library** of every take: search, sort, rename, open, reveal, move to Trash. Takes
+  this build can't open (saved by a newer build, or damaged) are counted, not hidden.
 
 **Edit**
 - **Canvas** at the video's final shape (16:9, 9:16, 1:1, 4:3, 4:5 or as recorded), with
@@ -48,6 +49,8 @@ speed up, annotate and export it in minutes.
 **Export**
 - **MP4** (H.264), **HEVC**, **ProRes 422** (MOV, uncompressed audio) or **GIF**; Web,
   High or Studio quality; 24/30/60 fps; 720p to 4K or source size.
+- A **size limit** (10, 25, 50 or 100 MB) for chat apps and agents with upload caps: the
+  bitrate drops to fit, then the frame rate and picture size if it has to.
 - To `~/Movies/Trace/Exports` (or any folder, or ask every time), with name templates,
   never overwriting. Cancel any time; nothing half-written is left behind.
 - Copy, Share, Show in Finder, or drag the file out when it's done.

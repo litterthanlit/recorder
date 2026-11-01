@@ -63,6 +63,7 @@ Work top to bottom; the whole pass takes a few minutes per take.
 | YouTube, Product Hunt | MP4 | High | 1080p, 60 fps |
 | Social (Reels, TikTok, Shorts) | MP4 | High | 9:16 shape, 1080p |
 | README, Slack, Notion | GIF | n/a | Under 30 s, 15 fps, scaled to 720 px wide |
+| Chat or an agent with an upload cap | MP4 or HEVC | any | Set **Size limit** (e.g. 25 MB); the sheet says if it had to shrink |
 | Further editing (Final Cut, Premiere) | ProRes | n/a | Large files, best quality |
 
 **⌘E** opens the export sheet. When it's done, **Copy** puts the file on the clipboard

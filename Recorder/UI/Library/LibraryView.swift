@@ -23,6 +23,12 @@ struct LibraryView: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if !library.unreadableProjects.isEmpty {
+                UnreadableProjectsNotice(projects: library.unreadableProjects) {
+                    library.revealUnreadable()
+                }
+                Divider()
+            }
             if library.allProjects.isEmpty {
                 emptyState
             } else if projects.isEmpty {
@@ -264,5 +270,47 @@ private struct RenameSheet: View {
             }
         }
         .padding(DS.Spacing.lg)
+    }
+}
+
+/// Says how many projects in the folder this build can't open, and why, so a library
+/// that looks empty or short isn't a mystery. The recordings inside still play.
+private struct UnreadableProjectsNotice: View {
+    let projects: [UnreadableProject]
+    let onReveal: () -> Void
+
+    private var newerCount: Int {
+        projects.filter { if case .newerFormat = $0.reason { return true } else { return false } }.count
+    }
+
+    private var message: String {
+        let count = projects.count
+        let noun = count == 1 ? "recording" : "recordings"
+        let verb = count == 1 ? "was" : "were"
+        if newerCount == count {
+            return "\(count) \(noun) \(verb) saved by a newer build of \(Brand.name) and can't be edited in this one. Open them with the build that made them; the videos still play in QuickTime."
+        }
+        if newerCount == 0 {
+            return "\(count) \(noun) can't be opened: their project files are damaged. The videos may still play in QuickTime."
+        }
+        return "\(count) \(noun) can't be opened here: \(newerCount) were saved by a newer build of \(Brand.name), the rest are damaged. The videos still play in QuickTime."
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DS.Spacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(DS.Palette.warning)
+                .accessibilityHidden(true)
+            Text(message)
+                .font(DS.Typeface.footnote)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: DS.Spacing.sm)
+            Button("Show Videos in Finder", action: onReveal)
+                .buttonStyle(SecondaryButtonStyle())
+        }
+        .padding(.horizontal, DS.Spacing.lg)
+        .padding(.vertical, DS.Spacing.sm)
+        .background(DS.Palette.warning.opacity(0.08))
+        .accessibilityElement(children: .contain)
     }
 }

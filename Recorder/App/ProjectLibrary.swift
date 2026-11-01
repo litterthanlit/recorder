@@ -12,6 +12,9 @@ final class ProjectLibrary: ObservableObject {
     @Published private(set) var recentProjects: [ProjectSummary] = []
     /// Every project, newest first.
     @Published private(set) var allProjects: [ProjectSummary] = []
+    /// Projects in the folder that this build can't open (saved by a newer build, or
+    /// damaged). Shown as a notice rather than left out without a word.
+    @Published private(set) var unreadableProjects: [UnreadableProject] = []
 
     private let thumbnails = NSCache<NSUUID, NSImage>()
     private var refreshGeneration = 0
@@ -25,13 +28,19 @@ final class ProjectLibrary: ObservableObject {
         refreshGeneration += 1
         let generation = refreshGeneration
         Task {
-            let projects = await Task.detached(priority: .userInitiated) {
-                ProjectStore.listProjects()
+            let scan = await Task.detached(priority: .userInitiated) {
+                ProjectStore.scanLibrary()
             }.value
             // A newer refresh may have started meanwhile.
             guard generation == refreshGeneration else { return }
-            allProjects = projects
-            recentProjects = Array(projects.prefix(Self.recentLimit))
+            allProjects = scan.projects
+            recentProjects = Array(scan.projects.prefix(Self.recentLimit))
+            if scan.unreadable != unreadableProjects {
+                unreadableProjects = scan.unreadable
+                if !scan.unreadable.isEmpty {
+                    Log.library.warning("\(scan.unreadable.count) projects in the library can't be opened by this build")
+                }
+            }
         }
     }
 
@@ -83,6 +92,16 @@ final class ProjectLibrary: ObservableObject {
     func reveal(_ project: ProjectSummary) {
         let target = project.latestExport ?? project.bundleURL
         NSWorkspace.shared.activateFileViewerSelecting([target])
+    }
+
+    /// Selects the recordings of projects this build can't open, so they can still be
+    /// played in QuickTime or shared.
+    func revealUnreadable() {
+        let videos = unreadableProjects.map { project in
+            FileManager.default.fileExists(atPath: project.videoURL.path) ? project.videoURL : project.bundleURL
+        }
+        guard !videos.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(videos)
     }
 
     func revealProjectsFolder() {

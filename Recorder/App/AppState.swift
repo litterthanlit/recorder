@@ -262,15 +262,39 @@ final class AppState: ObservableObject {
 
         let bundleURL = summary.bundleURL
         Task {
-            let loaded = await Task.detached(priority: .userInitiated) {
-                try? ProjectStore.loadProject(from: bundleURL)
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try ProjectStore.loadProject(from: bundleURL) }
             }.value
-            guard let loaded else {
-                // Missing or damaged on disk; drop it from the list.
+            switch result {
+            case let .success(loaded):
+                session.openProject(loaded)
+            case let .failure(error):
+                Log.library.error("Couldn't open \(bundleURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 library.refresh()
-                return
+                showOpenFailure(error, bundleURL: bundleURL)
             }
-            session.openProject(loaded)
+        }
+    }
+
+    /// Says why a project didn't open, instead of nothing happening.
+    private func showOpenFailure(_ error: Error, bundleURL: URL) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "This recording can't be opened"
+        let reason: String
+        if let storeError = error as? ProjectStoreError {
+            reason = storeError.localizedDescription
+        } else {
+            reason = "Its project files are missing or damaged (\(error.localizedDescription))."
+        }
+        alert.informativeText = reason + " The video itself is in the project folder and plays in QuickTime."
+        alert.addButton(withTitle: "Show in Finder")
+        alert.addButton(withTitle: "OK")
+        NSApp.activate()
+        if alert.runModal() == .alertFirstButtonReturn {
+            let video = bundleURL.appendingPathComponent(ProjectStore.File.video)
+            let target = FileManager.default.fileExists(atPath: video.path) ? video : bundleURL
+            NSWorkspace.shared.activateFileViewerSelecting([target])
         }
     }
 

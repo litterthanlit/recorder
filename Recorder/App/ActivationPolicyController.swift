@@ -12,9 +12,14 @@ final class ActivationPolicyController {
     private var observers: [NSObjectProtocol] = []
 
     func start() {
+        // Occlusion changes when a window comes on screen even if it never becomes key,
+        // which is what happens when the app isn't active as a window opens (a take
+        // stopped with a hotkey while another app is in front).
         let names: [Notification.Name] = [
             NSWindow.didBecomeKeyNotification,
             NSWindow.didBecomeMainNotification,
+            NSWindow.didChangeOcclusionStateNotification,
+            NSWindow.didMiniaturizeNotification,
             NSWindow.willCloseNotification
         ]
         for name in names {
