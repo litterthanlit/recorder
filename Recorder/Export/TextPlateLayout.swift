@@ -59,6 +59,19 @@ enum TextPlateLayout {
         return Layout(string: string, textSize: textSize, padding: padding, fontSize: fontSize)
     }
 
+    /// `string` with only its first `count` characters showing: the rest are clear, so
+    /// the text keeps its layout (and its plate its size) as it types on.
+    static func revealing(_ string: NSAttributedString, characters count: Int) -> NSAttributedString {
+        let text = string.string
+        guard count < text.count else { return string }
+        let start = text.index(text.startIndex, offsetBy: max(count, 0))
+        let hidden = NSRange(start..<text.endIndex, in: text)
+        let result = NSMutableAttributedString(attributedString: string)
+        result.addAttribute(.foregroundColor, value: NSColor.clear, range: hidden)
+        result.removeAttribute(.shadow, range: hidden)
+        return result
+    }
+
     /// The overlay's layout on a canvas of `canvas` size.
     static func layout(for overlay: TextOverlay, text: String, canvas: CGSize) -> Layout {
         layout(

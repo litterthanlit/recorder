@@ -42,6 +42,8 @@ enum TimelineCompositionBuilder {
         var parameters: [AVMutableAudioMixInputParameters] = []
         if let audioRoles {
             let sourceTracks = try await asset.loadTracks(withMediaType: .audio)
+            // Fades at cuts and quiet over sped-up parts, when they're on.
+            let envelope = AudioEnvelope.ramps(for: timeline, audio: audio)
             for (index, sourceTrack) in sourceTracks.enumerated() {
                 guard let compositionTrack = composition.addMutableTrack(
                     withMediaType: .audio,
@@ -52,7 +54,12 @@ enum TimelineCompositionBuilder {
 
                 let role = index < audioRoles.count ? audioRoles[index] : .systemAudio
                 let input = AVMutableAudioMixInputParameters(track: compositionTrack)
-                input.setVolume(Float(audio.volume(for: role)), at: .zero)
+                let level = Float(audio.volume(for: role))
+                if envelope.isEmpty {
+                    input.setVolume(level, at: .zero)
+                } else {
+                    apply(envelope, level: level, to: input)
+                }
                 input.audioTimePitchAlgorithm = .spectral
                 parameters.append(input)
             }
@@ -67,6 +74,23 @@ enum TimelineCompositionBuilder {
             audioMix = mix
         }
         return Result(composition: composition, audioMix: audioMix, audioTracks: audioTracks)
+    }
+
+    /// The track's level, shaped by `envelope` (output time).
+    private static func apply(_ envelope: [VolumeRamp], level: Float, to input: AVMutableAudioMixInputParameters) {
+        if let first = envelope.first, first.start > 1e-9 {
+            input.setVolume(level, at: .zero)
+        }
+        for ramp in envelope {
+            input.setVolumeRamp(
+                fromStartVolume: level * Float(ramp.from),
+                toEndVolume: level * Float(ramp.to),
+                timeRange: CMTimeRange(
+                    start: CMTime(seconds: ramp.start, preferredTimescale: timescale),
+                    duration: CMTime(seconds: ramp.duration, preferredTimescale: timescale)
+                )
+            )
+        }
     }
 
     /// Lays `track` out along the edit.

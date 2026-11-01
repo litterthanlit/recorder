@@ -28,6 +28,9 @@ struct TimelineContent: View {
                 ItemTrack(editor: editor, kind: .blur, scale: scale, visibleRange: visibleRange)
                     .frame(height: TimelineMetrics.itemHeight)
                     .trackSeparator()
+                ItemTrack(editor: editor, kind: .camera, scale: scale, visibleRange: visibleRange)
+                    .frame(height: TimelineMetrics.itemHeight)
+                    .trackSeparator()
                 WaveformTrack(editor: editor, media: media, scale: scale, visibleRange: visibleRange)
                     .frame(height: TimelineMetrics.audioHeight)
                     .trackSeparator()
@@ -72,6 +75,10 @@ private struct TimelineSnap {
         for region in editor.editSettings.blurRegions where region.id != excluding {
             times.append(timeline.outputTimeClamped(forSource: region.span.start))
             times.append(timeline.outputTimeClamped(forSource: region.span.end))
+        }
+        for move in editor.editSettings.cameraMoves where move.id != excluding {
+            times.append(timeline.outputTimeClamped(forSource: move.span.start))
+            times.append(timeline.outputTimeClamped(forSource: move.span.end))
         }
         self.times = times
         tolerance = 8 / Double(max(scale.pointsPerSecond, 0.01))
@@ -598,6 +605,7 @@ private struct ItemTrack: View {
     enum Kind {
         case text
         case blur
+        case camera
     }
 
     @ObservedObject var editor: ProjectEditor
@@ -616,11 +624,27 @@ private struct ItemTrack: View {
             return editor.editSettings.blurRegions.map { region in
                 TimelineItem(id: region.id, span: region.span, title: region.kind.label, selection: .blur(region.id))
             }
+        case .camera:
+            return editor.editSettings.cameraMoves.map { move in
+                TimelineItem(id: move.id, span: move.span, title: move.kind.label, selection: .cameraMove(move.id))
+            }
         }
     }
 
     private var tint: Color {
-        kind == .text ? DS.Palette.textTrack : DS.Palette.blurTrack
+        switch kind {
+        case .text: return DS.Palette.textTrack
+        case .blur: return DS.Palette.blurTrack
+        case .camera: return DS.Palette.cameraTrack
+        }
+    }
+
+    private var emptyHint: String {
+        switch kind {
+        case .text: return "Press T to add text at the playhead"
+        case .blur: return "Press B to hide part of the screen"
+        case .camera: return "Add a 3D move from the Zoom inspector"
+        }
     }
 
     var body: some View {
@@ -634,7 +658,7 @@ private struct ItemTrack: View {
                 }
 
             if list.isEmpty {
-                Text(kind == .text ? "Press T to add text at the playhead" : "Press B to hide part of the screen")
+                Text(emptyHint)
                     .font(DS.Typeface.caption)
                     .foregroundStyle(DS.Palette.tertiaryText)
                     .padding(.leading, DS.Spacing.xs)

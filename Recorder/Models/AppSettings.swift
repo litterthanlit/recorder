@@ -33,6 +33,9 @@ struct AppSettings: Codable, Equatable {
     var quickAccessAutoDismiss = true
     var hotkeys: HotkeyBindings = .defaults
     var hasCompletedOnboarding = false
+    /// AI agents (Claude Code, Claude Desktop, Cursor) may list, view, edit and export
+    /// recordings through `Trace --mcp` (Settings › Agents). Off until the person turns it on.
+    var agentAccessEnabled = false
 
     static let `default` = AppSettings()
 }
@@ -45,6 +48,7 @@ extension AppSettings {
         case quickAccessAutoDismiss
         case hotkeys
         case hasCompletedOnboarding
+        case agentAccessEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -59,6 +63,8 @@ extension AppSettings {
         hotkeys = (try? container.decodeIfPresent(HotkeyBindings.self, forKey: .hotkeys)) ?? defaults.hotkeys
         hasCompletedOnboarding = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding)
             ?? defaults.hasCompletedOnboarding
+        agentAccessEnabled = try container.decodeIfPresent(Bool.self, forKey: .agentAccessEnabled)
+            ?? defaults.agentAccessEnabled
     }
 
     private static let defaultsKey = "appSettings"

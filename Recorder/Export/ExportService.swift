@@ -7,7 +7,7 @@ enum ExportService {
     static func configuration(for project: RecorderProject, options: ExportOptions) async throws -> ExportConfiguration {
         let settings = project.editSettings
         let sourceSize = CGSize(width: project.metadata.width, height: project.metadata.height)
-        let canvasSize = settings.canvas.pixelSize(source: sourceSize)
+        let canvasSize = settings.canvasPixelSize(source: sourceSize)
         let audioTrackCount = try await AVURLAsset(url: project.videoURL).loadTracks(withMediaType: .audio).count
         return ExportConfiguration(
             keyframes: project.keyframes,

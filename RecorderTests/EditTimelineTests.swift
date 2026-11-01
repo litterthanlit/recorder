@@ -296,3 +296,112 @@ struct IdleStretchDetectorTests {
         #expect(stretches == [TimeSpan(start: 0, end: 3.5), TimeSpan(start: 4.5, end: 10)])
     }
 }
+
+@Suite("Speed ramps")
+struct SpeedRampTests {
+    /// 4 s at 1×, 8 s at 4×, 4 s at 1×, without cuts.
+    private func sandwich(ramp: TimeInterval?) -> EditTimeline {
+        var timeline = EditTimeline(
+            segments: [
+                EditSegment(source: TimeSpan(start: 0, end: 4)),
+                EditSegment(source: TimeSpan(start: 4, end: 12), speed: 4),
+                EditSegment(source: TimeSpan(start: 12, end: 16))
+            ],
+            sourceDuration: 16
+        )
+        timeline.speedRamp = ramp
+        return timeline
+    }
+
+    @Test func withoutRampsNothingChanges() {
+        let timeline = sandwich(ramp: nil)
+        #expect(timeline.compositionPlan.count == 3)
+        #expect(timeline.sourceTime(forOutput: 5) == 8)
+        #expect(timeline.outputTime(forSource: 8) == 5)
+        #expect(!timeline.hasSpeedRamps)
+    }
+
+    @Test func rampsKeepEverySegmentWhereItWas() {
+        let plain = sandwich(ramp: nil)
+        let ramped = sandwich(ramp: 0.35)
+        #expect(ramped.outputDuration == plain.outputDuration)
+        #expect(ramped.outputSpans == plain.outputSpans)
+        #expect(isClose(ramped.sourceTime(forOutput: 4), 4, tolerance: 1e-9))
+        #expect(isClose(ramped.sourceTime(forOutput: 6), 12, tolerance: 1e-9))
+    }
+
+    @Test func theFastPartEasesInAndOut() {
+        let plan = sandwich(ramp: 0.35).compositionPlan
+        // 1 + (4 in, the middle, 4 out) + 1.
+        #expect(plan.count == 11)
+        let fast = Array(plan[1...9])
+        let speeds = fast.map { $0.speed }
+        // Rising from 1×, holding a little faster than 4×, falling back to 1×.
+        #expect(speeds[0] > 1 && speeds[0] < 1.5)
+        #expect(zip(speeds[0...3], speeds[1...4]).allSatisfy { $0 < $1 })
+        #expect(zip(speeds[4...7], speeds[5...8]).allSatisfy { $0 > $1 })
+        #expect(isClose(speeds[4], 7.65 / 1.65, tolerance: 1e-9))
+        // The pieces tile the source and the output with no gaps.
+        #expect(isClose(fast.reduce(0) { $0 + $1.outputDuration }, 2, tolerance: 1e-9))
+        for (previous, next) in zip(plan, plan.dropFirst()) {
+            #expect(isClose(previous.source.end, next.source.start, tolerance: 1e-9))
+            #expect(isClose(previous.outputStart + previous.outputDuration, next.outputStart, tolerance: 1e-9))
+        }
+        #expect(isClose(fast.last?.source.end ?? 0, 12))
+    }
+
+    @Test func mappingStaysMonotonicAndRoundTrips() {
+        let timeline = sandwich(ramp: 0.35)
+        var last = -1.0
+        for step in 0...1000 {
+            let output = Double(step) / 100
+            let source = timeline.sourceTime(forOutput: output)
+            #expect(source >= last - 1e-12)
+            last = source
+            if let back = timeline.outputTime(forSource: source) {
+                #expect(isClose(back, output, tolerance: 1e-6))
+            }
+        }
+    }
+
+    @Test func noRampAfterACut() {
+        var timeline = EditTimeline(
+            segments: [
+                EditSegment(source: TimeSpan(start: 0, end: 4)),
+                EditSegment(source: TimeSpan(start: 6, end: 14), speed: 4),
+                EditSegment(source: TimeSpan(start: 14, end: 16))
+            ],
+            sourceDuration: 16
+        )
+        timeline.speedRamp = 0.35
+        let pieces = timeline.pieces(ofSegment: 1)
+        // Straight in after the cut, easing out into the 1× segment.
+        #expect(pieces.count == 5)
+        #expect(isClose(pieces[0].speed, 7.825 / 1.825, tolerance: 1e-9))
+        #expect(pieces[4].speed < pieces[0].speed)
+    }
+
+    @Test func tooFastAPeakDropsTheRamps() {
+        let segments = [
+            EditSegment(source: TimeSpan(start: 0, end: 1)),
+            EditSegment(source: TimeSpan(start: 1, end: 21), speed: 20),
+            EditSegment(source: TimeSpan(start: 21, end: 22))
+        ]
+        #expect(SpeedRamp.pieces(of: segments, at: 1, ramp: 1).count == 1)
+        // Slow segments never ramp.
+        #expect(SpeedRamp.pieces(of: segments, at: 0, ramp: 1).count == 1)
+    }
+
+    @Test func theRampIsSavedAndReadTolerantly() throws {
+        let timeline = sandwich(ramp: 0.35)
+        let decoded = try JSONDecoder().decode(EditTimeline.self, from: JSONEncoder().encode(timeline))
+        #expect(decoded == timeline)
+        let segments = #"[ { "source": { "start": 0, "end": 2 } } ]"#
+        let negative = try JSONDecoder().decode(EditTimeline.self, from: Data(#"{ "segments": \#(segments), "speedRamp": -1 }"#.utf8))
+        #expect(negative.speedRamp == nil)
+        let huge = try JSONDecoder().decode(EditTimeline.self, from: Data(#"{ "segments": \#(segments), "speedRamp": 90 }"#.utf8))
+        #expect(huge.speedRamp == EditTimeline.maximumSpeedRamp)
+        let wrong = try JSONDecoder().decode(EditTimeline.self, from: Data(#"{ "segments": \#(segments), "speedRamp": "fast" }"#.utf8))
+        #expect(wrong.speedRamp == nil)
+    }
+}

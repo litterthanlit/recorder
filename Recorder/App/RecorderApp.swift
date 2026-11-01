@@ -1,6 +1,6 @@
 import SwiftUI
 
-@main
+/// The app (started by `TraceMain` unless the binary runs as the agents' MCP server).
 struct RecorderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 

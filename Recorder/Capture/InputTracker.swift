@@ -10,6 +10,7 @@ struct InputTrackingResult {
     var cursor: [CursorEvent] = []
     var keystrokes: [KeystrokeEvent] = []
     var cursorKinds: [CursorKindEvent] = []
+    var appFocus: [AppFocusEvent] = []
 }
 
 final class InputTracker {
@@ -22,6 +23,7 @@ final class InputTracker {
     private var trackKeystrokes = false
     private var keystrokes: [KeystrokeEvent] = []
     private let cursorKindSampler = CursorKindSampler()
+    private let appFocusSampler = AppFocusSampler()
     private var clock: RecordingClock?
     private var captureOrigin: CGPoint = .zero
     private var captureSize: CGSize = .zero
@@ -33,6 +35,8 @@ final class InputTracker {
     /// In window mode, the recorded window: its position is followed during the take, and
     /// clicks on other windows covering it are ignored.
     private var trackedWindowID: UInt32?
+    /// Apps left out of the recording: their windows don't cover anything in it.
+    private var ignoredBundleIDs: Set<String> = []
     private var windowFrameTimer: Timer?
     private var lastCursorSampleTime: TimeInterval = 0
     private let cursorSampleInterval: TimeInterval = 1.0 / 60.0
@@ -47,7 +51,8 @@ final class InputTracker {
         scaleFactor: CGFloat,
         trackCursor: Bool = true,
         trackKeystrokes: Bool = false,
-        trackedWindowID: UInt32? = nil
+        trackedWindowID: UInt32? = nil,
+        ignoredBundleIDs: Set<String> = []
     ) {
         self.clock = clock
         self.captureOrigin = captureOrigin
@@ -56,6 +61,7 @@ final class InputTracker {
         self.trackCursor = trackCursor
         self.trackKeystrokes = trackKeystrokes
         self.trackedWindowID = trackedWindowID
+        self.ignoredBundleIDs = ignoredBundleIDs
         events = []
         cursorEvents = []
         keystrokes = []
@@ -100,6 +106,16 @@ final class InputTracker {
         if trackCursor, let clock {
             cursorKindSampler.start(clock: clock)
         }
+        if let clock {
+            // A window recording shows only its window: nothing else can cover it.
+            appFocusSampler.start(
+                clock: clock,
+                recordsCovers: trackedWindowID == nil,
+                ignoredBundleIDs: ignoredBundleIDs
+            ) { [weak self] window in
+                self?.normalizedCaptureRect(forGlobal: window)
+            }
+        }
         if trackKeystrokes {
             startKeyTap()
         }
@@ -136,10 +152,17 @@ final class InputTracker {
         keyTap = nil
         keyRunLoopSource = nil
         let cursorKinds = cursorKindSampler.stop()
+        let appFocus = appFocusSampler.stop()
 
         lock.lock()
         defer { lock.unlock() }
-        return InputTrackingResult(clicks: events, cursor: cursorEvents, keystrokes: keystrokes, cursorKinds: cursorKinds)
+        return InputTrackingResult(
+            clicks: events,
+            cursor: cursorEvents,
+            keystrokes: keystrokes,
+            cursorKinds: cursorKinds,
+            appFocus: appFocus
+        )
     }
 
     private func startKeyTap() {
@@ -278,6 +301,11 @@ final class InputTracker {
     private static func bounds(of info: [String: Any]) -> CGRect? {
         guard let dictionary = info[kCGWindowBounds as String] as? NSDictionary else { return nil }
         return CGRect(dictionaryRepresentation: dictionary as CFDictionary)
+    }
+
+    /// Where a window (global points) is in the capture, normalized; main thread.
+    private func normalizedCaptureRect(forGlobal window: CGRect) -> CGRect? {
+        CaptureGeometry.normalizedCaptureRect(global: window, origin: captureOrigin, scale: scaleFactor, pixelSize: captureSize)
     }
 
     private func convertToCaptureCoordinates(global: CGPoint) -> CGPoint {

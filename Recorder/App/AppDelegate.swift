@@ -13,6 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.applicationDidFinishLaunching()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        appState.applicationWillTerminate()
+    }
+
     /// Opening the app again (Finder, Spotlight, the Dock icon) shows the panel.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {

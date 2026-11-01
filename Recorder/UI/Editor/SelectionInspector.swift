@@ -23,8 +23,54 @@ struct SelectionInspector: View {
             if let region = editor.selectedBlur {
                 BlurInspector(editor: editor, region: region)
             }
+        case .cameraMove?:
+            if let move = editor.selectedCameraMove {
+                CameraMoveInspector(editor: editor, move: move)
+            }
         case nil:
             EmptyView()
+        }
+    }
+}
+
+private struct CameraMoveInspector: View {
+    @ObservedObject var editor: ProjectEditor
+    let move: CameraMove
+
+    private var kindBinding: Binding<CameraMoveKind> {
+        let id = move.id
+        return Binding(
+            get: { move.kind },
+            set: { value in editor.updateCameraMove(id, actionName: "3D Move Style") { $0.kind = value } }
+        )
+    }
+
+    private var intensityBinding: Binding<Double> {
+        let id = move.id
+        return Binding(
+            get: { move.intensity },
+            set: { value in editor.updateCameraMove(id, actionName: "3D Move Strength", coalesce: true, continuous: true) { $0.intensity = value } }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.lg) {
+            InspectorSection("3D move") {
+                InspectorLabeled("Move") {
+                    InspectorSegmentedPicker("Move", selection: kindBinding, options: CameraMoveKind.allCases) { $0.label }
+                }
+                EditorSlider(
+                    editor: editor,
+                    title: "Strength",
+                    actionName: "3D Move Strength",
+                    value: intensityBinding,
+                    range: 0...1
+                ) { "\(Int(($0 * 100).rounded()))%" }
+                InspectorHint("Tilt In opens a video, Tilt Out closes one. Drag the move's ends on the 3D track to change when it plays.")
+            }
+            InspectorDeleteButton(title: "Delete 3D Move") {
+                editor.deleteCameraMove(move.id)
+            }
         }
     }
 }
@@ -154,6 +200,7 @@ private struct ZoomSelectionInspector: View {
         } else {
             editor.pausePlayback()
             editor.seek(toSource: keyframe.peakTime)
+            editor.isCropMode = false
             editor.isEditingZoomFocus = true
         }
     }
@@ -187,6 +234,14 @@ private struct TextInspector: View {
         )
     }
 
+    private var animationBinding: Binding<TextAnimation> {
+        let id = overlay.id
+        return Binding(
+            get: { overlay.animation },
+            set: { value in editor.updateText(id, actionName: "Text Animation") { $0.animation = value } }
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.lg) {
             InspectorSection("Text") {
@@ -196,6 +251,9 @@ private struct TextInspector: View {
                     .accessibilityLabel("Text")
                 InspectorLabeled("Style") {
                     InspectorSegmentedPicker("Style", selection: styleBinding, options: TextOverlay.Style.allCases) { $0.label }
+                }
+                InspectorLabeled("Animation") {
+                    InspectorSegmentedPicker("Animation", selection: animationBinding, options: TextAnimation.allCases) { $0.label }
                 }
                 EditorSlider(
                     editor: editor,
