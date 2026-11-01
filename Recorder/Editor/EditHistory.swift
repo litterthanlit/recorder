@@ -93,3 +93,10 @@ struct EditHistory<State: Equatable> {
         lastEditTime = -.infinity
     }
 }
+
+/// The part of the editor that undo and redo restore: the zooms and the edit settings.
+/// Agents' edits are pure functions of it too (`AgentEdits`).
+struct EditorSnapshot: Equatable {
+    var keyframes: [ZoomKeyframe]
+    var editSettings: ProjectEditSettings
+}

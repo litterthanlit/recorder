@@ -370,6 +370,8 @@ final class ExportFrameSource {
         var renderSettings = configuration.render
         renderSettings.sourceWidth = abs(renderSize.width)
         renderSettings.sourceHeight = abs(renderSize.height)
+        // Frames are timed by this edit, so transitions land on its cuts.
+        renderSettings.timeline = edit
         compositor = CompositionRenderer(keyframes: configuration.keyframes, settings: renderSettings)
 
         if renderSettings.camera.isVisible {
@@ -385,7 +387,8 @@ final class ExportFrameSource {
     /// Renders output frame `index`. Call with increasing indexes.
     /// - Parameter pool: output buffers come from it when given (a writer's pool).
     func renderFrame(_ index: Int, pool: CVPixelBufferPool?) throws -> CVPixelBuffer {
-        let sourceTime = edit.sourceTime(forOutput: clock.outputTime(forFrame: index))
+        let outputTime = clock.outputTime(forFrame: index)
+        let sourceTime = edit.sourceTime(forOutput: outputTime)
         // Before the first source frame, show it anyway rather than a blank frame.
         while let pending = pendingFrame,
               heldFrame == nil || ConstantFrameRateTimeline.shouldAdvance(to: pending.time, forSourceTime: sourceTime) {
@@ -399,6 +402,7 @@ final class ExportFrameSource {
             pixelBuffer: current.buffer,
             cameraBuffer: cameraFrames?.frame(atSourceTime: sourceTime),
             at: sourceTime,
+            outputTime: outputTime,
             outputWidth: outputWidth,
             outputHeight: outputHeight,
             pool: pool

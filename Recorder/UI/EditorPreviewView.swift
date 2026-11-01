@@ -33,7 +33,11 @@ struct EditorPreviewView: View {
 
     @ViewBuilder
     private var modeBanner: some View {
-        if editor.isManualZoomMode {
+        if editor.isCropMode {
+            CanvasBanner(text: "Drag over the part to keep, like your app's window", actionTitle: "Cancel") {
+                editor.isCropMode = false
+            }
+        } else if editor.isManualZoomMode {
             CanvasBanner(text: "Drag over the area to zoom into", actionTitle: "Cancel") {
                 editor.isManualZoomMode = false
             }

@@ -26,6 +26,17 @@ struct CompositionRenderSettings: Equatable {
     var blurRegions: [BlurRegion] = []
     /// The picture for an image background, inside the project bundle.
     var backgroundImageURL: URL?
+    /// The part of the recording shown at rest (normalized, bottom-left origin); `nil`
+    /// shows all of it. See `SourceCrop`.
+    var sourceCrop: CGRect?
+    /// Where the crop moves when it follows a window (source time); `nil` holds it still.
+    var cropPath: CropPath?
+    /// The edit the frames are timed by (output time), for transitions at its cuts.
+    var timeline: EditTimeline?
+    /// A transition at every cut; `nil` cuts straight.
+    var cutTransition: CutTransition?
+    /// 3D moves of the recording's frame (source time).
+    var cameraMoves: [CameraMove] = []
 }
 
 extension CompositionRenderSettings {
@@ -47,7 +58,22 @@ extension CompositionRenderSettings {
             cursorKinds: project.inputs.cursorKinds,
             textOverlays: editSettings.textOverlays,
             blurRegions: editSettings.blurRegions,
-            backgroundImageURL: edited.backgroundImageURL
+            backgroundImageURL: edited.backgroundImageURL,
+            sourceCrop: editSettings.sourceCrop,
+            cropPath: editSettings.cropPath,
+            timeline: editSettings.resolvedTimeline(sourceDuration: project.metadata.duration),
+            cutTransition: editSettings.cutTransition,
+            cameraMoves: editSettings.cameraMoves
+        )
+    }
+
+    /// The optional effects these settings use.
+    var features: RenderFeatures {
+        RenderFeatures(
+            animatedText: textOverlays.contains { $0.animation != .fade },
+            cutTransitions: cutTransition != nil && timeline?.hasCuts == true,
+            speedRamps: timeline?.hasSpeedRamps ?? false,
+            cameraMoves: !cameraMoves.isEmpty
         )
     }
 }
@@ -84,6 +110,8 @@ final class CompositionRenderer {
     private var cachedBackgroundImage: (url: URL, image: CIImage?)?
     private var textCache: [String: CIImage] = [:]
     private var pillCache: [String: CIImage] = [:]
+    /// Output times of the edit's cuts, while there's a transition to draw at them.
+    private var cutTimes: [TimeInterval] = []
 
     private static let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
     /// Brand violet, for callouts.
@@ -100,7 +128,9 @@ final class CompositionRenderer {
         self.interpolator = ZoomInterpolator(
             keyframes: keyframes,
             springEnabled: settings.exportStyle.springCameraEnabled,
-            springSettings: settings.zoomPreset.motionFX.spring
+            springSettings: settings.zoomPreset.motionFX.spring,
+            base: SourceCrop.base(settings.sourceCrop),
+            path: settings.cropPath
         )
         self.rippleEvaluator = ClickRippleEvaluator(settings: settings.zoomPreset.motionFX)
         self.smoothedCursorEvents = Self.cursorPath(for: settings, smoother: cursorSmoother)
@@ -109,6 +139,12 @@ final class CompositionRenderer {
             from: settings.keystrokes,
             filter: settings.exportStyle.keystrokes.filter
         )
+        self.cutTimes = Self.cutTimes(for: settings)
+    }
+
+    private static func cutTimes(for settings: CompositionRenderSettings) -> [TimeInterval] {
+        guard settings.features.cutTransitions, let timeline = settings.timeline else { return [] }
+        return CutTransitions.cutTimes(in: timeline)
     }
 
     func update(keyframes: [ZoomKeyframe], settings: CompositionRenderSettings) {
@@ -123,7 +159,9 @@ final class CompositionRenderer {
         interpolator = ZoomInterpolator(
             keyframes: keyframes,
             springEnabled: settings.exportStyle.springCameraEnabled,
-            springSettings: settings.zoomPreset.motionFX.spring
+            springSettings: settings.zoomPreset.motionFX.spring,
+            base: SourceCrop.base(settings.sourceCrop),
+            path: settings.cropPath
         )
         rippleEvaluator = ClickRippleEvaluator(settings: settings.zoomPreset.motionFX)
         if pointerChanged || settings.exportStyle.cursorSmoothingEnabled != previous.exportStyle.cursorSmoothingEnabled {
@@ -135,18 +173,24 @@ final class CompositionRenderer {
         if keystrokesChanged {
             keystrokePills = KeystrokeOverlayTimeline.pills(from: settings.keystrokes, filter: settings.exportStyle.keystrokes.filter)
         }
+        if settings.timeline != previous.timeline || settings.cutTransition != previous.cutTransition {
+            cutTimes = Self.cutTimes(for: settings)
+        }
     }
 
     func cropRect(at time: TimeInterval) -> NormalizedRect {
         interpolator.cropRect(at: time)
     }
 
-    /// - Parameter time: source seconds (everything the renderer draws is timed in the
-    ///   recording's own time).
+    /// - Parameters:
+    ///   - time: source seconds (everything the renderer draws is timed in the
+    ///     recording's own time).
+    ///   - outputTime: the same moment in the edited video, for transitions at cuts.
     func renderImage(
         source: CIImage,
         camera: CIImage? = nil,
         at time: TimeInterval,
+        outputTime: TimeInterval? = nil,
         outputWidth: Int,
         outputHeight: Int
     ) -> CIImage {
@@ -177,9 +221,17 @@ final class CompositionRenderer {
         if settings.exportStyle.motionBlurEnabled {
             fitted = applyMotionBlur(to: fitted, at: time, cropRect: cropRect, unit: unit)
         }
+        if !cutTimes.isEmpty, let outputTime, let transition = settings.cutTransition,
+           let state = CutTransitions.state(atOutput: outputTime, cuts: cutTimes, duration: transition.duration) {
+            fitted = applyCutTransition(transition.style, state: state, to: fitted, unit: unit)
+        }
 
+        // A 3D move warps the framed picture in perspective; otherwise it lies flat.
+        let move = settings.cameraMoves.isEmpty ? ScreenTransform3D.identity : CameraMoves.transform(at: time, moves: settings.cameraMoves)
         var finalImage: CIImage
-        if let layers = backdropLayers(contentFrame: fitted.frame, canvas: canvas) {
+        if !move.isIdentity {
+            finalImage = composite3D(fitted, transform: move, canvas: canvas, unit: unit)
+        } else if let layers = backdropLayers(contentFrame: fitted.frame, canvas: canvas) {
             finalImage = fitted.image
                 .applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: layers.contentMask])
                 .composited(over: layers.background)
@@ -189,14 +241,17 @@ final class CompositionRenderer {
 
         if settings.exportStyle.cursorSpotlightEnabled,
            let cursorLocation = cursorLocation(at: time),
-           let outputPoint = outputPoint(
+           let flatPoint = outputPoint(
                 forSource: cursorLocation,
                 cropRect: cropRect,
                 contentFrame: fitted.frame,
                 sourceWidth: sourceWidth,
                 sourceHeight: sourceHeight
            ) {
-            finalImage = applySpotlight(to: finalImage, at: outputPoint, canvas: canvas)
+            let point = move.isIdentity
+                ? flatPoint
+                : ScreenProjection(frame: fitted.frame, canvas: canvas, transform: move).project(flatPoint)
+            finalImage = applySpotlight(to: finalImage, at: point, canvas: canvas)
         }
 
         // The bubble stays put and sharp while the screen content moves underneath it.
@@ -224,6 +279,7 @@ final class CompositionRenderer {
         pixelBuffer: CVPixelBuffer,
         cameraBuffer: CVPixelBuffer? = nil,
         at time: TimeInterval,
+        outputTime: TimeInterval? = nil,
         outputWidth: Int,
         outputHeight: Int,
         pool: CVPixelBufferPool? = nil
@@ -233,6 +289,7 @@ final class CompositionRenderer {
             source: inputImage,
             camera: cameraBuffer.map { CIImage(cvPixelBuffer: $0) },
             at: time,
+            outputTime: outputTime,
             outputWidth: outputWidth,
             outputHeight: outputHeight
         )
@@ -318,20 +375,21 @@ final class CompositionRenderer {
         let background: BackgroundStyle
         let imageURL: URL?
 
-        init(canvas: CGSize, contentFrame: CGRect, cornerRadius: CGFloat, style: ExportStyle, imageURL: URL?) {
+        init(canvas: CGSize, contentFrame: CGRect, cornerRadius: CGFloat, style: ExportStyle, imageURL: URL?, shadow: Bool) {
             func quantized(_ value: CGFloat) -> Int { Int((value * 100).rounded()) }
             outputWidth = Int(canvas.width)
             outputHeight = Int(canvas.height)
             frame = [contentFrame.minX, contentFrame.minY, contentFrame.width, contentFrame.height].map(quantized)
             self.cornerRadius = quantized(cornerRadius)
-            shadowEnabled = style.shadowEnabled
+            shadowEnabled = style.shadowEnabled && shadow
             background = style.background
             self.imageURL = imageURL
         }
     }
 
     /// `nil` without a background: the recording fills the canvas edge to edge.
-    private func backdropLayers(contentFrame: CGRect, canvas: CGSize) -> BackdropLayers? {
+    /// - Parameter shadow: draw the frame's shadow (a 3D move draws its own).
+    private func backdropLayers(contentFrame: CGRect, canvas: CGSize, shadow: Bool = true) -> BackdropLayers? {
         let style = settings.exportStyle
         guard style.backgroundEnabled, contentFrame.width > 0, contentFrame.height > 0 else { return nil }
 
@@ -343,7 +401,8 @@ final class CompositionRenderer {
             contentFrame: contentFrame,
             cornerRadius: cornerRadius,
             style: style,
-            imageURL: settings.backgroundImageURL
+            imageURL: settings.backgroundImageURL,
+            shadow: shadow
         )
         if let cachedBackdrop, cachedBackdrop.key == key {
             return cachedBackdrop.layers
@@ -351,7 +410,7 @@ final class CompositionRenderer {
 
         let outputRect = CGRect(origin: .zero, size: canvas)
         var background = makeBackground(style.background, in: outputRect)
-        if style.shadowEnabled {
+        if key.shadowEnabled {
             // Core Image space is y-up, so a negative offset puts the shadow below.
             let shadowMask = roundedRectMask(
                 rect: contentFrame.offsetBy(dx: 0, dy: -8 * unit),
@@ -506,6 +565,83 @@ final class CompositionRenderer {
         return FittedContent(image: blurred.cropped(to: frame), frame: frame)
     }
 
+    // MARK: - 3D moves
+
+    /// The framed picture tilted, turned or moved in perspective (`transform`), with a
+    /// shadow that follows its shape, over the background.
+    private func composite3D(_ fitted: FittedContent, transform: ScreenTransform3D, canvas: CGSize, unit: CGFloat) -> CIImage {
+        let outputRect = CGRect(origin: .zero, size: canvas)
+        guard fitted.frame.width > 0, fitted.frame.height > 0 else {
+            return CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: outputRect)
+        }
+        let projection = ScreenProjection(frame: fitted.frame, canvas: canvas, transform: transform)
+        let layers = backdropLayers(contentFrame: fitted.frame, canvas: canvas, shadow: false)
+        var content = fitted.image
+        if let layers {
+            content = content.applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: layers.contentMask])
+        }
+        let warped = content.cropped(to: fitted.frame).applyingFilter("CIPerspectiveTransform", parameters: [
+            "inputTopLeft": CIVector(cgPoint: projection.topLeft),
+            "inputTopRight": CIVector(cgPoint: projection.topRight),
+            "inputBottomRight": CIVector(cgPoint: projection.bottomRight),
+            "inputBottomLeft": CIVector(cgPoint: projection.bottomLeft)
+        ])
+
+        var background = layers?.background ?? CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: outputRect)
+        if layers != nil, settings.exportStyle.shadowEnabled {
+            // Core Image space is y-up, so a negative offset puts the shadow below.
+            let shape = warped
+                .transformed(by: CGAffineTransform(translationX: 0, y: -8 * unit))
+                .applyingGaussianBlur(sigma: Double(20 * unit))
+            let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.32))
+                .cropped(to: outputRect)
+                .applyingFilter("CIBlendWithAlphaMask", parameters: [kCIInputMaskImageKey: shape])
+            background = shadow.composited(over: background)
+        }
+        return warped.composited(over: background)
+    }
+
+    // MARK: - Cut transitions
+
+    /// The screen picture across a cut: pushed in with a zoom blur, whipped sideways, or
+    /// blurred and dimmed, most at the cut itself. Only the recording moves; the frame,
+    /// background and overlays stay put.
+    private func applyCutTransition(
+        _ style: CutTransitionStyle,
+        state: CutTransitionState,
+        to content: FittedContent,
+        unit: CGFloat
+    ) -> FittedContent {
+        let frame = content.frame
+        let intensity = CGFloat(min(max(state.intensity, 0), 1))
+        guard frame.width > 0, frame.height > 0, intensity > 0.01 else { return content }
+        let clamped = content.image.clampedToExtent()
+        let changed: CIImage
+        switch style {
+        case .zoomBlur:
+            let scale = 1 + 0.12 * intensity
+            let zoom = CGAffineTransform(translationX: -frame.midX, y: -frame.midY)
+                .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+                .concatenating(CGAffineTransform(translationX: frame.midX, y: frame.midY))
+            changed = clamped.transformed(by: zoom).applyingFilter("CIZoomBlur", parameters: [
+                kCIInputCenterKey: CIVector(x: frame.midX, y: frame.midY),
+                "inputAmount": 36 * unit * intensity
+            ])
+        case .whip:
+            // Leaving, the picture whips off to the left; arriving, it comes in from the right.
+            let shift = frame.width * 0.18 * intensity * (state.progress < 0 ? -1 : 1)
+            changed = clamped.transformed(by: CGAffineTransform(translationX: shift, y: 0))
+                .applyingFilter("CIMotionBlur", parameters: [
+                    kCIInputRadiusKey: 80 * unit * intensity,
+                    kCIInputAngleKey: 0
+                ])
+        case .blurDip:
+            changed = clamped.applyingGaussianBlur(sigma: Double(22 * unit * intensity))
+                .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: -0.9 * intensity])
+        }
+        return FittedContent(image: changed.cropped(to: frame), frame: frame)
+    }
+
     // MARK: - Blur regions
 
     /// Blurs or pixelates the regions active at `time`, in source pixels, so they follow
@@ -585,6 +721,10 @@ final class CompositionRenderer {
     private func compositeTextOverlays(onto image: CIImage, at time: TimeInterval, canvas: CGSize, unit: CGFloat) -> CIImage {
         var result = image
         for overlay in settings.textOverlays {
+            if overlay.animation != .fade {
+                result = compositeAnimatedText(overlay, onto: result, at: time, canvas: canvas, unit: unit)
+                continue
+            }
             let opacity = overlay.opacity(at: time)
             guard opacity > 0.001 else { continue }
             let text = overlay.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -606,8 +746,64 @@ final class CompositionRenderer {
         return result
     }
 
-    private func textPlate(text: String, style: TextOverlay.Style, scale: Double, unit: CGFloat, maxWidth: CGFloat) -> CIImage {
-        let key = "\(style.rawValue)|\(Int(scale * 100))|\(Int(unit * 1000))|\(Int(maxWidth))|\(text)"
+    /// Text that rises, pops, comes into focus or types on (`TextMotion`), placed on
+    /// the canvas like still text.
+    private func compositeAnimatedText(
+        _ overlay: TextOverlay,
+        onto image: CIImage,
+        at time: TimeInterval,
+        canvas: CGSize,
+        unit: CGFloat
+    ) -> CIImage {
+        let text = overlay.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return image }
+        let motion = TextMotion.state(overlay.animation, span: overlay.span, characters: text.count, at: time)
+        guard motion.isVisible else { return image }
+
+        let plate = textPlate(
+            text: text,
+            style: overlay.style,
+            scale: overlay.scale,
+            unit: unit,
+            maxWidth: canvas.width * 0.86,
+            revealed: motion.revealed
+        )
+        let size = plate.extent.size
+        let frame = OverlayLayout.centeredFrame(
+            size: size,
+            normalizedCenter: overlay.center,
+            canvas: canvas,
+            margin: 16 * unit
+        )
+        var placed = plate
+        if motion.blur > 0.05 {
+            placed = placed.applyingGaussianBlur(sigma: Double(motion.blur * unit / 2))
+        }
+        // Scaled about the plate's centre, then moved into place (risen).
+        let transform = CGAffineTransform(translationX: -size.width / 2, y: -size.height / 2)
+            .concatenating(CGAffineTransform(scaleX: motion.scale, y: motion.scale))
+            .concatenating(CGAffineTransform(translationX: frame.midX, y: frame.midY + motion.rise * unit))
+        placed = placed.transformed(by: transform)
+        if motion.opacity < 1 {
+            placed = fade(placed, opacity: motion.opacity)
+        }
+        return placed.composited(over: image)
+    }
+
+    /// - Parameter revealed: for text typing on, how many characters show (the rest are
+    ///   laid out but clear, so the plate keeps its size).
+    private func textPlate(
+        text: String,
+        style: TextOverlay.Style,
+        scale: Double,
+        unit: CGFloat,
+        maxWidth: CGFloat,
+        revealed: Int? = nil
+    ) -> CIImage {
+        var key = "\(style.rawValue)|\(Int(scale * 100))|\(Int(unit * 1000))|\(Int(maxWidth))|\(text)"
+        if let revealed {
+            key += "|r\(revealed)"
+        }
         if let cached = textCache[key] {
             return cached
         }
@@ -638,7 +834,8 @@ final class CompositionRenderer {
                 context.addPath(Self.roundedPath(plateRect, radius: min(size.height / 2, fontSize * 0.9)))
                 context.fillPath()
             }
-            layout.string.draw(in: CGRect(
+            let string = revealed.map { TextPlateLayout.revealing(layout.string, characters: $0) } ?? layout.string
+            string.draw(in: CGRect(
                 x: layout.padding.width,
                 y: layout.padding.height,
                 width: layout.textSize.width,
