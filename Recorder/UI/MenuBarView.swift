@@ -395,34 +395,42 @@ struct MenuBarView: View {
 
 // MARK: - Pieces
 
-/// The app's mark: the accent-coloured record glyph on a rounded square.
-/// The app icon's motif at small sizes: a cursor trail curving up to a click and its ring,
-/// on the brand gradient.
+/// The app icon at small sizes: Trace's mark (`FrameMark.icon`), four viewfinder corners
+/// with the top-right one red, on smoked glass in a black body.
 struct BrandMark: View {
     var size: CGFloat = 22
 
+    private static let bodyColor = Color(nsColor: NSColor(hex: 0x0D0D0E))
+    private static let glassTop = Color(nsColor: NSColor(hex: 0x2A2A2B))
+    private static let glassBottom = Color(nsColor: NSColor(hex: 0x0E0E0F))
+    private static let ink = Color(nsColor: NSColor(hex: 0xF5F5F5))
+    private static let rec = Color(nsColor: NSColor(hex: 0xFF5C62))
+
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(red: 0.61, green: 0.54, blue: 0.98), Color(red: 0.29, green: 0.18, blue: 0.76)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+        Canvas { context, canvasSize in
+            let side = min(canvasSize.width, canvasSize.height)
+            let bounds = CGRect(x: 0, y: 0, width: side, height: side)
+            // The icon's proportions: a 185/824 corner radius, the window 60/824 in.
+            context.fill(
+                Path(roundedRect: bounds, cornerRadius: side * 185 / 824, style: .continuous),
+                with: .color(Self.bodyColor)
+            )
+            let window = bounds.insetBy(dx: side * 60 / 824, dy: side * 60 / 824)
+            context.fill(
+                Path(roundedRect: window, cornerRadius: side * 130 / 824, style: .continuous),
+                with: .radialGradient(
+                    Gradient(colors: [Self.glassTop, Self.glassBottom]),
+                    center: CGPoint(x: window.midX, y: window.minY),
+                    startRadius: 0,
+                    endRadius: window.height * 1.1
                 )
-            Canvas { context, canvasSize in
-                let unit = canvasSize.width
-                let click = CGPoint(x: unit * 0.62, y: unit * 0.38)
-                let ring = Path(ellipseIn: CGRect(x: click.x - unit * 0.2, y: click.y - unit * 0.2, width: unit * 0.4, height: unit * 0.4))
-                context.stroke(ring, with: .color(.white.opacity(0.55)), lineWidth: unit * 0.05)
-                let dot = Path(ellipseIn: CGRect(x: click.x - unit * 0.1, y: click.y - unit * 0.1, width: unit * 0.2, height: unit * 0.2))
-                context.fill(dot, with: .color(.white))
-                let trail: [(CGFloat, CGFloat, CGFloat)] = [(0.26, 0.8, 0.045), (0.3, 0.64, 0.055), (0.4, 0.52, 0.065)]
-                for (x, y, radius) in trail {
-                    let circle = Path(ellipseIn: CGRect(x: unit * (x - radius), y: unit * (y - radius), width: unit * radius * 2, height: unit * radius * 2))
-                    context.fill(circle, with: .color(.white.opacity(0.75)))
-                }
+            )
+            let mark = FrameMark.icon
+            let stroke = StrokeStyle(lineWidth: side * mark.lineWidth, lineCap: .round, lineJoin: .round)
+            for corner in FrameMark.Corner.allCases {
+                var path = Path()
+                path.addLines(mark.polyline(corner, side: side))
+                context.stroke(path, with: .color(corner == .topRight ? Self.rec : Self.ink), style: stroke)
             }
         }
         .frame(width: size, height: size)
