@@ -129,7 +129,9 @@ the user-facing workflow.
   fix the call. In `--mcp` mode nothing but JSON-RPC may reach stdout (the smoke test
   fails on any other line).
 - The app icon is generated: `python3 scripts/make-icon.py` rewrites
-  `Assets.xcassets/AppIcon.appiconset`.
+  `Assets.xcassets/AppIcon.appiconset`. Its mark (four viewfinder corners, the top-right
+  one red) has its proportions in `FrameMark` (Core), which `BrandMark` and the menu bar
+  item draw from; change both together.
 - Signing: `Config/Signing.xcconfig` is the target's base config; a git-ignored
   `Config/Local.xcconfig` (from `scripts/configure-signing.sh`) sets the team. Bundle ID
   `app.hypher.recorder`, product name Trace.
@@ -161,7 +163,9 @@ Nothing below has run on real hardware. In rough order of risk:
 4. **Editor**: preview matches export (orientation, colour, cursor size, text position);
    thumbnails and waveform load; trimming, speed changes and scrubbing keep audio in step;
    aiming a zoom, dragging text and blur boxes; keyboard shortcuts don't fire while typing;
-   the toolbar items lay out in the unified toolbar.
+   the toolbar items lay out in the unified toolbar. The menu bar mark is tinted like
+   other menu extras in light and dark menu bars, and while recording its top-right
+   corner is red and the rest follow the menu bar's colour.
 5. **Export**: MP4, HEVC, ProRes and GIF open in QuickTime, Final Cut and a browser;
    cancel mid-way leaves no file; exports to a chosen folder; sped-up audio length
    matches the video; a 5K display exports (HEVC path); GIF memory stays reasonable at

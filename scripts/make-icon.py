@@ -6,9 +6,10 @@
 Pure Python (zlib and struct), so it runs anywhere without image libraries. The icon is
 drawn once at 1024 px with analytic anti-aliasing and scaled down for the smaller sizes.
 
-The design: the macOS rounded-square body in the brand violet, with a dotted cursor
-trail curving up to a click, and the click's ripple rings, which is what Trace turns a
-recording into.
+The design: the macOS rounded-square body in the black of the components system's
+bumper, a smoked-glass window, and Trace's mark on it: the four corners of a viewfinder,
+the top-right one red (REC). The corners' proportions are `FrameMark.icon` in
+Recorder/Models/FrameMark.swift, which the brand mark and the menu bar item draw from.
 """
 
 import json
@@ -22,13 +23,33 @@ ICONSET = Path(__file__).resolve().parent.parent / "Recorder" / "Assets.xcassets
 
 # Body: Apple's macOS icon grid (824 px square, 100 px margin, ~185 px corner radius).
 BODY_MIN, BODY_MAX, BODY_RADIUS = 100.0, 924.0, 185.0
-TOP_LEFT = (0x9B, 0x8A, 0xFA)
-BOTTOM_RIGHT = (0x4B, 0x2F, 0xC2)
+BODY = (0x0D, 0x0D, 0x0E)  # device-rim
 
-CLICK = (616.0, 408.0)
-TRAIL_START = (318.0, 752.0)
-TRAIL_CONTROL_1 = (300.0, 560.0)
-TRAIL_CONTROL_2 = (420.0, 470.0)
+# The window: smoked glass lit from the top (device-window), 60 px in from the body.
+WINDOW_MIN, WINDOW_MAX, WINDOW_RADIUS = 160.0, 864.0, 130.0
+WINDOW_STOPS = ((0.0, (0x2A, 0x2A, 0x2B)), (0.7, (0x14, 0x14, 0x15)), (1.0, (0x0E, 0x0E, 0x0F)))
+
+# The corners (FrameMark.icon at 824 px, offset by the body's 100 px margin).
+CORNER_NEAR, CORNER_FAR = 303.0, 721.0
+CORNER_ARM = 124.0
+CORNER_WIDTH = 66.0
+CORNER_INK = (0xF5, 0xF5, 0xF5)
+REC = (0xFF, 0x5C, 0x62)  # device-rec, dark theme
+
+
+def corner_lines():
+    """Each corner's two strokes as segments, with its colour; the top-right one is REC."""
+    n, f, a = CORNER_NEAR, CORNER_FAR, CORNER_ARM
+    corners = [
+        (((n, n + a), (n, n), (n + a, n)), CORNER_INK),
+        (((f - a, n), (f, n), (f, n + a)), REC),
+        (((f, f - a), (f, f), (f - a, f)), CORNER_INK),
+        (((n + a, f), (n, f), (n, f - a)), CORNER_INK),
+    ]
+    return [((points[0], points[1]), (points[1], points[2]), color) for points, color in corners]
+
+
+CORNERS = corner_lines()
 
 
 def clamp(value, low=0.0, high=1.0):
@@ -40,51 +61,33 @@ def coverage(distance):
     return clamp(0.5 - distance)
 
 
-def rounded_rect_distance(x, y):
-    center = (BODY_MIN + BODY_MAX) / 2
-    half = (BODY_MAX - BODY_MIN) / 2 - BODY_RADIUS
+def rounded_rect_distance(x, y, low=BODY_MIN, high=BODY_MAX, radius=BODY_RADIUS):
+    center = (low + high) / 2
+    half = (high - low) / 2 - radius
     dx = abs(x - center) - half
     dy = abs(y - center) - half
     outside = math.hypot(max(dx, 0.0), max(dy, 0.0))
     inside = min(max(dx, dy), 0.0)
-    return outside + inside - BODY_RADIUS
+    return outside + inside - radius
 
 
-def bezier(t):
-    """The trail: a cubic curve from the start to the click."""
-    points = (TRAIL_START, TRAIL_CONTROL_1, TRAIL_CONTROL_2, CLICK)
-    u = 1 - t
-    weights = (u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t)
-    return (
-        sum(w * p[0] for w, p in zip(weights, points)),
-        sum(w * p[1] for w, p in zip(weights, points)),
-    )
+def segment_distance(px, py, a, b):
+    ax, ay = a
+    bx, by = b
+    vx, vy = bx - ax, by - ay
+    t = clamp(((px - ax) * vx + (py - ay) * vy) / (vx * vx + vy * vy))
+    return math.hypot(px - ax - vx * t, py - ay - vy * t)
 
 
-def trail_dots(count=8, clearance=196.0):
-    """Dots evenly spaced along the curve (by length), stopping `clearance` px short of
-    the click so they don't run into its rings; they grow and brighten toward it."""
-    samples = [bezier(i / 2000) for i in range(2001)]
-    lengths = [0.0]
-    for a, b in zip(samples, samples[1:]):
-        lengths.append(lengths[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
-    end = next(i for i, point in enumerate(samples) if math.hypot(point[0] - CLICK[0], point[1] - CLICK[1]) < clearance)
-    usable = lengths[end]
-    dots = []
-    cursor = 0
-    for index in range(count):
-        target = usable * index / (count - 1)
-        while cursor < end and lengths[cursor] < target:
-            cursor += 1
-        x, y = samples[cursor]
-        progress = index / (count - 1)
-        dots.append((x, y, 12 + 12 * progress, 0.3 + 0.55 * progress))
-    return dots
-
-
-DOTS = trail_dots()
-RINGS = [(112.0, 16.0, 0.55), (160.0, 10.0, 0.25)]
-CLICK_RADIUS = 60.0
+def window_color(px, py):
+    """Radial gradient from the top centre of the window, like the components system's
+    device-window."""
+    t = clamp(math.hypot(px - 512, py - WINDOW_MIN) / (1.1 * (WINDOW_MAX - WINDOW_MIN)))
+    for (t0, c0), (t1, c1) in zip(WINDOW_STOPS, WINDOW_STOPS[1:]):
+        if t <= t1:
+            k = (t - t0) / (t1 - t0)
+            return tuple(c0[i] + (c1[i] - c0[i]) * k for i in range(3))
+    return WINDOW_STOPS[-1][1]
 
 
 def over(dst, color, alpha):
@@ -104,34 +107,29 @@ def shade(x, y):
     pixel = (0.0, 0.0, 0.0, 0.0)
 
     # Soft shadow under the body.
-    shadow_distance = rounded_rect_distance(px, py - 14)
-    shadow = 0.24 * clamp(1 - (shadow_distance + 6) / 34) if shadow_distance < 28 else 0.0
+    shadow_distance = rounded_rect_distance(px, py - 16)
+    shadow = 0.26 * clamp(1 - (shadow_distance + 6) / 36) if shadow_distance < 30 else 0.0
     pixel = over(pixel, (0, 0, 0), shadow)
 
     body_distance = rounded_rect_distance(px, py)
     body = coverage(body_distance)
     if body <= 0:
         return pixel
-
-    # Diagonal gradient with a soft highlight in the top-left.
-    t = clamp(((px - BODY_MIN) + (py - BODY_MIN)) / (2 * (BODY_MAX - BODY_MIN)))
-    color = tuple(TOP_LEFT[i] + (BOTTOM_RIGHT[i] - TOP_LEFT[i]) * t for i in range(3))
-    glow = clamp(1 - math.hypot(px - 260, py - 220) / 620) ** 2 * 0.22
-    color = tuple(c + (255 - c) * glow for c in color)
-    # A faint rim of light along the top edge.
-    rim = clamp(1 - abs(body_distance + 3) / 3) * clamp((520 - py) / 400) * 0.35
-    color = tuple(c + (255 - c) * rim for c in color)
+    # A lit top edge, as on everything raised in the components system.
+    rim = clamp(1 - abs(body_distance + 3) / 3) * clamp((300 - py) / 200) * 0.22
+    color = tuple(c + (255 - c) * rim for c in BODY)
     pixel = over(pixel, color, body)
 
-    white = (255, 255, 255)
-    for dot_x, dot_y, radius, alpha in DOTS:
-        if abs(px - dot_x) < radius + 2 and abs(py - dot_y) < radius + 2:
-            pixel = over(pixel, white, alpha * coverage(math.hypot(px - dot_x, py - dot_y) - radius))
+    window = coverage(rounded_rect_distance(px, py, WINDOW_MIN, WINDOW_MAX, WINDOW_RADIUS))
+    if window <= 0:
+        return pixel
+    pixel = over(pixel, window_color(px, py), window)
 
-    distance = math.hypot(px - CLICK[0], py - CLICK[1])
-    for radius, width, alpha in RINGS:
-        pixel = over(pixel, white, alpha * coverage(abs(distance - radius) - width / 2))
-    pixel = over(pixel, white, coverage(distance - CLICK_RADIUS))
+    half = CORNER_WIDTH / 2
+    for first, second, color in CORNERS:
+        distance = min(segment_distance(px, py, *first), segment_distance(px, py, *second)) - half
+        if distance < 1:
+            pixel = over(pixel, color, coverage(distance))
     return pixel
 
 

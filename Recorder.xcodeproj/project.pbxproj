@@ -147,6 +147,7 @@
 		B2000000000000000000008B /* WindowStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000008F /* WindowStack.swift */; };
 		B2000000000000000000008C /* CropPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000090 /* CropPath.swift */; };
 		B2000000000000000000008D /* SegmentedPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000091 /* SegmentedPicker.swift */; };
+		B2000000000000000000008E /* FrameMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000092 /* FrameMark.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -294,6 +295,7 @@
 		A2000000000000000000008F /* WindowStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowStack.swift; sourceTree = "<group>"; };
 		A20000000000000000000090 /* CropPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropPath.swift; sourceTree = "<group>"; };
 		A20000000000000000000091 /* SegmentedPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SegmentedPicker.swift; sourceTree = "<group>"; };
+		A20000000000000000000092 /* FrameMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameMark.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -471,6 +473,7 @@
 				A2000000000000000000004D /* LookStyle.swift */,
 				A2000000000000000000004F /* StylePreset.swift */,
 				A2000000000000000000005F /* ExportOptions.swift */,
+				A20000000000000000000092 /* FrameMark.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -673,6 +676,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2000000000000000000008E /* FrameMark.swift in Sources */,
 				B2000000000000000000008D /* SegmentedPicker.swift in Sources */,
 				B2000000000000000000008C /* CropPath.swift in Sources */,
 				B2000000000000000000008B /* WindowStack.swift in Sources */,
