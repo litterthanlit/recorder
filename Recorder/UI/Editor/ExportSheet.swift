@@ -95,26 +95,26 @@ struct ExportSheet: View {
                 Button("Cancel Export", role: .cancel) {
                     editor.cancelExport()
                 }
-                .buttonStyle(SecondaryButtonStyle())
+                .buttonStyle(SecondaryButtonStyle(size: .regular))
             case .exported:
                 Button("Export Another") {
                     editor.dismissExportResult()
                     fileName = defaultFileName
                 }
-                .buttonStyle(SecondaryButtonStyle())
+                .buttonStyle(SecondaryButtonStyle(size: .regular))
                 Spacer()
                 Button("Done") {
                     editor.dismissExportResult()
                     dismiss()
                 }
-                .buttonStyle(PrimaryButtonStyle())
+                .buttonStyle(PrimaryButtonStyle(size: .regular))
                 .keyboardShortcut(.defaultAction)
             case .editing, .failed:
                 Button("Cancel") {
                     editor.dismissExportResult()
                     dismiss()
                 }
-                .buttonStyle(SecondaryButtonStyle())
+                .buttonStyle(SecondaryButtonStyle(size: .regular))
                 .keyboardShortcut(.cancelAction)
                 Spacer()
                 if let bytes = plan.estimatedBytes {
@@ -128,7 +128,7 @@ struct ExportSheet: View {
                     Label(preferences.askForLocation ? "Export…" : "Export", systemImage: "square.and.arrow.up")
                         .labelStyle(.titleAndIcon)
                 }
-                .buttonStyle(PrimaryButtonStyle())
+                .buttonStyle(PrimaryButtonStyle(size: .regular))
                 .keyboardShortcut(.defaultAction)
                 .disabled(!ExportOptions.allows(options.format, duration: duration))
             }
@@ -148,13 +148,9 @@ struct ExportSheet: View {
             HStack(alignment: .top, spacing: DS.Spacing.lg) {
                 if options.format.usesQuality {
                     InspectorLabeled("Quality") {
-                        Picker("Quality", selection: $preferences.options.quality) {
-                            ForEach(ExportQuality.allCases) { quality in
-                                Text(quality.label).tag(quality)
-                            }
+                        SegmentedPicker("Quality", selection: $preferences.options.quality, options: ExportQuality.allCases) {
+                            $0.label
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
                     }
                 }
                 InspectorLabeled("Frame rate") {
@@ -181,13 +177,13 @@ struct ExportSheet: View {
             }
 
             InspectorLabeled("Size") {
-                Picker("Size", selection: editor.settingBinding(\.canvas.resolution, actionName: "Change Resolution")) {
-                    ForEach(OutputResolution.allCases) { resolution in
-                        Text(resolution.label).tag(resolution)
-                    }
+                SegmentedPicker(
+                    "Size",
+                    selection: editor.settingBinding(\.canvas.resolution, actionName: "Change Resolution"),
+                    options: OutputResolution.allCases
+                ) {
+                    $0.label
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
                 if options.format == .gif, plan.size != canvasSize {
                     InspectorHint("GIFs are scaled down to \(Int(ExportOptions.gifMaximumWidth)) pixels wide.")
                 }
@@ -227,19 +223,21 @@ struct ExportSheet: View {
     /// A cap on the file size, for chat apps and agents that refuse big uploads.
     private var sizeLimitSection: some View {
         InspectorLabeled("Size limit") {
-            Picker("Size limit", selection: $preferences.options.maxMegabytes) {
-                Text("None").tag(Int?.none)
-                ForEach(ExportOptions.sizeLimitChoices, id: \.self) { megabytes in
-                    Text("\(megabytes) MB").tag(Int?.some(megabytes))
-                }
+            SegmentedPicker("Size limit", selection: $preferences.options.maxMegabytes, options: Self.sizeLimitOptions) {
+                Self.sizeLimitLabel($0)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .accessibilityHint("Keeps the exported file under this size")
             if let hint = sizeLimitHint {
                 InspectorHint(hint)
             }
         }
+    }
+
+    private static let sizeLimitOptions: [Int?] = [nil] + ExportOptions.sizeLimitChoices.map { Optional($0) }
+
+    private static func sizeLimitLabel(_ megabytes: Int?) -> String {
+        guard let megabytes else { return "None" }
+        return "\(megabytes) MB"
     }
 
     private var sizeLimitHint: String? {

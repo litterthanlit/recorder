@@ -29,6 +29,7 @@ struct TransportBar: View {
         } label: {
             Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
                 .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.primary)
         }
         .buttonStyle(IconButtonStyle(size: 32))
         .help(playback.isPlaying ? "Pause (Space)" : "Play (Space)")

@@ -316,7 +316,7 @@ struct MenuBarView: View {
                 .foregroundStyle(DS.Palette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Open Setup Guide") { appState.showOnboarding() }
-                .buttonStyle(PrimaryButtonStyle())
+                .buttonStyle(PrimaryButtonStyle(size: .regular))
         }
         .padding(DS.Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -338,7 +338,7 @@ struct MenuBarView: View {
                 .font(DS.Typeface.body)
                 .foregroundStyle(DS.Palette.secondaryText)
             Button("Cancel") { session.cancelCountdown() }
-                .buttonStyle(SecondaryButtonStyle())
+                .buttonStyle(SecondaryButtonStyle(size: .regular))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, DS.Spacing.lg)
@@ -359,13 +359,13 @@ struct MenuBarView: View {
                 } label: {
                     Label(session.isPaused ? "Resume" : "Pause", systemImage: session.isPaused ? "play.fill" : "pause.fill")
                 }
-                .buttonStyle(SecondaryButtonStyle())
+                .buttonStyle(SecondaryButtonStyle(size: .regular))
                 Button {
                     Task { await session.stop() }
                 } label: {
                     Label("Stop", systemImage: "stop.fill")
                 }
-                .buttonStyle(PrimaryButtonStyle(tint: DS.Palette.recording))
+                .buttonStyle(PrimaryButtonStyle(.recording, size: .regular))
                 if let stop = settings.settings.hotkeys[.stop] {
                     ShortcutBadge(text: stop.displayString)
                 }

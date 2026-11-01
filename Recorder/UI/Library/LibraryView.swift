@@ -84,7 +84,7 @@ struct LibraryView: View {
             } label: {
                 Label("Record", systemImage: "record.circle")
             }
-            .buttonStyle(PrimaryButtonStyle(tint: DS.Palette.recording))
+            .buttonStyle(PrimaryButtonStyle(.recording))
         }
         .padding(.horizontal, DS.Spacing.lg)
         .padding(.vertical, DS.Spacing.md)
@@ -136,7 +136,7 @@ struct LibraryView: View {
             } label: {
                 Label("Record Your First Demo", systemImage: "record.circle")
             }
-            .buttonStyle(PrimaryButtonStyle(tint: DS.Palette.recording))
+            .buttonStyle(PrimaryButtonStyle(.recording, size: .regular))
             Spacer()
         }
         .frame(maxWidth: .infinity)
