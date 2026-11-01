@@ -84,7 +84,7 @@ struct OnboardingView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [DS.Palette.accent, DS.Palette.accent.opacity(0.65)],
+                            colors: [DS.Palette.accentFill, DS.Palette.accentFill.opacity(0.65)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -123,7 +123,7 @@ struct OnboardingView: View {
                     appState.showPanel()
                 }
             }
-            .buttonStyle(PrimaryButtonStyle())
+            .buttonStyle(PrimaryButtonStyle(size: .regular))
             .keyboardShortcut(.defaultAction)
         }
     }

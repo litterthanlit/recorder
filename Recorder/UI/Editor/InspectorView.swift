@@ -282,7 +282,7 @@ private struct LookChip: View {
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(3)
-                            .background(Circle().fill(DS.Palette.accent))
+                            .background(Circle().fill(DS.Palette.accentFill))
                             .offset(x: 4, y: -4)
                     }
                 }
