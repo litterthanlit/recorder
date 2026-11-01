@@ -75,3 +75,12 @@ jobs:
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      # The built binary as agents run it (`Trace --mcp`): protocol basics over stdio.
+      - name: MCP smoke test
+        if: ${{ !cancelled() }}
+        run: |
+          settings="$(xcodebuild -project Recorder.xcodeproj -target Recorder -configuration Debug -showBuildSettings 2>/dev/null)"
+          products="$(awk -F' = ' '/^[[:space:]]*BUILT_PRODUCTS_DIR = / { print $2; exit }' <<<"$settings")"
+          executable="$(awk -F' = ' '/^[[:space:]]*EXECUTABLE_PATH = / { print $2; exit }' <<<"$settings")"
+          python3 scripts/mcp-smoke.py "$products/$executable"

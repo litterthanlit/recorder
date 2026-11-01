@@ -60,6 +60,9 @@ struct EditSegment: Codable, Equatable, Identifiable {
 /// moves forward as output time does: the exporter can read the recording once, in order.
 struct EditTimeline: Codable, Equatable {
     private(set) var segments: [EditSegment]
+    /// Ease into and out of sped-up parts over up to this long (output seconds) instead
+    /// of jumping speed; `nil` jumps. See `SpeedRamp`.
+    var speedRamp: TimeInterval?
 
     static let speedRange: ClosedRange<Double> = 0.25...16
     /// Pieces shorter than this (source seconds) aren't kept.
@@ -139,6 +142,29 @@ struct EditTimeline: Codable, Equatable {
 
     // MARK: - Mapping
 
+    /// Whether sped-up parts ease in and out.
+    var hasSpeedRamps: Bool {
+        (speedRamp ?? 0) > 0
+    }
+
+    /// The constant-speed pieces segment `index` plays as: itself, unless it ramps.
+    func pieces(ofSegment index: Int) -> [SpeedPiece] {
+        if let speedRamp, speedRamp > 0 {
+            return SpeedRamp.pieces(of: segments, at: index, ramp: speedRamp)
+        }
+        let segment = segments[index]
+        return [SpeedPiece(source: segment.source, outputOffset: 0, outputDuration: segment.outputDuration, speed: segment.speed)]
+    }
+
+    /// How far into segment `index` source time `time` plays (output seconds).
+    private func outputOffset(inSegment index: Int, forSource time: TimeInterval) -> TimeInterval {
+        let segment = segments[index]
+        if hasSpeedRamps {
+            return SpeedRamp.outputOffset(forSource: time, in: pieces(ofSegment: index))
+        }
+        return (time - segment.source.start) / segment.speed
+    }
+
     /// The source time shown at output time `time` (clamped to the edit). At a cut it's
     /// the start of the later segment. Never decreases as `time` increases.
     func sourceTime(forOutput time: TimeInterval) -> TimeInterval {
@@ -146,6 +172,9 @@ struct EditTimeline: Codable, Equatable {
         let segment = segments[index]
         let start = outputStarts[index]
         let offset = min(max(time - start, 0), segment.outputDuration)
+        if hasSpeedRamps {
+            return SpeedRamp.sourceTime(forOffset: offset, in: pieces(ofSegment: index))
+        }
         return segment.source.start + offset * segment.speed
     }
 
@@ -154,7 +183,7 @@ struct EditTimeline: Codable, Equatable {
         let starts = outputStarts
         for (index, segment) in segments.enumerated() {
             if segment.source.contains(time) {
-                return starts[index] + (time - segment.source.start) / segment.speed
+                return starts[index] + outputOffset(inSegment: index, forSource: time)
             }
         }
         if let last = segments.last, abs(time - last.source.end) < 1e-9 {
@@ -182,8 +211,8 @@ struct EditTimeline: Codable, Equatable {
         let starts = outputStarts
         for (index, segment) in segments.enumerated() {
             guard let kept = segment.source.intersection(span) else { continue }
-            let start = starts[index] + (kept.start - segment.source.start) / segment.speed
-            let end = starts[index] + (kept.end - segment.source.start) / segment.speed
+            let start = starts[index] + outputOffset(inSegment: index, forSource: kept.start)
+            let end = starts[index] + outputOffset(inSegment: index, forSource: kept.end)
             if let last = result.last, abs(last.end - start) < 1e-9 {
                 result[result.count - 1].end = end
             } else {
@@ -193,12 +222,22 @@ struct EditTimeline: Codable, Equatable {
         return result
     }
 
-    /// Everything a composition needs: each segment's source span, where it starts in the
-    /// output and how long it lasts there.
+    /// Everything a composition needs: each constant-speed piece's source span, where it
+    /// starts in the output and how long it lasts there (one piece per segment without
+    /// speed ramps).
     var compositionPlan: [(source: TimeSpan, outputStart: TimeInterval, outputDuration: TimeInterval, speed: Double)] {
-        zip(segments, outputStarts).map { segment, start in
-            (segment.source, start, segment.outputDuration, segment.speed)
+        guard hasSpeedRamps else {
+            return zip(segments, outputStarts).map { segment, start in
+                (segment.source, start, segment.outputDuration, segment.speed)
+            }
         }
+        var plan: [(source: TimeSpan, outputStart: TimeInterval, outputDuration: TimeInterval, speed: Double)] = []
+        for (index, start) in outputStarts.enumerated() {
+            for piece in pieces(ofSegment: index) {
+                plan.append((piece.source, start + piece.outputOffset, piece.outputDuration, piece.speed))
+            }
+        }
+        return plan
     }
 
     // MARK: - Editing
@@ -347,5 +386,21 @@ struct EditTimeline: Codable, Equatable {
     static func clampSpeed(_ speed: Double) -> Double {
         guard speed.isFinite else { return 1 }
         return min(max(speed, speedRange.lowerBound), speedRange.upperBound)
+    }
+
+    // MARK: - Coding
+
+    private enum CodingKeys: String, CodingKey {
+        case segments, speedRamp
+    }
+
+    /// Ramps longer than this are taken as this.
+    static let maximumSpeedRamp: TimeInterval = 2
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        segments = try container.decode([EditSegment].self, forKey: .segments)
+        let ramp = try? container.decodeIfPresent(TimeInterval.self, forKey: .speedRamp)
+        speedRamp = ramp.flatMap { $0.isFinite && $0 > 0 ? min($0, Self.maximumSpeedRamp) : nil }
     }
 }

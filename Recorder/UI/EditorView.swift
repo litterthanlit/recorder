@@ -39,6 +39,7 @@ struct EditorView: View {
     private func toggleManualZoom() {
         editor.pausePlayback()
         editor.isEditingZoomFocus = false
+        editor.isCropMode = false
         editor.isManualZoomMode.toggle()
     }
 
@@ -78,7 +79,9 @@ struct EditorView: View {
             guard editor.selection != nil else { return false }
             editor.nudgeSelection(by: delta)
         case .clearSelection:
-            if editor.isManualZoomMode {
+            if editor.isCropMode {
+                editor.isCropMode = false
+            } else if editor.isManualZoomMode {
                 editor.isManualZoomMode = false
             } else if editor.isEditingZoomFocus {
                 editor.isEditingZoomFocus = false
