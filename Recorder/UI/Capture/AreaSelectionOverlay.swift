@@ -707,7 +707,7 @@ private struct ModeButton: View {
     let action: () -> Void
 
     var body: some View {
-        let foreground: Color = isSelected ? .white : Color.white.opacity(0.75)
+        let foreground: Color = isSelected ? DS.Palette.accentInk : Color.white.opacity(0.75)
         let fill: Color = isSelected ? DS.Palette.accentFill : .clear
         return Button(action: action) {
             Label(mode.label, systemImage: mode.icon)

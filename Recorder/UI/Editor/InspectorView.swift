@@ -280,7 +280,7 @@ private struct LookChip: View {
                     if isDefault {
                         Image(systemName: "star.fill")
                             .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(DS.Palette.accentInk)
                             .padding(3)
                             .background(Circle().fill(DS.Palette.accentFill))
                             .offset(x: 4, y: -4)
