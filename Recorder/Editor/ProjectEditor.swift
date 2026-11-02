@@ -496,18 +496,43 @@ final class ProjectEditor: ObservableObject {
     }
 
     /// Copies a picture into the project and uses it as the background.
-    func useBackgroundImage(at url: URL) {
+    /// - Parameter blur: also soften it this much (0…1); `nil` keeps the current blur.
+    @discardableResult
+    func useBackgroundImage(at url: URL, blur: Double? = nil, actionName: String = "Background Image") -> Bool {
         do {
             let name = try ProjectStore.importBackgroundImage(from: url, into: project.bundleURL)
-            performEdit("Background Image") {
+            performEdit(actionName) {
                 editSettings.exportStyle.background.kind = .image
                 editSettings.exportStyle.background.imageFileName = name
+                if let blur {
+                    editSettings.exportStyle.background.imageBlur = blur
+                }
             }
+            return true
         } catch {
             Log.editor.error("Couldn't use the background image: \(error.localizedDescription, privacy: .public)")
             NSSound.beep()
+            return false
         }
     }
+
+    /// Uses the picture on the desktop of the screen the editor is on, softened, as the
+    /// background. A copy goes into the project, so changing the desktop later doesn't
+    /// change the recording. Beeps when the desktop has no picture file to copy (a plain
+    /// colour, or a moving wallpaper).
+    func useDesktopPicture(on screen: NSScreen?) {
+        guard let screen = screen ?? NSScreen.main ?? NSScreen.screens.first,
+              let url = NSWorkspace.shared.desktopImageURL(for: screen)
+        else {
+            NSSound.beep()
+            return
+        }
+        useBackgroundImage(at: url, blur: Self.desktopPictureBlur, actionName: "Desktop Picture")
+    }
+
+    /// How soft the desktop picture starts: enough that its details don't compete with
+    /// the recording.
+    static let desktopPictureBlur = 0.55
 
     // MARK: - Editing
 

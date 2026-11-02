@@ -50,7 +50,8 @@ speed up, annotate and export it in minutes.
 - **Motion**: speed changes that ease in and out, zoom-blur, whip or blur transitions at
   cuts with short audio fades, and **3D moves** (tilt in, tilt out, float, orbit, push in)
   on their own timeline track.
-- **Look**: 12 wallpapers, gradients, colours or your own picture; padding, corners and
+- **Look**: 15 wallpapers (among them litt's soft washes, a grained mesh and a blue aura),
+  gradients, colours, your own picture or your desktop picture, softened; padding, corners and
   shadow; cursor size and idle hiding; click ripples and spotlight; camera shape, size
   and border; watermark. Save looks and choose one for every new recording.
 - Undo and redo for everything; a whole drag is one step.

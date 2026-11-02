@@ -97,7 +97,9 @@ private struct EditorNameField: View {
         TextField("Recording name", text: $name)
             .textFieldStyle(.plain)
             .font(DS.Typeface.headline)
-            .frame(width: 220)
+            .lineLimit(1)
+            .padding(.horizontal, DS.Spacing.sm)
+            .frame(width: 220, height: 28)
             .focused($isFocused)
             .onAppear { name = editor.displayName }
             .onSubmit(commit)

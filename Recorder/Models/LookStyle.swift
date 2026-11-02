@@ -42,9 +42,37 @@ struct RGBAColor: Codable, Hashable {
     static let black = RGBAColor(red: 0, green: 0, blue: 0)
 }
 
-/// Ready-made backgrounds: two-stop gradients with a soft glow, drawn at render time (no
-/// image assets), so they're sharp at any size.
+/// A soft round glow in a wallpaper: full colour at its centre, fading to nothing at
+/// `radius`.
+struct WallpaperGlow: Equatable {
+    /// Unit coordinates with a top-left origin; may lie outside 0…1 (a glow rising from
+    /// below the frame).
+    var center: CGPoint
+    /// Where the glow has faded out, as a fraction of the canvas's longer side.
+    var radius: CGFloat
+    var color: RGBAColor
+}
+
+/// How a wallpaper is drawn: a 135° gradient, soft glows over it, and optionally fine
+/// grain. The renderer and the inspector's swatches both draw from this.
+struct WallpaperRecipe: Equatable {
+    var start: RGBAColor
+    var end: RGBAColor
+    var glows: [WallpaperGlow]
+    /// Strength of the grain, 0 (none) to 1. Grain hides banding in smooth gradients;
+    /// exports with a size limit leave it out, since it costs bitrate.
+    var grain: Double = 0
+}
+
+/// Ready-made backgrounds, drawn at render time (no image assets), so they're sharp at any
+/// size: two-stop gradients with a glow, litt's soft washes, a mesh and an aura.
 enum WallpaperPreset: String, Codable, CaseIterable, Identifiable {
+    /// litt's ground: near-white with soft rose, blue and lime washes at the edges.
+    case washes
+    /// A mesh: violet, peach, pink and gold points blending, with fine grain.
+    case dusk
+    /// Near-black with one blue glow behind the recording.
+    case aura
     case midnight
     case graphite
     case aurora
@@ -64,8 +92,39 @@ enum WallpaperPreset: String, Codable, CaseIterable, Identifiable {
         rawValue.prefix(1).uppercased() + rawValue.dropFirst()
     }
 
-    /// Top-left and bottom-right colours, and the glow in the top-left corner.
-    var colors: (start: RGBAColor, end: RGBAColor, glow: RGBAColor) {
+    var recipe: WallpaperRecipe {
+        switch self {
+        case .washes:
+            let ground = RGBAColor(hex: "FAFAFA")
+            return WallpaperRecipe(start: ground, end: ground, glows: [
+                WallpaperGlow(center: CGPoint(x: 0.08, y: 0), radius: 0.45, color: RGBAColor(hex: "FFAABE", alpha: 0.55)),
+                WallpaperGlow(center: CGPoint(x: 1, y: 0.4), radius: 0.42, color: RGBAColor(hex: "8CBEFF", alpha: 0.5)),
+                WallpaperGlow(center: CGPoint(x: 0.35, y: 1.15), radius: 0.4, color: RGBAColor(hex: "C2FF4D", alpha: 0.42))
+            ])
+        case .dusk:
+            let ground = RGBAColor(hex: "2A1550")
+            return WallpaperRecipe(start: ground, end: ground, glows: [
+                WallpaperGlow(center: CGPoint(x: 0, y: 0.6), radius: 0.45, color: RGBAColor(hex: "6D28D9")),
+                WallpaperGlow(center: CGPoint(x: 0.9, y: 0.1), radius: 0.4, color: RGBAColor(hex: "FF9466")),
+                WallpaperGlow(center: CGPoint(x: 0.6, y: 1.1), radius: 0.36, color: RGBAColor(hex: "F472B6")),
+                WallpaperGlow(center: CGPoint(x: 0.4, y: 0.1), radius: 0.22, color: RGBAColor(hex: "FBBF24"))
+            ], grain: 0.5)
+        case .aura:
+            let ground = RGBAColor(hex: "05060C")
+            return WallpaperRecipe(start: ground, end: ground, glows: [
+                WallpaperGlow(center: CGPoint(x: 0.5, y: 0.58), radius: 0.45, color: RGBAColor(hex: "5078FF", alpha: 0.65))
+            ])
+        default:
+            let colors = legacyColors
+            return WallpaperRecipe(start: colors.start, end: colors.end, glows: [
+                WallpaperGlow(center: CGPoint(x: 0.18, y: 0.1), radius: 0.75, color: colors.glow)
+            ])
+        }
+    }
+
+    /// Top-left and bottom-right colours, and the glow in the top-left corner, of the
+    /// original two-stop wallpapers.
+    private var legacyColors: (start: RGBAColor, end: RGBAColor, glow: RGBAColor) {
         switch self {
         case .midnight: return (RGBAColor(hex: "17171C"), RGBAColor(hex: "0A0A0F"), RGBAColor(hex: "2A2A38", alpha: 0.5))
         case .graphite: return (RGBAColor(hex: "3A3D45"), RGBAColor(hex: "15161A"), RGBAColor(hex: "5B5F6B", alpha: 0.35))
@@ -78,13 +137,20 @@ enum WallpaperPreset: String, Codable, CaseIterable, Identifiable {
         case .peach: return (RGBAColor(hex: "FDBA74"), RGBAColor(hex: "FB7185"), RGBAColor(hex: "FFF7ED", alpha: 0.5))
         case .candy: return (RGBAColor(hex: "EC4899"), RGBAColor(hex: "8B5CF6"), RGBAColor(hex: "FBCFE8", alpha: 0.4))
         case .sky: return (RGBAColor(hex: "BAE6FD"), RGBAColor(hex: "F0F9FF"), RGBAColor(hex: "FFFFFF", alpha: 0.6))
-        case .snow: return (RGBAColor(hex: "E5E7EB"), RGBAColor(hex: "F9FAFB"), RGBAColor(hex: "FFFFFF", alpha: 0.6))
+        case .snow, .washes, .dusk, .aura: return (RGBAColor(hex: "E5E7EB"), RGBAColor(hex: "F9FAFB"), RGBAColor(hex: "FFFFFF", alpha: 0.6))
         }
     }
 
+    /// Whether text and overlays over it should be light. Judged on the ground the glows
+    /// sit on.
     var isDark: Bool {
-        let colors = self.colors
-        return (colors.start.luminance + colors.end.luminance) / 2 < 0.35
+        let recipe = self.recipe
+        return (recipe.start.luminance + recipe.end.luminance) / 2 < 0.35
+    }
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = WallpaperPreset(rawValue: raw) ?? .midnight
     }
 }
 
@@ -133,8 +199,8 @@ struct BackgroundStyle: Codable, Equatable {
     var gradientColors: (start: RGBAColor, end: RGBAColor, glow: RGBAColor?) {
         switch kind {
         case .wallpaper:
-            let colors = wallpaper.colors
-            return (colors.start, colors.end, colors.glow)
+            let recipe = wallpaper.recipe
+            return (recipe.start, recipe.end, recipe.glows.first?.color)
         case .gradient:
             return (gradientStart, gradientEnd, nil)
         case .solid, .image, .none:

@@ -311,8 +311,8 @@ private struct ClipBlock: View {
 
             if isSped, width > 34 {
                 Text(Timecode.speed(segment.speed))
-                    .font(.system(size: 10, weight: .bold).monospacedDigit())
-                    .foregroundStyle(.white)
+                    .font(.system(size: 10, weight: .medium).monospacedDigit())
+                    .foregroundStyle(DS.Palette.accentInk)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
                     .background(Capsule().fill(DS.Palette.accentFill))

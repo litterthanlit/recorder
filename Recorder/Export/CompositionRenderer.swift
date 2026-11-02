@@ -37,6 +37,9 @@ struct CompositionRenderSettings: Equatable {
     var cutTransition: CutTransition?
     /// 3D moves of the recording's frame (source time).
     var cameraMoves: [CameraMove] = []
+    /// Draw the grain some wallpapers have. Off for exports with a size limit, where it
+    /// would cost bitrate the picture needs.
+    var allowsGrain = true
 }
 
 extension CompositionRenderSettings {
@@ -374,8 +377,9 @@ final class CompositionRenderer {
         let shadowEnabled: Bool
         let background: BackgroundStyle
         let imageURL: URL?
+        let grain: Bool
 
-        init(canvas: CGSize, contentFrame: CGRect, cornerRadius: CGFloat, style: ExportStyle, imageURL: URL?, shadow: Bool) {
+        init(canvas: CGSize, contentFrame: CGRect, cornerRadius: CGFloat, style: ExportStyle, imageURL: URL?, shadow: Bool, grain: Bool) {
             func quantized(_ value: CGFloat) -> Int { Int((value * 100).rounded()) }
             outputWidth = Int(canvas.width)
             outputHeight = Int(canvas.height)
@@ -384,6 +388,7 @@ final class CompositionRenderer {
             shadowEnabled = style.shadowEnabled && shadow
             background = style.background
             self.imageURL = imageURL
+            self.grain = grain
         }
     }
 
@@ -402,7 +407,8 @@ final class CompositionRenderer {
             cornerRadius: cornerRadius,
             style: style,
             imageURL: settings.backgroundImageURL,
-            shadow: shadow
+            shadow: shadow,
+            grain: settings.allowsGrain
         )
         if let cachedBackdrop, cachedBackdrop.key == key {
             return cachedBackdrop.layers
@@ -455,19 +461,50 @@ final class CompositionRenderer {
         }
     }
 
-    /// A diagonal gradient with a soft glow in the top-left corner.
+    /// A wallpaper from its recipe: a diagonal gradient, soft glows over it, and grain.
     private func wallpaper(_ preset: WallpaperPreset, in rect: CGRect) -> CIImage {
-        let colors = preset.colors
-        let base = linearGradient(from: colors.start, to: colors.end, angle: 135, in: rect)
-        guard let filter = CIFilter(name: "CIRadialGradient") else { return base }
-        let transparent = RGBAColor(red: colors.glow.red, green: colors.glow.green, blue: colors.glow.blue, alpha: 0)
-        filter.setValue(CIVector(x: rect.minX + rect.width * 0.18, y: rect.maxY - rect.height * 0.1), forKey: "inputCenter")
-        filter.setValue(0, forKey: "inputRadius0")
-        filter.setValue(max(rect.width, rect.height) * 0.75, forKey: "inputRadius1")
-        filter.setValue(ciColor(colors.glow), forKey: "inputColor0")
-        filter.setValue(ciColor(transparent), forKey: "inputColor1")
-        let glow = (filter.outputImage ?? CIImage.empty()).cropped(to: rect)
-        return glow.composited(over: base).cropped(to: rect)
+        let recipe = preset.recipe
+        var image = linearGradient(from: recipe.start, to: recipe.end, angle: 135, in: rect)
+        let longerSide = max(rect.width, rect.height)
+        for glow in recipe.glows {
+            guard let filter = CIFilter(name: "CIRadialGradient") else { continue }
+            var transparent = glow.color
+            transparent.alpha = 0
+            // Recipes use a top-left origin; Core Image's is bottom-left.
+            filter.setValue(
+                CIVector(x: rect.minX + rect.width * glow.center.x, y: rect.maxY - rect.height * glow.center.y),
+                forKey: "inputCenter"
+            )
+            filter.setValue(0, forKey: "inputRadius0")
+            filter.setValue(longerSide * glow.radius, forKey: "inputRadius1")
+            filter.setValue(ciColor(glow.color), forKey: "inputColor0")
+            filter.setValue(ciColor(transparent), forKey: "inputColor1")
+            let layer = (filter.outputImage ?? CIImage.empty()).cropped(to: rect)
+            image = layer.composited(over: image)
+        }
+        if recipe.grain > 0, settings.allowsGrain {
+            image = grained(image, strength: recipe.grain, in: rect)
+        }
+        return image.cropped(to: rect)
+    }
+
+    /// Fine monochrome grain, soft-light blended so mid-grey noise leaves the colours as
+    /// they are and only adds texture. The noise is the same every frame, so it costs
+    /// little after the first.
+    private func grained(_ image: CIImage, strength: Double, in rect: CGRect) -> CIImage {
+        guard let noise = CIFilter(name: "CIRandomGenerator")?.outputImage else { return image }
+        let contrast = CGFloat(0.16 * min(max(strength, 0), 1))
+        let offset = 0.5 - 0.5 * contrast
+        let grey = noise
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: contrast, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: contrast, y: 0, z: 0, w: 0),
+                "inputBVector": CIVector(x: contrast, y: 0, z: 0, w: 0),
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+                "inputBiasVector": CIVector(x: offset, y: offset, z: offset, w: 1)
+            ])
+            .cropped(to: rect)
+        return grey.applyingFilter("CISoftLightBlendMode", parameters: [kCIInputBackgroundImageKey: image])
     }
 
     private func linearGradient(from start: RGBAColor, to end: RGBAColor, angle: Double, in rect: CGRect) -> CIImage {

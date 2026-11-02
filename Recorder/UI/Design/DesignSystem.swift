@@ -1,11 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// Design tokens shared by the app's windows and panels: an 8 pt spacing grid, a short
-/// type scale where hierarchy comes from weight, neutral system colours (so light and dark
-/// mode come for free) and one blue accent. Red is reserved for recording. Buttons, the
-/// accent and the segmented control follow the litterthanlit/components design system:
-/// buttons are keys, and the primary key wears the iPod classic's silver.
+/// Design tokens shared by the app's windows and panels, after the litt design system
+/// (litt.design, litterthanlit/components): flat and quiet. Text is ink or muted, raised
+/// things get a hairline ring and a soft low shadow rather than a box, recessed areas a
+/// panel tint. One accent, lime, is a signal: a fill with ink on it, never text on a light
+/// ground (as text or a stroke it is `accent`, a deep green in light mode). Red is
+/// reserved for recording and destructive actions. An 8 pt spacing grid and a short type
+/// scale where hierarchy comes from size and one weight step (regular to medium).
 enum DS {
     enum Spacing {
         static let xxs: CGFloat = 4
@@ -17,40 +19,58 @@ enum DS {
     }
 
     enum Radius {
-        /// Keys: buttons that read as physical.
-        static let key: CGFloat = 2
+        /// Small buttons, chips, kbd.
         static let small: CGFloat = 6
+        /// Buttons, inputs, icon buttons.
         static let medium: CGFloat = 8
+        /// Previews, cards, toasts.
         static let large: CGFloat = 12
     }
 
+    /// litt's type has one weight step: regular for everything, medium for titles and
+    /// labels. Nothing is bold.
     enum Typeface {
         static let caption = Font.system(size: 11)
         static let footnote = Font.system(size: 12)
         static let body = Font.system(size: 13)
-        static let headline = Font.system(size: 13, weight: .semibold)
-        static let title = Font.system(size: 15, weight: .semibold)
-        static let largeTitle = Font.system(size: 20, weight: .semibold)
-        static let display = Font.system(size: 28, weight: .bold)
+        static let headline = Font.system(size: 13, weight: .medium)
+        static let title = Font.system(size: 15, weight: .medium)
+        static let largeTitle = Font.system(size: 20, weight: .medium)
+        static let display = Font.system(size: 28, weight: .medium)
         static let timecode = Font.system(size: 12, weight: .medium).monospacedDigit()
-        static let sectionHeader = Font.system(size: 11, weight: .semibold)
+        static let sectionHeader = Font.system(size: 12)
     }
 
     enum Palette {
-        /// The accent for text, strokes and tints: blue, lifted in dark mode so it stays legible.
-        static let accent = Color(light: NSColor(hex: 0x384ECB), dark: NSColor(hex: 0x8A9AF2))
-        /// The accent as a solid fill under white content (the asset catalog's AccentColor).
-        static let accentFill = Color.accentColor
-        static let recording = Color(nsColor: .systemRed)
-        static let success = Color(nsColor: .systemGreen)
+        /// Primary text, and the fill of primary buttons.
+        static let ink = Color(light: NSColor(hex: 0x0A0A0A), dark: NSColor(hex: 0xEDEDED))
+        /// Secondary text, meta and icons (4.5:1 or more on canvas, panel and surface).
+        static let muted = Color(light: NSColor(hex: 0x707070), dark: NSColor(hex: 0x8F8F8F))
+        /// Page ground, and text on ink and danger fills.
+        static let canvasInk = Color(light: NSColor(hex: 0xFAFAFA), dark: NSColor(hex: 0x0A0A0A))
+        /// Raised objects: cards, menus, secondary buttons, the segmented control's thumb.
+        static let raised = Color(light: NSColor(hex: 0xFFFFFF), dark: NSColor(hex: 0x171717))
+        /// Recessed areas: tracks, hover fills, stages.
+        static let panel = Color(light: NSColor(hex: 0xF5F5F5), dark: NSColor(hex: 0x111111))
+
+        /// The accent as text or a stroke: deep green in light mode, lime in dark (litt's
+        /// accent-strong; 4.6:1 on panel in light).
+        static let accent = Color(light: NSColor(hex: 0x4D7C0F), dark: NSColor(hex: 0xC2FF4D))
+        /// The accent as a fill: lime in both themes, always with `accentInk` on it.
+        static let accentFill = Color(nsColor: NSColor(hex: 0xC2FF4D))
+        /// Text and icons on `accentFill` (16.7:1).
+        static let accentInk = Color(nsColor: NSColor(hex: 0x0A0A0A))
+        /// Recording, and destructive fills (litt's danger).
+        static let recording = Color(light: NSColor(hex: 0xD93036), dark: NSColor(hex: 0xFF6166))
+        static let success = accent
         static let warning = Color(nsColor: .systemOrange)
         static let surface = Color(nsColor: .controlBackgroundColor)
         static let raisedSurface = Color.primary.opacity(0.05)
-        static let hover = Color.primary.opacity(0.07)
-        static let pressed = Color.primary.opacity(0.12)
+        static let hover = Color(light: NSColor(white: 0, alpha: 0.05), dark: NSColor(white: 1, alpha: 0.06))
+        static let pressed = Color(light: NSColor(white: 0, alpha: 0.09), dark: NSColor(white: 1, alpha: 0.1))
         static let separator = Color(nsColor: .separatorColor)
         static let canvas = Color(nsColor: .underPageBackgroundColor)
-        static let secondaryText = Color.secondary
+        static let secondaryText = muted
         static let tertiaryText = Color(nsColor: .tertiaryLabelColor)
 
         // Timeline tracks. Always shown with an icon and a label, never colour alone.
@@ -60,14 +80,18 @@ enum DS {
         static let textTrack = Color(nsColor: .systemTeal)
         static let blurTrack = Color(nsColor: .systemPink)
         static let cameraTrack = Color(nsColor: .systemIndigo)
-        static let audioTrack = Color(nsColor: .systemGreen)
+        static let audioTrack = Color(nsColor: .systemBlue)
         static let playhead = Color(nsColor: .systemYellow)
 
-        // The segmented control: a recessed track with a raised thumb.
-        static let buttonShadow = Color(light: NSColor(white: 0, alpha: 0.07), dark: NSColor(white: 0, alpha: 0.4))
+        /// Hairlines, and the 1 px ring inside every raised object's shadow.
         static let hairline = Color(light: NSColor(white: 0, alpha: 0.08), dark: NSColor(white: 1, alpha: 0.08))
-        static let track = Color(light: NSColor(white: 0, alpha: 0.055), dark: NSColor(white: 0, alpha: 0.28))
-        static let thumb = Color(light: .white, dark: NSColor(hex: 0x4A4A4D))
+        /// A hairline under the pointer.
+        static let hairlineStrong = Color(light: NSColor(white: 0, alpha: 0.14), dark: NSColor(white: 1, alpha: 0.15))
+        /// The soft low shadow under a ring (litt's shadow-sm).
+        static let buttonShadow = Color(light: NSColor(white: 0, alpha: 0.04), dark: NSColor(white: 0, alpha: 0.4))
+        // The segmented control: a panel-tinted track with a raised thumb.
+        static let track = panel
+        static let thumb = raised
     }
 
     /// Button heights: small for dense editor chrome, regular for the main actions of a
@@ -83,11 +107,9 @@ enum DS {
     }
 
     /// Interaction timing: hover fades in over 210 ms and out over 150 ms on an ease-out
-    /// curve that answers at once and settles slowly. A key sinks 2 pt onto its base in
-    /// 75 ms and rises in 150 ms; a ghost button scales to 0.97 instead.
+    /// curve that answers at once and settles slowly; a press scales to 0.97.
     enum Motion {
         static let pressScale: CGFloat = 0.97
-        static let keyTravel: CGFloat = 2
 
         static func press(_ isPressed: Bool) -> Animation {
             .timingCurve(0.23, 1, 0.32, 1, duration: isPressed ? 0.075 : 0.15)
@@ -130,7 +152,8 @@ extension NSColor {
     }
 }
 
-/// Small-caps section label used in the panel and inspector.
+/// A section label in the panel and inspector: sentence case in muted, as litt labels
+/// sections (no capitals, no tracking).
 struct SectionHeader: View {
     let title: String
 
@@ -139,26 +162,24 @@ struct SectionHeader: View {
     }
 
     var body: some View {
-        Text(title.uppercased())
+        Text(title)
             .font(DS.Typeface.sectionHeader)
-            .tracking(0.6)
             .foregroundStyle(DS.Palette.secondaryText)
             .accessibilityAddTraits(.isHeader)
     }
 }
 
 /// Hover and press behaviour shared by the button styles: the hover state animates with
-/// `DS.Motion`, a press scales a ghost button down (keys sink instead; colour only with
-/// Reduce Motion) and a disabled button is drawn at half strength.
+/// `DS.Motion`, a press scales the button to 0.97 (colour only with Reduce Motion) and a
+/// disabled button is drawn at half strength.
 private struct ButtonFeedback: ViewModifier {
     let isPressed: Bool
-    let scales: Bool
     @Binding var isHovering: Bool
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
-        let pressScale: CGFloat = isPressed && scales && !reduceMotion ? DS.Motion.pressScale : 1
+        let pressScale: CGFloat = isPressed && !reduceMotion ? DS.Motion.pressScale : 1
         return content
             .scaleEffect(pressScale)
             .opacity(isEnabled ? 1 : 0.5)
@@ -172,173 +193,89 @@ private struct ButtonFeedback: ViewModifier {
 }
 
 private extension View {
-    func buttonFeedback(isPressed: Bool, isHovering: Binding<Bool>, scales: Bool = true) -> some View {
-        modifier(ButtonFeedback(isPressed: isPressed, scales: scales, isHovering: isHovering))
+    func buttonFeedback(isPressed: Bool, isHovering: Binding<Bool>) -> some View {
+        modifier(ButtonFeedback(isPressed: isPressed, isHovering: isHovering))
     }
 }
 
-/// The colours of a key: the face, the lettering and the cut that sets it into the face,
-/// the ring and the base the face sinks onto, the lit top edge and the shadows. Values
-/// follow the `--key-*` tokens in litterthanlit/components.
-struct KeyFinish {
-    let face: [Color]
-    let label: Color
-    let engraveShadow: Color
-    let engraveLight: Color
-    let ring: Color
-    let base: Color
-    let highlight: Color
-    let drop: Color
-    let pressedShade: Color
-
-    /// White keys (near-black in dark mode), for secondary actions.
-    static let plain = KeyFinish(
-        face: [tone(0xFFFFFF, 0x2A2A2A), tone(0xF1F1F1, 0x1C1C1C)],
-        label: tone(0x5A5A5A, 0xBDBDBD),
-        engraveShadow: black(0.28, 0.9),
-        engraveLight: white(0.95, 0.1),
-        ring: black(0.12, 0.8),
-        base: black(0.12, 1),
-        highlight: white(0.9, 0.09),
-        drop: black(0.14, 0.6),
-        pressedShade: black(0.12, 0.7)
-    )
-
-    /// The primary key, in the iPod classic's finishes: the silver plate in light mode,
-    /// graphite in dark.
-    static let silver = KeyFinish(
-        face: [tone(0xE2E3E6, 0x5A5C61), tone(0xD1D3D7, 0x4A4C50), tone(0xC3C6CA, 0x3C3E42)],
-        label: tone(0x3B3F44, 0xF2F2F4),
-        engraveShadow: black(0.22, 0.8),
-        engraveLight: white(0.6, 0.1),
-        ring: black(0.22, 0.85),
-        base: tone(0x8E959C, 0x000000),
-        highlight: white(0.75, 0.16),
-        drop: black(0.18, 0.6),
-        pressedShade: black(0.2, 0.6)
-    )
-
-    /// Record and Stop: the danger red as a key.
-    static let recording = KeyFinish(
-        face: [tone(0xE5484D, 0xFF6F73), tone(0xC62A30, 0xE5484D)],
-        label: Color(light: NSColor(white: 1, alpha: 0.94), dark: NSColor(hex: 0x0A0A0A)),
-        engraveShadow: black(0.3, 0.2),
-        engraveLight: white(0.12, 0.35),
-        ring: Color(light: NSColor(hex: 0x8F1A1E), dark: NSColor(white: 0, alpha: 0.8)),
-        base: tone(0x8F1A1E, 0x000000),
-        highlight: white(0.25, 0.3),
-        drop: black(0.25, 0.6),
-        pressedShade: black(0.35, 0.35)
-    )
-
-    private static func tone(_ light: UInt32, _ dark: UInt32) -> Color {
-        Color(light: NSColor(hex: light), dark: NSColor(hex: dark))
-    }
-
-    private static func black(_ light: CGFloat, _ dark: CGFloat) -> Color {
-        Color(light: NSColor(white: 0, alpha: light), dark: NSColor(white: 0, alpha: dark))
-    }
-
-    private static func white(_ light: CGFloat, _ dark: CGFloat) -> Color {
-        Color(light: NSColor(white: 1, alpha: light), dark: NSColor(white: 1, alpha: dark))
-    }
-}
-
-/// A key: a face on a 2 pt base that it sinks onto while pressed, with a lit top edge
-/// and lettering cut into the face. Hovering brightens it a little. With Reduce Motion
-/// the face stays put and only its shading changes.
-private struct KeyBody: View {
+/// A solid flat button: ink (or recording red) with the canvas colour on it. Hovering
+/// lifts it a little.
+private struct SolidButtonBody: View {
     let configuration: ButtonStyleConfiguration
-    let finish: KeyFinish
+    let fill: Color
+    let label: Color
     let size: DS.ButtonSize
     @State private var isHovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: DS.Radius.key, style: .continuous)
-        let sink: CGFloat = configuration.isPressed && !reduceMotion ? DS.Motion.keyTravel : 0
+        let shape = RoundedRectangle(cornerRadius: size.cornerRadius, style: .continuous)
         return configuration.label
             .font(size.font)
-            .foregroundStyle(finish.label)
-            .shadow(color: finish.engraveShadow, radius: 0, y: -0.5)
-            .shadow(color: finish.engraveLight, radius: 0, y: 1)
+            .foregroundStyle(label)
             .padding(.horizontal, size.horizontalPadding)
             .frame(minHeight: size.height)
-            .background { face(shape) }
-            .offset(y: sink)
-            .background { base(shape) }
+            .background(shape.fill(fill).opacity(isHovering && !configuration.isPressed ? 0.88 : 1))
             .contentShape(shape)
-            .buttonFeedback(isPressed: configuration.isPressed, isHovering: $isHovering, scales: false)
-    }
-
-    private func face(_ shape: RoundedRectangle) -> some View {
-        let isPressed = configuration.isPressed
-        let gradient = LinearGradient(colors: finish.face, startPoint: .top, endPoint: .bottom)
-        let edge = LinearGradient(
-            colors: [finish.highlight, finish.highlight.opacity(0)],
-            startPoint: .top,
-            endPoint: .center
-        )
-        let lift: Double = isHovering && !isPressed ? 0.04 : 0
-        return ZStack {
-            shape
-                .fill(gradient)
-            shape
-                .fill(gradient.shadow(.inner(color: finish.pressedShade, radius: 1.5, y: 1)))
-                .opacity(isPressed ? 1 : 0)
-            shape
-                .inset(by: 1)
-                .strokeBorder(edge, lineWidth: 1)
-                .opacity(isPressed ? 0 : 1)
-            shape
-                .strokeBorder(finish.ring, lineWidth: 1)
-        }
-        .brightness(lift)
-    }
-
-    /// The base shows as a 2 pt ledge under the face and carries the drop shadow, which
-    /// tightens when the face comes down onto it.
-    private func base(_ shape: RoundedRectangle) -> some View {
-        let isPressed = configuration.isPressed
-        let drop: Color = isPressed ? .clear : finish.drop
-        return shape
-            .fill(finish.base)
-            .offset(y: DS.Motion.keyTravel)
-            .shadow(color: drop, radius: 3, y: 2)
+            .buttonFeedback(isPressed: configuration.isPressed, isHovering: $isHovering)
     }
 }
 
-/// The one primary key per view, in iPod classic silver. Recording actions use the red key.
+/// The one primary action per view: solid ink. Recording actions use the red one.
 struct PrimaryButtonStyle: ButtonStyle {
     enum Kind {
-        case silver
+        case standard
         case recording
     }
 
     var kind: Kind
     var size: DS.ButtonSize
 
-    init(_ kind: Kind = .silver, size: DS.ButtonSize = .small) {
+    init(_ kind: Kind = .standard, size: DS.ButtonSize = .small) {
         self.kind = kind
         self.size = size
     }
 
     func makeBody(configuration: Configuration) -> some View {
-        let finish: KeyFinish = kind == .silver ? .silver : .recording
-        return KeyBody(configuration: configuration, finish: finish, size: size)
+        let fill: Color = kind == .standard ? DS.Palette.ink : DS.Palette.recording
+        return SolidButtonBody(configuration: configuration, fill: fill, label: DS.Palette.canvasInk, size: size)
     }
 }
 
-/// Quiet button: a white key (near-black in dark mode) with grey lettering.
+/// Quiet button: a raised surface with a hairline ring and a soft shadow, ink lettering.
+/// The ring darkens under the pointer.
 struct SecondaryButtonStyle: ButtonStyle {
     var size: DS.ButtonSize = .small
 
     func makeBody(configuration: Configuration) -> some View {
-        KeyBody(configuration: configuration, finish: .plain, size: size)
+        SecondaryButtonBody(configuration: configuration, size: size)
+    }
+
+    private struct SecondaryButtonBody: View {
+        let configuration: ButtonStyleConfiguration
+        let size: DS.ButtonSize
+        @State private var isHovering = false
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: size.cornerRadius, style: .continuous)
+            let ring: Color = isHovering ? DS.Palette.hairlineStrong : DS.Palette.hairline
+            return configuration.label
+                .font(size.font)
+                .foregroundStyle(DS.Palette.ink)
+                .padding(.horizontal, size.horizontalPadding)
+                .frame(minHeight: size.height)
+                .background {
+                    shape
+                        .fill(configuration.isPressed ? DS.Palette.panel : DS.Palette.raised)
+                        .shadow(color: DS.Palette.buttonShadow, radius: 1, y: 1)
+                        .overlay(shape.strokeBorder(ring, lineWidth: 1))
+                }
+                .contentShape(shape)
+                .buttonFeedback(isPressed: configuration.isPressed, isHovering: $isHovering)
+        }
     }
 }
 
-/// Icon-only ghost button: a muted glyph that turns full strength over a hover fill.
+/// Icon-only ghost button: a muted glyph that turns ink over a panel-tinted hover fill.
 /// Always give it an accessibility label.
 struct IconButtonStyle: ButtonStyle {
     var size: CGFloat = 28
@@ -353,8 +290,8 @@ struct IconButtonStyle: ButtonStyle {
         @State private var isHovering = false
 
         var body: some View {
-            let shape = RoundedRectangle(cornerRadius: DS.Radius.key, style: .continuous)
-            let glyph: Color = isHovering ? Color.primary : DS.Palette.secondaryText
+            let shape = RoundedRectangle(cornerRadius: DS.Radius.small, style: .continuous)
+            let glyph: Color = isHovering ? DS.Palette.ink : DS.Palette.secondaryText
             return configuration.label
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(glyph)
@@ -392,7 +329,7 @@ struct HoverRowStyle: ButtonStyle {
                         .fill(fill)
                 )
                 .contentShape(Rectangle())
-                .buttonFeedback(isPressed: configuration.isPressed, isHovering: $isHovering, scales: false)
+                .buttonFeedback(isPressed: configuration.isPressed, isHovering: $isHovering)
         }
 
         private var fill: Color {
@@ -414,11 +351,11 @@ struct GhostTileButtonStyle: ButtonStyle {
         @State private var isHovering = false
 
         var body: some View {
-            let tint: Color = isHovering ? Color.primary : DS.Palette.secondaryText
+            let tint: Color = isHovering ? DS.Palette.ink : DS.Palette.secondaryText
             return configuration.label
                 .foregroundStyle(tint)
                 .background(
-                    RoundedRectangle(cornerRadius: DS.Radius.key, style: .continuous)
+                    RoundedRectangle(cornerRadius: DS.Radius.small, style: .continuous)
                         .fill(fill)
                 )
                 .contentShape(Rectangle())
@@ -443,8 +380,9 @@ struct ShortcutBadge: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .strokeBorder(DS.Palette.separator)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(DS.Palette.panel)
+                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(DS.Palette.hairline))
             )
             .accessibilityLabel("Shortcut \(text)")
     }

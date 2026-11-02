@@ -89,18 +89,22 @@ the user-facing workflow.
   `UI/TimelineView.swift` + `UI/Timeline/` (tracks, thumbnails and waveform), `UI/Capture/`
   (selector, HUD, Quick Access), `UI/Library/`, `UI/Settings/`, `UI/Design/DesignSystem.swift`
   (tokens and button styles) and `UI/Design/SegmentedPicker.swift` (the pill segmented
-  control). Buttons follow the litterthanlit/components design system (its `main`
-  branch): primary and secondary are keys (`KeyFinish`: 2 pt corners, engraved lettering,
-  a 2 pt base the face sinks onto), the primary in iPod classic silver and
-  `PrimaryButtonStyle(.recording)` in red for record/stop; icon buttons are ghosts.
-  `size: .small` (28 pt) is for editor chrome, `.regular` (36 pt) for a sheet's or panel's
-  main actions. The accent is the repo's blue: `DS.Palette.accent` for text and strokes
-  (lifted in dark mode), `accentFill` (the AccentColor asset) under white content. The editor window's toolbar is an `NSToolbar` whose items
-  host SwiftUI views (`EditorToolbarController`).
+  control). The UI follows the flat litt design system (litt.design): primary buttons
+  are solid ink (`PrimaryButtonStyle(.recording)` red for record/stop), secondary ones a
+  raised surface with a hairline ring and a soft shadow, icon buttons ghosts; every
+  press scales to 0.97. `size: .small` (28 pt) is for editor chrome, `.regular` (36 pt)
+  for a sheet's or panel's main actions. Text is `ink` or `muted`, one weight step
+  (regular to medium), section labels in sentence case. The accent is lime as a
+  signal: `accentFill` is lime with `accentInk` on it, never white; as text or a stroke
+  it is `DS.Palette.accent` (deep green in light mode, lime in dark). The AccentColor
+  asset that macOS's own controls use is the deep green, since they draw white on it.
+  The editor window's toolbar is an `NSToolbar` whose items host SwiftUI views
+  (`EditorToolbarController`); recent macOS draws each item in a glass capsule, so
+  items that aren't buttons need padding of their own.
 - **Storage**: `ProjectStore` in `Models/Project.swift`. Projects live in
   `~/Movies/Trace/<uuid>.recorder/`; `LibraryMigration` moves bundles from the old
-  `~/Movies/Recorder`. `ProjectFormat.current` (3 since the crop, transitions, 3D moves
-  and text animation) versions settings and metadata: a newer project is refused, never
+  `~/Movies/Recorder`. `ProjectFormat.current` (5 since the washes, dusk and aura
+  wallpapers; its comment lists every step) versions settings and metadata: a newer project is refused, never
   overwritten. Decoding is tolerant (`decodeIfPresent ?? default`,
   enums with fallback `init(from:)`), and legacy keys (`trimStart`/`trimEnd`,
   `backgroundEnabled`) are still written. Saving goes through `ProjectAutosaver`.
@@ -169,7 +173,9 @@ Nothing below has run on real hardware. In rough order of risk:
 5. **Export**: MP4, HEVC, ProRes and GIF open in QuickTime, Final Cut and a browser;
    cancel mid-way leaves no file; exports to a chosen folder; sped-up audio length
    matches the video; a 5K display exports (HEVC path); GIF memory stays reasonable at
-   30 s.
+   30 s. The washes, dusk and aura wallpapers match their swatches; Dusk's grain shows
+   in an export without a size limit and is left out with one; "Use Desktop" picks up
+   the desktop picture of the editor's screen (and beeps for a moving wallpaper).
 6. **Library migration** from `~/Movies/Recorder`, and that renaming the app to Trace
    kept the Screen Recording and Accessibility permissions.
 7. `scripts/release.sh` end to end with a Developer ID certificate.

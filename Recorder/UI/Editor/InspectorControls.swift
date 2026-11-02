@@ -220,16 +220,23 @@ struct BackgroundSwatch: View {
         }
     }
 
+    /// The wallpaper's recipe at swatch size: its gradient and each glow (grain is too
+    /// fine to show here).
     private var wallpaper: some View {
-        let colors = style.wallpaper.colors
-        return ZStack {
-            gradient(colors.start, colors.end, angle: 135)
-            RadialGradient(
-                colors: [colors.glow.color, colors.glow.color.opacity(0)],
-                center: UnitPoint(x: 0.18, y: 0.1),
-                startRadius: 0,
-                endRadius: 60
-            )
+        let recipe = style.wallpaper.recipe
+        return GeometryReader { proxy in
+            let longerSide = max(proxy.size.width, proxy.size.height)
+            ZStack {
+                gradient(recipe.start, recipe.end, angle: 135)
+                ForEach(Array(recipe.glows.enumerated()), id: \.offset) { _, glow in
+                    RadialGradient(
+                        colors: [glow.color.color, glow.color.color.opacity(0)],
+                        center: UnitPoint(x: glow.center.x, y: glow.center.y),
+                        startRadius: 0,
+                        endRadius: longerSide * glow.radius
+                    )
+                }
+            }
         }
     }
 

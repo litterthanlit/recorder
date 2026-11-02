@@ -80,21 +80,7 @@ struct OnboardingView: View {
 
     private var hero: some View {
         HStack(spacing: DS.Spacing.md) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [DS.Palette.accentFill, DS.Palette.accentFill.opacity(0.65)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                Image(systemName: "record.circle")
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 60, height: 60)
-            .accessibilityHidden(true)
+            BrandMark(size: 60)
 
             VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
                 Text("Welcome to \(Brand.name)")
