@@ -103,8 +103,8 @@ the user-facing workflow.
   items that aren't buttons need padding of their own.
 - **Storage**: `ProjectStore` in `Models/Project.swift`. Projects live in
   `~/Movies/Trace/<uuid>.recorder/`; `LibraryMigration` moves bundles from the old
-  `~/Movies/Recorder`. `ProjectFormat.current` (3 since the crop, transitions, 3D moves
-  and text animation) versions settings and metadata: a newer project is refused, never
+  `~/Movies/Recorder`. `ProjectFormat.current` (5 since the washes, dusk and aura
+  wallpapers; its comment lists every step) versions settings and metadata: a newer project is refused, never
   overwritten. Decoding is tolerant (`decodeIfPresent ?? default`,
   enums with fallback `init(from:)`), and legacy keys (`trimStart`/`trimEnd`,
   `backgroundEnabled`) are still written. Saving goes through `ProjectAutosaver`.
