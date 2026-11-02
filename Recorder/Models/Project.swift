@@ -201,7 +201,9 @@ enum ProjectFormat {
     /// 3: cropping to part of the screen (`ProjectEditSettings.sourceCrop`) and motion:
     /// text animation, cut transitions, speed ramps and 3D camera moves.
     /// 4: a crop that follows a window (`ProjectEditSettings.cropPath`).
-    static let current = 4
+    /// 5: the washes, dusk and aura wallpapers (an older build would swap them for
+    /// midnight and save that).
+    static let current = 5
 }
 
 enum ProjectStoreError: LocalizedError, Equatable {

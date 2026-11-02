@@ -17,6 +17,48 @@ struct LookStyleTests {
         #expect(WallpaperPreset.graphite.isDark)
         #expect(!WallpaperPreset.snow.isDark)
         #expect(!WallpaperPreset.sky.isDark)
+        #expect(!WallpaperPreset.washes.isDark)
+        #expect(WallpaperPreset.dusk.isDark)
+        #expect(WallpaperPreset.aura.isDark)
+    }
+
+    @Test func theOriginalWallpapersDrawAsBefore() {
+        // One glow in the top-left corner over a 135° gradient, as the renderer drew them.
+        let recipe = WallpaperPreset.midnight.recipe
+        #expect(recipe.start == RGBAColor(hex: "17171C"))
+        #expect(recipe.end == RGBAColor(hex: "0A0A0F"))
+        #expect(recipe.glows == [WallpaperGlow(center: CGPoint(x: 0.18, y: 0.1), radius: 0.75, color: RGBAColor(hex: "2A2A38", alpha: 0.5))])
+        #expect(recipe.grain == 0)
+        let style = BackgroundStyle(kind: .wallpaper, wallpaper: .ocean)
+        #expect(style.gradientColors.glow == RGBAColor(hex: "60A5FA", alpha: 0.4))
+    }
+
+    @Test func everyWallpaperRecipeIsDrawable() {
+        for preset in WallpaperPreset.allCases {
+            let recipe = preset.recipe
+            #expect(!recipe.glows.isEmpty, "\(preset)")
+            #expect((0...1).contains(recipe.grain), "\(preset)")
+            for glow in recipe.glows {
+                #expect(glow.radius > 0 && glow.radius <= 1, "\(preset)")
+                #expect((0...1).contains(glow.color.alpha), "\(preset)")
+                // Centres may sit just off the frame, never far from it.
+                #expect((-0.5...1.5).contains(glow.center.x) && (-0.5...1.5).contains(glow.center.y), "\(preset)")
+            }
+        }
+        // Only the mesh has grain; litt's washes and the aura stay clean.
+        #expect(WallpaperPreset.dusk.recipe.grain > 0)
+        #expect(WallpaperPreset.washes.recipe.grain == 0)
+        #expect(WallpaperPreset.aura.recipe.grain == 0)
+    }
+
+    @Test func newWallpapersRoundTripAndUnknownOnesFallBack() throws {
+        for preset in [WallpaperPreset.washes, .dusk, .aura] {
+            let style = BackgroundStyle(kind: .wallpaper, wallpaper: preset)
+            let decoded = try JSONDecoder().decode(BackgroundStyle.self, from: JSONEncoder().encode(style))
+            #expect(decoded == style)
+        }
+        let unknown = try JSONDecoder().decode(BackgroundStyle.self, from: Data(#"{ "kind": "wallpaper", "wallpaper": "nebula" }"#.utf8))
+        #expect(unknown.wallpaper == .midnight)
     }
 
     @Test func oldStylesKeepTheirBackground() throws {

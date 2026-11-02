@@ -25,7 +25,9 @@ struct BackgroundInspector: View {
             BackgroundKindPicker(selection: editor.settingBinding(\.exportStyle.background.kind, actionName: "Background"))
             switch background.kind {
             case .wallpaper:
-                WallpaperGrid(selection: editor.settingBinding(\.exportStyle.background.wallpaper, actionName: "Wallpaper"))
+                WallpaperGrid(selection: editor.settingBinding(\.exportStyle.background.wallpaper, actionName: "Wallpaper")) {
+                    editor.useDesktopPicture(on: NSApp.keyWindow?.screen)
+                }
             case .gradient:
                 gradientControls
             case .solid:
@@ -95,11 +97,18 @@ struct BackgroundInspector: View {
                     Label(editor.project.backgroundImageURL == nil ? "Choose Image…" : "Replace Image…", systemImage: "photo.on.rectangle")
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                if editor.project.backgroundImageURL == nil {
-                    Text("No image yet")
-                        .font(DS.Typeface.caption)
-                        .foregroundStyle(DS.Palette.secondaryText)
+                Button {
+                    editor.useDesktopPicture(on: NSApp.keyWindow?.screen)
+                } label: {
+                    Label("Use Desktop", systemImage: "menubar.dock.rectangle")
                 }
+                .buttonStyle(SecondaryButtonStyle())
+                .help("Use your desktop picture, softened")
+            }
+            if editor.project.backgroundImageURL == nil {
+                Text("No image yet")
+                    .font(DS.Typeface.caption)
+                    .foregroundStyle(DS.Palette.secondaryText)
             }
             EditorSlider(
                 editor: editor,
@@ -315,6 +324,8 @@ private struct AspectPicker: View {
 
 private struct WallpaperGrid: View {
     @Binding var selection: WallpaperPreset
+    /// Switches to the desktop picture, softened (an image background).
+    let useDesktop: () -> Void
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 6)
 
@@ -338,6 +349,24 @@ private struct WallpaperGrid: View {
                 .accessibilityLabel("\(preset.label) wallpaper")
                 .accessibilityAddTraits(selection == preset ? .isSelected : [])
             }
+            Button(action: useDesktop) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: DS.Radius.small, style: .continuous)
+                        .fill(DS.Palette.panel)
+                    Image(systemName: "menubar.dock.rectangle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(DS.Palette.secondaryText)
+                }
+                .aspectRatio(1, contentMode: .fit)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radius.small + 2, style: .continuous)
+                        .strokeBorder(DS.Palette.hairline, lineWidth: 1)
+                        .padding(-2)
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Your desktop picture, softened")
+            .accessibilityLabel("Use your desktop picture, softened")
         }
         .padding(2)
     }

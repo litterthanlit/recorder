@@ -173,7 +173,9 @@ Nothing below has run on real hardware. In rough order of risk:
 5. **Export**: MP4, HEVC, ProRes and GIF open in QuickTime, Final Cut and a browser;
    cancel mid-way leaves no file; exports to a chosen folder; sped-up audio length
    matches the video; a 5K display exports (HEVC path); GIF memory stays reasonable at
-   30 s.
+   30 s. The washes, dusk and aura wallpapers match their swatches; Dusk's grain shows
+   in an export without a size limit and is left out with one; "Use Desktop" picks up
+   the desktop picture of the editor's screen (and beeps for a moving wallpaper).
 6. **Library migration** from `~/Movies/Recorder`, and that renaming the app to Trace
    kept the Screen Recording and Accessibility permissions.
 7. `scripts/release.sh` end to end with a Developer ID certificate.

@@ -15,7 +15,7 @@ enum ExportService {
             keyframes: project.keyframes,
             outputSize: plan.size,
             timeline: timeline,
-            render: CompositionRenderSettings(project: project, editSettings: settings),
+            render: renderSettings(for: project, settings: settings, options: options),
             frameRate: plan.frameRate,
             videoBitrate: plan.videoBitrate,
             audioBitrate: plan.audioBitrate,
@@ -24,6 +24,17 @@ enum ExportService {
             audioTrackRoles: project.metadata.resolvedAudioTrackRoles(trackCount: audioTrackCount),
             audio: settings.audio
         )
+    }
+
+    /// What to draw. Grain costs bitrate, so an export with a size limit leaves it out.
+    private static func renderSettings(
+        for project: RecorderProject,
+        settings: ProjectEditSettings,
+        options: ExportOptions
+    ) -> CompositionRenderSettings {
+        var render = CompositionRenderSettings(project: project, editSettings: settings)
+        render.allowsGrain = !(options.usesSizeLimit && options.maxMegabytes != nil)
+        return render
     }
 
     /// Exports to `destination`, replacing a file already there, and remembers it as the
