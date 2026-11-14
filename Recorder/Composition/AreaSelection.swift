@@ -10,6 +10,8 @@ enum AreaPreset: String, CaseIterable, Identifiable, Codable {
     case portrait
     case hd720
     case hd1080
+    /// A 1080 × 1080 point square on a 2× display: the X grid's 2160 × 2160 clips.
+    case square2160
 
     var id: String { rawValue }
 
@@ -22,6 +24,7 @@ enum AreaPreset: String, CaseIterable, Identifiable, Codable {
         case .portrait: return "9:16"
         case .hd720: return "1280 × 720"
         case .hd1080: return "1920 × 1080"
+        case .square2160: return "2160 × 2160"
         }
     }
 
@@ -31,7 +34,7 @@ enum AreaPreset: String, CaseIterable, Identifiable, Codable {
         case .free: return nil
         case .widescreen, .hd720, .hd1080: return 16.0 / 9.0
         case .standard: return 4.0 / 3.0
-        case .square: return 1
+        case .square, .square2160: return 1
         case .portrait: return 9.0 / 16.0
         }
     }
@@ -41,6 +44,7 @@ enum AreaPreset: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .hd720: return CGSize(width: 1280, height: 720)
         case .hd1080: return CGSize(width: 1920, height: 1080)
+        case .square2160: return CGSize(width: 2160, height: 2160)
         case .free, .widescreen, .standard, .square, .portrait: return nil
         }
     }

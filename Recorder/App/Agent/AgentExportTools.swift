@@ -170,6 +170,10 @@ enum AgentExportTools {
 
         var preferences = ExportPreferences.load()
         var options = preferences.options
+        if let target = try arguments.choice("target", ClipTarget.self) {
+            options = target.options(from: options)
+            project.editSettings.canvas = target.canvas
+        }
         if let format = try arguments.choice("format", ExportFormat.self) {
             options.format = format
         }
@@ -181,6 +185,9 @@ enum AgentExportTools {
                 throw AgentToolError("fps must be 24, 30 or 60 (leave it out for the recording's own rate).")
             }
             options.frameRate = fps
+        }
+        if let audio = try arguments.bool("audio") {
+            options.includeAudio = audio
         }
         let duration = take.timeline.outputDuration
         guard ExportOptions.allows(options.format, duration: duration) else {

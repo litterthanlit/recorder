@@ -59,6 +59,10 @@ speed up, annotate and export it in minutes.
 **Export**
 - **MP4** (H.264), **HEVC**, **ProRes 422** (MOV, uncompressed audio) or **GIF**; Web,
   High or Studio quality; 24/30/60 fps; 720p to 4K or source size.
+- **Post to X grid**: one click makes a square 2160 × 2160, 60 fps H.264 MP4 with no
+  sound, one of the four clips that fill a post's 2×2 grid, and the sheet warns when a
+  clip runs outside 7 to 24 s. Record it with the **2160 × 2160** area preset (a 1080 pt
+  square on a Retina display). Any export can leave the sound out.
 - A **size limit** (10, 25, 50 or 100 MB) for chat apps and agents with upload caps: the
   bitrate drops to fit, then the frame rate and picture size if it has to.
 - To `~/Movies/Trace/Exports` (or any folder, or ask every time), with name templates,

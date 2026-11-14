@@ -99,6 +99,7 @@ Last, it checks rendered frames, fixes what's off and exports.
 | Landing page, docs video | MP4 | Web | Small and plays everywhere |
 | YouTube, Product Hunt | MP4 | High | 1080p, 60 fps |
 | Social (Reels, TikTok, Shorts) | MP4 | High | 9:16 shape, 1080p |
+| X post, 2×2 grid | MP4 | High | **Post to › X grid**: 1:1 at 2160 × 2160, 60 fps, no sound. Four clips of 7–24 s (about 13), one interaction each, recorded at 60 fps with the 2160 × 2160 area |
 | README, Slack, Notion | GIF | n/a | Under 30 s, 15 fps, scaled to 720 px wide |
 | Chat or an agent with an upload cap | MP4 or HEVC | any | Set **Size limit** (e.g. 25 MB); the sheet says if it had to shrink |
 | Further editing (Final Cut, Premiere) | ProRes | n/a | Large files, best quality |

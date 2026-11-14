@@ -171,6 +171,7 @@ Nothing below has run on real hardware. In rough order of risk:
    other menu extras in light and dark menu bars, and while recording its top-right
    corner is red and the rest follow the menu bar's colour.
 5. **Export**: MP4, HEVC, ProRes and GIF open in QuickTime, Final Cut and a browser;
+   an X grid export is 2160 × 2160, 60 fps H.264 with no audio track and posts to X;
    cancel mid-way leaves no file; exports to a chosen folder; sped-up audio length
    matches the video; a 5K display exports (HEVC path); GIF memory stays reasonable at
    30 s. The washes, dusk and aura wallpapers match their swatches; Dusk's grain shows
