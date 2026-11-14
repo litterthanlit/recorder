@@ -75,7 +75,7 @@ final class VideoExporter {
         // sped-up parts (keeping pitch) and mixes mic and system audio at their levels.
         var audioReader: AVAssetReader?
         var audioReaderOutput: AVAssetReaderOutput?
-        if !audioTracks.isEmpty {
+        if configuration.options.writesAudio, !audioTracks.isEmpty {
             let built = try await TimelineCompositionBuilder.build(
                 asset: asset,
                 timeline: frames.edit,

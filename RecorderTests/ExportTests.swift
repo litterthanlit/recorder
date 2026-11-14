@@ -207,3 +207,60 @@ struct ExportRecordTests {
         #expect(ProjectStore.latestExport(in: bundle)?.lastPathComponent == "export.mp4")
     }
 }
+
+@Suite("Clip targets")
+struct ClipTargetTests {
+    @Test func xGridMakesASilentSquare60fpsMP4() {
+        let target = ClipTarget.xGrid
+        let options = target.options(from: ExportOptions(format: .gif, quality: .studio, maxMegabytes: 25))
+        #expect(options.format == .mp4)
+        #expect(options.quality == .studio)
+        #expect(options.maxMegabytes == nil)
+        #expect(!options.writesAudio)
+
+        let canvas = target.canvas.pixelSize(source: CGSize(width: 3024, height: 1964))
+        #expect(canvas == CGSize(width: 2160, height: 2160))
+        #expect(VideoCodecChoice.forFrame(width: 2160, height: 2160) == .h264)
+
+        let plan = options.plan(canvas: canvas, sourceFrameRate: 30, duration: 13)
+        #expect(plan.frameRate == 60)
+        #expect(plan.audioBitrate == 0)
+        #expect(target.matches(canvas: target.canvas, options: options))
+        #expect(!target.matches(canvas: CanvasSpec(aspect: .square, resolution: .hd1080), options: options))
+    }
+
+    @Test func adviceFollowsTheLengthAndFrameRate() {
+        let target = ClipTarget.xGrid
+        #expect(target.advice(duration: 13, sourceFrameRate: 60) == nil)
+        #expect(target.advice(duration: 7, sourceFrameRate: 60) == nil)
+        #expect(target.advice(duration: 24, sourceFrameRate: 60) == nil)
+        #expect(target.advice(duration: 5, sourceFrameRate: 60)?.contains("let the interaction finish") == true)
+        #expect(target.advice(duration: 31.5, sourceFrameRate: 60)?.contains("Runs 31.5 s") == true)
+        #expect(target.advice(duration: 13, sourceFrameRate: 30)?.contains("Record at 60 fps") == true)
+    }
+
+    @Test func areaPresetRecordsTheCanvasPixelsAt2x() {
+        let preset = ClipTarget.xGrid.areaPreset
+        #expect(preset.pixelSize == CGSize(width: 2160, height: 2160))
+        let bounds = CGRect(x: 0, y: 0, width: 1512, height: 1100)
+        let rect = AreaSelection.apply(preset, to: CGRect(x: 100, y: 100, width: 600, height: 400), scale: 2, bounds: bounds)
+        #expect(isClose(rect.width, 1080) && isClose(rect.height, 1080))
+    }
+
+    @Test func soundIsKeptByDefaultAndRemembered() throws {
+        let old = try JSONDecoder().decode(ExportOptions.self, from: Data(#"{ "format": "mp4" }"#.utf8))
+        #expect(old.includeAudio)
+        #expect(old.plan(canvas: CGSize(width: 1920, height: 1080), sourceFrameRate: 60, duration: 10).audioBitrate == ExportOptions.audioBitrate)
+
+        let silent = ExportOptions(includeAudio: false)
+        let decoded = try JSONDecoder().decode(ExportOptions.self, from: JSONEncoder().encode(silent))
+        #expect(!decoded.includeAudio)
+
+        let limited = ExportOptions(maxMegabytes: 25, includeAudio: false)
+            .plan(canvas: CGSize(width: 1920, height: 1080), sourceFrameRate: 60, duration: 10)
+        let withSound = ExportOptions(maxMegabytes: 25)
+            .plan(canvas: CGSize(width: 1920, height: 1080), sourceFrameRate: 60, duration: 10)
+        #expect(limited.audioBitrate == 0)
+        #expect(limited.videoBitrate >= withSound.videoBitrate)
+    }
+}

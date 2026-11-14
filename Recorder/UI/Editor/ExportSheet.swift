@@ -44,6 +44,11 @@ struct ExportSheet: View {
         }
     }
 
+    private var summaryText: String {
+        let sound = options.format.hasAudio && !options.includeAudio ? " · no sound" : ""
+        return "\(Self.sizeText(plan.size)) · \(plan.frameRate) fps · \(Timecode.short(duration))\(sound)"
+    }
+
     private var defaultFileName: String {
         ExportNaming.baseName(
             template: preferences.fileNameTemplate,
@@ -58,7 +63,7 @@ struct ExportSheet: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Export")
                 .font(DS.Typeface.largeTitle)
-            Text("\(Self.sizeText(plan.size)) · \(plan.frameRate) fps · \(Timecode.short(duration))")
+            Text(summaryText)
                 .font(DS.Typeface.footnote.monospacedDigit())
                 .foregroundStyle(DS.Palette.secondaryText)
         }
@@ -141,6 +146,8 @@ struct ExportSheet: View {
 
     private var settingsView: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.lg) {
+            targetSection
+
             InspectorLabeled("Format") {
                 FormatPicker(selection: $preferences.options.format, duration: duration)
             }
@@ -170,6 +177,12 @@ struct ExportSheet: View {
                         .fixedSize()
                     }
                 }
+            }
+
+            if options.format.hasAudio {
+                Toggle("Include sound", isOn: $preferences.options.includeAudio)
+                    .font(DS.Typeface.footnote)
+                    .accessibilityHint("Off makes a silent file, for clips that autoplay muted")
             }
 
             if options.usesSizeLimit {
@@ -218,6 +231,47 @@ struct ExportSheet: View {
                     .font(DS.Typeface.footnote)
             }
         }
+    }
+
+    /// Where the clip is going: one click sets the shape, size, frame rate and sound.
+    private var targetSection: some View {
+        InspectorLabeled("Post to") {
+            HStack(spacing: DS.Spacing.xs) {
+                ForEach(ClipTarget.allCases) { target in
+                    targetButton(target)
+                }
+            }
+            if let target = activeTarget {
+                InspectorHint(
+                    target.advice(duration: duration, sourceFrameRate: editor.project.metadata.fps) ?? target.detail
+                )
+            }
+        }
+    }
+
+    private func targetButton(_ target: ClipTarget) -> some View {
+        let isActive = activeTarget == target
+        return Button {
+            apply(target)
+        } label: {
+            Label(target.label, systemImage: isActive ? "checkmark" : "square.grid.2x2")
+                .labelStyle(.titleAndIcon)
+        }
+        .buttonStyle(SecondaryButtonStyle())
+        .accessibilityLabel(target.label)
+        .accessibilityValue(isActive ? "Selected" : "")
+        .accessibilityHint(target.detail)
+    }
+
+    private var activeTarget: ClipTarget? {
+        ClipTarget.allCases.first { $0.matches(canvas: editor.editSettings.canvas, options: options) }
+    }
+
+    private func apply(_ target: ClipTarget) {
+        if editor.editSettings.canvas != target.canvas {
+            editor.settingBinding(\.canvas, actionName: "Use \(target.label) Canvas").wrappedValue = target.canvas
+        }
+        preferences.options = target.options(from: options)
     }
 
     /// A cap on the file size, for chat apps and agents that refuse big uploads.

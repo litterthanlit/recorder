@@ -354,9 +354,16 @@ extension AgentToolCatalog {
         """,
         inputSchema: Schema.object([
             ("take_id", takeID),
+            ("target", Schema.string(
+                "x_grid: one of the four clips of a post's 2×2 grid on X, a square 2160 × 2160 MP4 at 60 fps with no sound "
+                    + "(each clip should run 7 to 24 s, most about 13). Exports at that canvas without changing the take; "
+                    + "set_style aspect 1:1 and resolution 4k first to see it in view_frames. Other options override it.",
+                oneOf: ClipTarget.allCases.map(\.rawValue)
+            )),
             ("format", Schema.string("File type.", oneOf: ExportFormat.allCases.map(\.rawValue))),
             ("quality", Schema.string("mp4 and hevc only: web (small), high, or studio (near-lossless).", oneOf: ExportQuality.allCases.map(\.rawValue))),
             ("fps", Schema.integer("Frame rate: 24, 30 or 60 (default: the recording's).", minimum: 24, maximum: 60)),
+            ("audio", Schema.boolean("mp4, hevc and prores: include the sound (default: the person's export setting).")),
             ("folder", Schema.string("Where to save it: a full path like ~/Desktop (default: the export folder in Trace's settings).")),
             ("file_name", Schema.string("File name without extension (default: the take's name).")),
             ("wait_seconds", Schema.number("How long to wait before returning an export_id (default 45).", minimum: 0, maximum: 600))

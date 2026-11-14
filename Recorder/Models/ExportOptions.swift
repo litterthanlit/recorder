@@ -98,6 +98,9 @@ struct ExportOptions: Codable, Equatable {
     /// Finder counts them); `nil` for no limit. To fit, the bitrate drops, then the frame
     /// rate and the picture size.
     var maxMegabytes: Int?
+    /// Whether an MP4, HEVC or ProRes export carries the recording's audio. Off for clips
+    /// that autoplay muted, like a post's grid.
+    var includeAudio = true
 
     static let frameRateChoices = [24, 30, 60]
     static let sizeLimitChoices = [10, 25, 50, 100]
@@ -128,11 +131,23 @@ struct ExportOptions: Codable, Equatable {
         format != .gif || duration <= gifMaximumDuration + 0.001
     }
 
-    init(format: ExportFormat = .mp4, quality: ExportQuality = .high, frameRate: Int? = nil, maxMegabytes: Int? = nil) {
+    init(
+        format: ExportFormat = .mp4,
+        quality: ExportQuality = .high,
+        frameRate: Int? = nil,
+        maxMegabytes: Int? = nil,
+        includeAudio: Bool = true
+    ) {
         self.format = format
         self.quality = quality
         self.frameRate = frameRate
         self.maxMegabytes = maxMegabytes
+        self.includeAudio = includeAudio
+    }
+
+    /// Whether the file gets an audio track.
+    var writesAudio: Bool {
+        format.hasAudio && includeAudio
     }
 
     /// Whether `maxMegabytes` applies to `format`.
@@ -179,14 +194,15 @@ struct ExportOptions: Codable, Equatable {
         case .prores:
             // ProRes 422 is about 5.3 bits per pixel per frame.
             let video = Int(Double(size.width * size.height) * Double(fps) * 5.3)
-            return ExportPlan(size: size, frameRate: fps, videoBitrate: video, audioBitrate: Self.pcmAudioBitrate, duration: seconds)
+            let audio = includeAudio ? Self.pcmAudioBitrate : 0
+            return ExportPlan(size: size, frameRate: fps, videoBitrate: video, audioBitrate: audio, duration: seconds)
         case .mp4, .hevc:
             guard let maxMegabytes, maxMegabytes > 0, seconds > 0 else {
                 return ExportPlan(
                     size: size,
                     frameRate: fps,
                     videoBitrate: bitrate(size: size, fps: fps),
-                    audioBitrate: Self.audioBitrate,
+                    audioBitrate: includeAudio ? Self.audioBitrate : 0,
                     duration: seconds
                 )
             }
@@ -197,7 +213,7 @@ struct ExportOptions: Codable, Equatable {
     /// The largest size and frame rate whose picture still holds up within the limit,
     /// at the quality's bitrate or less.
     private func fittedPlan(canvas: CGSize, fps: Int, seconds: TimeInterval, limitBytes: Int64) -> ExportPlan {
-        let audio = Self.limitedAudioBitrate
+        let audio = includeAudio ? Self.limitedAudioBitrate : 0
         let budget = Double(limitBytes) * 8 * Self.sizeLimitHeadroom / seconds - Double(audio)
         let minimum = Self.minimumBitsPerPixelPerFrame(format)
         let candidates = Self.fitCandidates(canvas: canvas, fps: fps)
@@ -257,10 +273,11 @@ struct ExportOptions: Codable, Equatable {
         frameRate = rate.flatMap { Self.frameRateChoices.contains($0) ? $0 : nil }
         let limit = try container.decodeIfPresent(Int.self, forKey: .maxMegabytes)
         maxMegabytes = limit.flatMap { $0 > 0 ? $0 : nil }
+        includeAudio = try container.decodeIfPresent(Bool.self, forKey: .includeAudio) ?? true
     }
 
     private enum CodingKeys: String, CodingKey {
-        case format, quality, frameRate, maxMegabytes
+        case format, quality, frameRate, maxMegabytes, includeAudio
     }
 }
 
@@ -286,6 +303,102 @@ struct ExportPlan: Equatable {
     var exceedsSizeLimit: Bool {
         guard let sizeLimitBytes, let estimatedBytes else { return false }
         return estimatedBytes > sizeLimitBytes
+    }
+}
+
+/// Where a clip will be posted, and the file that place wants. Choosing one sets the
+/// canvas and the export options together; the sheet then checks the edit's length.
+enum ClipTarget: String, Codable, CaseIterable, Identifiable {
+    /// Four square clips filling a post's 2×2 grid on X: a 1080 × 1080 page captured at
+    /// 2×, 60 fps H.264 without sound, 7 to 24 seconds each (most about 13).
+    case xGrid = "x_grid"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .xGrid: return "X grid"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .xGrid: return "Four square clips fill a post. 2160 × 2160, 60 fps, MP4, no sound."
+        }
+    }
+
+    var canvas: CanvasSpec {
+        switch self {
+        case .xGrid: return CanvasSpec(aspect: .square, resolution: .uhd2160)
+        }
+    }
+
+    /// The frame rate the recording should be made at so the export doesn't repeat frames.
+    var frameRate: Int {
+        switch self {
+        case .xGrid: return 60
+        }
+    }
+
+    /// How long each clip should run, in seconds.
+    var recommendedDuration: ClosedRange<TimeInterval> {
+        switch self {
+        case .xGrid: return 7...24
+        }
+    }
+
+    /// The length most clips land on.
+    var typicalDuration: TimeInterval {
+        switch self {
+        case .xGrid: return 13
+        }
+    }
+
+    /// The area to record: exactly the canvas's pixels on a 2× display.
+    var areaPreset: AreaPreset {
+        switch self {
+        case .xGrid: return .square2160
+        }
+    }
+
+    /// `options` set up for this target; the quality and the file's place are kept.
+    func options(from options: ExportOptions) -> ExportOptions {
+        var result = options
+        switch self {
+        case .xGrid:
+            result.format = .mp4
+            result.frameRate = frameRate
+            result.maxMegabytes = nil
+            result.includeAudio = false
+        }
+        return result
+    }
+
+    /// Whether `canvas` and `options` already make this target's file.
+    func matches(canvas: CanvasSpec, options: ExportOptions) -> Bool {
+        canvas == self.canvas && self.options(from: options) == options
+    }
+
+    /// A note when an edit `duration` seconds long, recorded at `sourceFrameRate` fps,
+    /// misses the target; `nil` when it fits.
+    func advice(duration: TimeInterval, sourceFrameRate: Int) -> String? {
+        let range = recommendedDuration
+        let typical = Int(typicalDuration.rounded())
+        if duration < range.lowerBound - 0.05 {
+            return "Runs \(Self.seconds(duration)). \(label) clips run \(Self.seconds(range.lowerBound)) to \(Self.seconds(range.upperBound)), most about \(typical) s: let the interaction finish."
+        }
+        if duration > range.upperBound + 0.05 {
+            return "Runs \(Self.seconds(duration)). \(label) clips run \(Self.seconds(range.lowerBound)) to \(Self.seconds(range.upperBound)), most about \(typical) s: cut it to one interaction."
+        }
+        if sourceFrameRate < frameRate {
+            return "Recorded at \(sourceFrameRate) fps, so frames repeat at \(frameRate) fps. Record at \(frameRate) fps for smooth motion."
+        }
+        return nil
+    }
+
+    private static func seconds(_ value: TimeInterval) -> String {
+        let rounded = (value * 10).rounded() / 10
+        return rounded == rounded.rounded() ? "\(Int(rounded)) s" : String(format: "%.1f s", rounded)
     }
 }
 
