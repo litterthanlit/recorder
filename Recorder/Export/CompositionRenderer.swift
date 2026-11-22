@@ -109,6 +109,7 @@ final class CompositionRenderer {
     private var fallbackCursor: CursorSprite?
     private var cachedWatermark: (key: String, image: CIImage)?
     private var cachedBackdrop: (key: BackdropKey, layers: BackdropLayers)?
+    private var cachedBackdropNoShadow: (key: BackdropKey, layers: BackdropLayers)?
     private var cachedCamera: (key: CameraKey, layers: CameraLayers)?
     private var cachedBackgroundImage: (url: URL, image: CIImage?)?
     private var textCache: [String: CIImage] = [:]
@@ -243,18 +244,26 @@ final class CompositionRenderer {
         }
 
         if settings.exportStyle.cursorSpotlightEnabled,
-           let cursorLocation = cursorLocation(at: time),
-           let flatPoint = outputPoint(
-                forSource: cursorLocation,
-                cropRect: cropRect,
-                contentFrame: fitted.frame,
-                sourceWidth: sourceWidth,
-                sourceHeight: sourceHeight
-           ) {
-            let point = move.isIdentity
-                ? flatPoint
-                : ScreenProjection(frame: fitted.frame, canvas: canvas, transform: move).project(flatPoint)
-            finalImage = applySpotlight(to: finalImage, at: point, canvas: canvas)
+           settings.exportStyle.showCursor,
+           let cursorLocation = cursorLocation(at: time) {
+            let cursorOpacity = CGFloat(CursorVisibility.opacity(
+                at: time,
+                activity: cursorActivity,
+                hideWhenIdle: settings.exportStyle.hideIdleCursor
+            ))
+            if cursorOpacity > 0.001,
+               let mapped = outputPointWithFade(
+                    forSource: cursorLocation,
+                    cropRect: cropRect,
+                    contentFrame: fitted.frame,
+                    sourceWidth: sourceWidth,
+                    sourceHeight: sourceHeight
+               ) {
+                let point = move.isIdentity
+                    ? mapped.point
+                    : ScreenProjection(frame: fitted.frame, canvas: canvas, transform: move).project(mapped.point)
+                finalImage = applySpotlight(to: finalImage, at: point, canvas: canvas, opacity: cursorOpacity * mapped.fade)
+            }
         }
 
         // The bubble stays put and sharp while the screen content moves underneath it.
@@ -309,13 +318,15 @@ final class CompositionRenderer {
             throw VideoExporterError.bufferCreationFailed
         }
 
-        // An explicit colour space, so preview and export produce the same pixels.
+        // Render and tag as explicit sRGB so VideoToolbox converts sRGB -> Rec. 709
+        // accurately and preview matches export with no gamma shift.
         ciContext.render(
             finalImage,
             to: outputBuffer,
             bounds: CGRect(x: 0, y: 0, width: outputWidth, height: outputHeight),
             colorSpace: Self.colorSpace
         )
+        CVBufferSetAttachment(outputBuffer, kCVImageBufferCGColorSpaceKey, Self.colorSpace, .shouldPropagate)
         return outputBuffer
     }
 
@@ -340,22 +351,19 @@ final class CompositionRenderer {
         let scaledWidth = croppedExtent.width * scale
         let scaledHeight = croppedExtent.height * scale
 
-        let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let origin = CGPoint(
             x: padding + (availableWidth - scaledWidth) / 2,
             y: padding + (availableHeight - scaledHeight) / 2
         )
-        let translated = scaled.transformed(
-            by: CGAffineTransform(
-                translationX: origin.x - scaled.extent.origin.x,
-                y: origin.y - scaled.extent.origin.y
-            )
-        )
+        let frame = CGRect(x: origin.x, y: origin.y, width: scaledWidth, height: scaledHeight)
+        // Clamp edge pixels before scaling so resampling at fractional crop boundaries
+        // never blends transparent black into the frame's border (eliminates dark edge halos).
+        let transform = CGAffineTransform(translationX: -croppedExtent.origin.x, y: -croppedExtent.origin.y)
+            .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+            .concatenating(CGAffineTransform(translationX: origin.x, y: origin.y))
+        let translated = image.clampedToExtent().transformed(by: transform).cropped(to: frame)
 
-        return FittedContent(
-            image: translated,
-            frame: CGRect(x: origin.x, y: origin.y, width: scaledWidth, height: scaledHeight)
-        )
+        return FittedContent(image: translated, frame: frame)
     }
 
     // MARK: - Background
@@ -410,28 +418,42 @@ final class CompositionRenderer {
             shadow: shadow,
             grain: settings.allowsGrain
         )
-        if let cachedBackdrop, cachedBackdrop.key == key {
-            return cachedBackdrop.layers
+        if shadow {
+            if let cachedBackdrop, cachedBackdrop.key == key {
+                return cachedBackdrop.layers
+            }
+        } else if let cachedBackdropNoShadow, cachedBackdropNoShadow.key == key {
+            return cachedBackdropNoShadow.layers
         }
 
         let outputRect = CGRect(origin: .zero, size: canvas)
         var background = makeBackground(style.background, in: outputRect)
         if key.shadowEnabled {
-            // Core Image space is y-up, so a negative offset puts the shadow below.
-            let shadowMask = roundedRectMask(
-                rect: contentFrame.offsetBy(dx: 0, dy: -8 * unit),
+            // Two-layer studio shadow: wide soft ambient lift + crisp tight contact shadow.
+            // Do not clamp shadow masks to extent: outside the canvas is transparent.
+            let ambientMask = roundedRectMask(
+                rect: contentFrame.offsetBy(dx: 0, dy: -12 * unit),
                 radius: cornerRadius,
                 canvasSize: canvas
             )
-            let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.32))
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 28 * unit])
+            .cropped(to: outputRect)
+            let ambientShadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.24))
                 .cropped(to: outputRect)
-                .applyingFilter("CIBlendWithMask", parameters: [
-                    kCIInputMaskImageKey: shadowMask
-                        .clampedToExtent()
-                        .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 20 * unit])
-                        .cropped(to: outputRect)
-                ])
-            background = shadow.composited(over: background)
+                .applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: ambientMask])
+            background = ambientShadow.composited(over: background)
+
+            let contactMask = roundedRectMask(
+                rect: contentFrame.offsetBy(dx: 0, dy: -3 * unit),
+                radius: cornerRadius,
+                canvasSize: canvas
+            )
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 7 * unit])
+            .cropped(to: outputRect)
+            let contactShadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.20))
+                .cropped(to: outputRect)
+                .applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: contactMask])
+            background = contactShadow.composited(over: background)
         }
 
         let contentMask = roundedRectMask(rect: contentFrame, radius: cornerRadius, canvasSize: canvas)
@@ -439,7 +461,11 @@ final class CompositionRenderer {
             background: materialize(background, size: canvas),
             contentMask: materialize(contentMask, size: canvas)
         )
-        cachedBackdrop = (key, layers)
+        if shadow {
+            cachedBackdrop = (key, layers)
+        } else {
+            cachedBackdropNoShadow = (key, layers)
+        }
         return layers
     }
 
@@ -583,7 +609,7 @@ final class CompositionRenderer {
         let panLength = hypot(motion.pan.dx, motion.pan.dy) * 0.5
         let zoomLength = abs(motion.zoom) * max(frame.width, frame.height) * 0.25
         let limit = 36 * unit
-        guard max(panLength, zoomLength) > 0.75 else { return content }
+        guard max(panLength, zoomLength) > 0.75 * unit else { return content }
 
         let clamped = content.image.clampedToExtent()
         let blurred: CIImage
@@ -617,22 +643,27 @@ final class CompositionRenderer {
         if let layers {
             content = content.applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: layers.contentMask])
         }
-        let warped = content.cropped(to: fitted.frame).applyingFilter("CIPerspectiveTransform", parameters: [
+        let perspectiveParams: [String: Any] = [
             "inputTopLeft": CIVector(cgPoint: projection.topLeft),
             "inputTopRight": CIVector(cgPoint: projection.topRight),
             "inputBottomRight": CIVector(cgPoint: projection.bottomRight),
             "inputBottomLeft": CIVector(cgPoint: projection.bottomLeft)
-        ])
+        ]
+        let warped = content.cropped(to: fitted.frame).applyingFilter("CIPerspectiveTransform", parameters: perspectiveParams)
 
         var background = layers?.background ?? CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: outputRect)
-        if layers != nil, settings.exportStyle.shadowEnabled {
-            // Core Image space is y-up, so a negative offset puts the shadow below.
-            let shape = warped
-                .transformed(by: CGAffineTransform(translationX: 0, y: -8 * unit))
-                .applyingGaussianBlur(sigma: Double(20 * unit))
-            let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.32))
+        if let layers, settings.exportStyle.shadowEnabled {
+            // Warp the rounded-rect mask itself (rather than blurring full-RGBA video) for a
+            // cleaner, much cheaper GPU shadow that follows the 3D perspective frame.
+            let warpedMask = layers.contentMask
+                .cropped(to: fitted.frame)
+                .applyingFilter("CIPerspectiveTransform", parameters: perspectiveParams)
+                .transformed(by: CGAffineTransform(translationX: 0, y: -10 * unit))
+                .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 22 * unit])
                 .cropped(to: outputRect)
-                .applyingFilter("CIBlendWithAlphaMask", parameters: [kCIInputMaskImageKey: shape])
+            let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.34))
+                .cropped(to: outputRect)
+                .applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: warpedMask])
             background = shadow.composited(over: background)
         }
         return warped.composited(over: background)
@@ -665,8 +696,9 @@ final class CompositionRenderer {
                 "inputAmount": 36 * unit * intensity
             ])
         case .whip:
-            // Leaving, the picture whips off to the left; arriving, it comes in from the right.
-            let shift = frame.width * 0.18 * intensity * (state.progress < 0 ? -1 : 1)
+            // Keep the horizontal whip shift within the motion-blur radius so clamped
+            // edge pixels blend cleanly instead of exposing a hard smeared stripe.
+            let shift = min(frame.width * 0.10, 64 * unit) * intensity * (state.progress < 0 ? -1 : 1)
             changed = clamped.transformed(by: CGAffineTransform(translationX: shift, y: 0))
                 .applyingFilter("CIMotionBlur", parameters: [
                     kCIInputRadiusKey: 80 * unit * intensity,
@@ -743,7 +775,7 @@ final class CompositionRenderer {
 
     /// Just the text, in a bitmap the size of the text.
     private func makeWatermarkImage(text: String, fontSize: CGFloat) -> CIImage {
-        let font = TextPlateLayout.systemFont(size: fontSize, weight: kCTFontWeightMedium)
+        let font = TextPlateLayout.systemFont(size: fontSize, weight: .medium)
         let color = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.55)
         let measured = TextPlateLayout.measureLine(text, font: font, color: color)
         let size = measured.size
@@ -920,7 +952,7 @@ final class CompositionRenderer {
             pillCache.removeAll()
         }
 
-        let font = TextPlateLayout.systemFont(size: fontSize, weight: kCTFontWeightSemibold)
+        let font = TextPlateLayout.systemFont(size: fontSize, weight: .semibold)
         let color = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
         let measured = TextPlateLayout.measureLine(text, font: font, color: color, kern: fontSize * 0.02)
         let textSize = measured.size
@@ -1004,10 +1036,14 @@ final class CompositionRenderer {
             .transformed(by: CGAffineTransform(translationX: -rimWidth, y: -rimWidth - shadowOffset))
             .applyingGaussianBlur(sigma: Double(max(3, diameter * 0.045)))
 
-        let margin = diameter * 0.25 + rimWidth
-        let bounds = CGRect(x: -margin, y: -margin, width: diameter + margin * 2, height: diameter + margin * 2)
-        let backing = camera.borderEnabled ? outline.composited(over: shadow) : shadow
-        let layers = CameraLayers(mask: mask, backing: backing.cropped(to: bounds))
+        let margin = (diameter * 0.25 + rimWidth).rounded(.up)
+        let backingSize = CGSize(width: diameter + margin * 2, height: diameter + margin * 2)
+        let backing = (camera.borderEnabled ? outline.composited(over: shadow) : shadow)
+            .transformed(by: CGAffineTransform(translationX: margin, y: margin))
+        // Materialize once so the bubble shadow isn't re-blurred every frame.
+        let materializedBacking = materialize(backing, size: backingSize)
+            .transformed(by: CGAffineTransform(translationX: -margin, y: -margin))
+        let layers = CameraLayers(mask: mask, backing: materializedBacking)
         cachedCamera = (key, layers)
         return layers
     }
@@ -1174,11 +1210,12 @@ final class CompositionRenderer {
         let ripples = rippleEvaluator.ripples(at: time, clicks: settings.clickEvents)
         guard !ripples.isEmpty else { return image }
 
+        let scale = max(settings.sourcePixelsPerPoint, 1)
         // Click locations are bottom-up, the same space as the source image.
         return ripples.reduce(image) { composed, ripple in
-            let radius = motionFX.rippleRadius * (0.18 + 0.82 * ripple.progress)
+            let radius = motionFX.rippleRadius * scale * (0.18 + 0.82 * ripple.progress)
             let alpha = (1 - ripple.progress) * (ripple.ring == 0 ? 0.7 : 0.42)
-            let lineWidth: CGFloat = ripple.ring == 0 ? 3.2 : 2.2
+            let lineWidth: CGFloat = (ripple.ring == 0 ? 3.2 : 2.2) * scale
             return ring(center: ripple.location, radius: radius, lineWidth: lineWidth, alpha: alpha)
                 .composited(over: composed)
         }
@@ -1221,25 +1258,37 @@ final class CompositionRenderer {
 
     // MARK: - Spotlight
 
-    private func outputPoint(
+    /// Maps a source cursor point into output canvas space along with a smooth 0–1 fade
+    /// across the outer 8% margin beyond the crop boundary so the spotlight never snaps off.
+    private func outputPointWithFade(
         forSource point: CGPoint,
         cropRect: NormalizedRect,
         contentFrame: CGRect,
         sourceWidth: CGFloat,
         sourceHeight: CGFloat
-    ) -> CGPoint? {
+    ) -> (point: CGPoint, fade: CGFloat)? {
         let localX = (point.x / sourceWidth - cropRect.x) / max(cropRect.width, 0.0001)
         let localY = (point.y / sourceHeight - cropRect.y) / max(cropRect.height, 0.0001)
-        guard localX >= 0, localX <= 1, localY >= 0, localY <= 1 else {
-            return nil
-        }
-        return CGPoint(
-            x: contentFrame.minX + localX * contentFrame.width,
-            y: contentFrame.minY + localY * contentFrame.height
+        let edgeMargin: CGFloat = 0.08
+        let overflowX = max(0, max(-localX, localX - 1))
+        let overflowY = max(0, max(-localY, localY - 1))
+        let overflow = max(overflowX, overflowY)
+        guard overflow < edgeMargin else { return nil }
+        let fade = 1 - overflow / edgeMargin
+        let clampedX = min(max(localX, 0), 1)
+        let clampedY = min(max(localY, 0), 1)
+        return (
+            CGPoint(
+                x: contentFrame.minX + clampedX * contentFrame.width,
+                y: contentFrame.minY + clampedY * contentFrame.height
+            ),
+            fade
         )
     }
 
-    private func applySpotlight(to image: CIImage, at point: CGPoint, canvas: CGSize) -> CIImage {
+    private func applySpotlight(to image: CIImage, at point: CGPoint, canvas: CGSize, opacity: CGFloat) -> CIImage {
+        let strength = motionFX.spotlightStrength * min(max(opacity, 0), 1)
+        guard strength > 0.001 else { return image }
         let outputRect = CGRect(origin: .zero, size: canvas)
         guard let filter = CIFilter(name: "CIRadialGradient") else { return image }
         filter.setValue(CIVector(x: point.x, y: point.y), forKey: "inputCenter")
@@ -1249,7 +1298,7 @@ final class CompositionRenderer {
         filter.setValue(CIColor(red: 0, green: 0, blue: 0, alpha: 1), forKey: "inputColor0")
         filter.setValue(CIColor(red: 1, green: 1, blue: 1, alpha: 1), forKey: "inputColor1")
         let mask = (filter.outputImage ?? CIImage.empty()).cropped(to: outputRect)
-        let overlay = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: motionFX.spotlightStrength))
+        let overlay = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: strength))
             .cropped(to: outputRect)
             .applyingFilter("CIBlendWithMask", parameters: [
                 kCIInputMaskImageKey: mask

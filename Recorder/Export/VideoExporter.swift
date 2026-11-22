@@ -112,7 +112,8 @@ final class VideoExporter {
                 width: outputWidth,
                 height: outputHeight,
                 bitrate: configuration.videoBitrate,
-                frameRate: configuration.frameRate
+                frameRate: configuration.frameRate,
+                strictBitrateCap: configuration.options.usesSizeLimit && configuration.options.maxMegabytes != nil
             )
         )
         writerInput.expectsMediaDataInRealTime = false
@@ -256,17 +257,30 @@ final class VideoExporter {
 
     /// Video settings for `format`, tagged Rec. 709 so players show the colours the
     /// preview does.
-    static func videoSettings(format: ExportFormat, width: Int, height: Int, bitrate: Int, frameRate: Int) -> [String: Any] {
+    static func videoSettings(
+        format: ExportFormat,
+        width: Int,
+        height: Int,
+        bitrate: Int,
+        frameRate: Int,
+        strictBitrateCap: Bool = false
+    ) -> [String: Any] {
         let color: [String: Any] = [
             AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
             AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
             AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
         ]
-        let compression: [String: Any] = [
+        var compression: [String: Any] = [
             AVVideoAverageBitRateKey: bitrate,
             AVVideoExpectedSourceFrameRateKey: max(1, frameRate),
             AVVideoMaxKeyFrameIntervalKey: max(1, frameRate) * 2
         ]
+        if strictBitrateCap, bitrate > 0 {
+            // Hard data-rate cap (bytes per second) prevents VideoToolbox hardware encoders
+            // from overshooting the target size limit.
+            let bytesPerSecond = max(bitrate / 8, 64_000)
+            compression[AVVideoDataRateLimitsKey] = [bytesPerSecond, 1]
+        }
         var settings: [String: Any]
         switch format {
         case .prores:
@@ -377,11 +391,12 @@ final class ExportFrameSource {
         frameRate = max(1, configuration.frameRate)
         clock = ConstantFrameRateTimeline(frameRate: max(1, configuration.frameRate), duration: edit.outputDuration)
 
-        let reader = try AVAssetReader(asset: asset)
-        reader.timeRange = CMTimeRange(
+        let trimRange = CMTimeRange(
             start: CMTime(seconds: edit.trimStart, preferredTimescale: 600),
             end: CMTime(seconds: edit.trimEnd, preferredTimescale: 600)
         )
+        let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = trimRange
         let output = AVAssetReaderTrackOutput(
             track: videoTrack,
             outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -400,13 +415,22 @@ final class ExportFrameSource {
         compositor = CompositionRenderer(keyframes: configuration.keyframes, settings: renderSettings)
 
         if renderSettings.camera.isVisible {
-            cameraFrames = try await CameraFrameSource(url: configuration.cameraURL)
+            cameraFrames = try await CameraFrameSource(url: configuration.cameraURL, timeRange: trimRange)
         }
 
         guard reader.startReading() else {
             throw reader.error ?? VideoExporterError.readerFailed
         }
         pendingFrame = readNextSourceFrame()
+
+        // ScreenCaptureKit is VFR and stops delivering frames while the screen is still.
+        // If trimming starts inside a static stretch or tail, seed `heldFrame` with the
+        // latest frame at or before `trimStart` so the export neither fails nor shows a
+        // future frame prematurely.
+        if edit.trimStart > 0.01,
+           pendingFrame == nil || (pendingFrame?.time ?? 0) > edit.trimStart + 0.005 {
+            heldFrame = Self.lastFrameAtOrBefore(edit.trimStart, asset: asset, track: videoTrack)
+        }
     }
 
     /// Renders output frame `index`. Call with increasing indexes.
@@ -417,15 +441,17 @@ final class ExportFrameSource {
         // Before the first source frame, show it anyway rather than a blank frame.
         while let pending = pendingFrame,
               heldFrame == nil || ConstantFrameRateTimeline.shouldAdvance(to: pending.time, forSourceTime: sourceTime) {
+            try Task.checkCancellation()
             heldFrame = pending
             pendingFrame = readNextSourceFrame()
         }
         guard let current = heldFrame else {
             throw reader.error ?? VideoExporterError.missingVideoTrack
         }
+        let cameraBuffer = try cameraFrames?.frame(atSourceTime: sourceTime)
         return try compositor.renderFrame(
             pixelBuffer: current.buffer,
-            cameraBuffer: cameraFrames?.frame(atSourceTime: sourceTime),
+            cameraBuffer: cameraBuffer,
             at: sourceTime,
             outputTime: outputTime,
             outputWidth: outputWidth,
@@ -451,6 +477,43 @@ final class ExportFrameSource {
         }
         return nil
     }
+
+    /// Finds the latest decoded frame at or before `targetTime` for VFR static stretches.
+    fileprivate static func lastFrameAtOrBefore(
+        _ targetTime: TimeInterval,
+        asset: AVAsset,
+        track: AVAssetTrack
+    ) -> (buffer: CVPixelBuffer, time: TimeInterval)? {
+        guard let seedReader = try? AVAssetReader(asset: asset) else { return nil }
+        seedReader.timeRange = CMTimeRange(
+            start: .zero,
+            end: CMTime(seconds: targetTime, preferredTimescale: 600)
+        )
+        let seedOutput = AVAssetReaderTrackOutput(
+            track: track,
+            outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        )
+        seedOutput.alwaysCopiesSampleData = false
+        guard seedReader.canAdd(seedOutput) else { return nil }
+        seedReader.add(seedOutput)
+        guard seedReader.startReading() else { return nil }
+        defer {
+            if seedReader.status == .reading {
+                seedReader.cancelReading()
+            }
+        }
+        var latest: (buffer: CVPixelBuffer, time: TimeInterval)?
+        while !Task.isCancelled, let sample = seedOutput.copyNextSampleBuffer() {
+            guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+            let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
+            if pts <= targetTime + 0.001 {
+                latest = (buffer, pts)
+            } else {
+                break
+            }
+        }
+        return latest
+    }
 }
 
 /// Sequential reader for the camera track that returns, for increasing source times, the
@@ -463,12 +526,13 @@ private final class CameraFrameSource {
     private var pending: (buffer: CVPixelBuffer, time: TimeInterval)?
 
     /// Returns `nil` when there is no readable camera track.
-    init?(url: URL?) async throws {
+    init?(url: URL?, timeRange: CMTimeRange) async throws {
         guard let url, FileManager.default.fileExists(atPath: url.path) else { return nil }
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else { return nil }
 
         reader = try AVAssetReader(asset: asset)
+        reader.timeRange = timeRange
         output = AVAssetReaderTrackOutput(
             track: track,
             outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -478,11 +542,16 @@ private final class CameraFrameSource {
         reader.add(output)
         guard reader.startReading() else { return nil }
         pending = readNext()
+        let startSeconds = CMTimeGetSeconds(timeRange.start)
+        if startSeconds > 0.01, pending == nil {
+            held = ExportFrameSource.lastFrameAtOrBefore(startSeconds, asset: asset, track: track)
+        }
     }
 
-    func frame(atSourceTime time: TimeInterval) -> CVPixelBuffer? {
+    func frame(atSourceTime time: TimeInterval) throws -> CVPixelBuffer? {
         while let next = pending,
               held == nil || ConstantFrameRateTimeline.shouldAdvance(to: next.time, forSourceTime: time) {
+            try Task.checkCancellation()
             held = next
             pending = readNext()
         }
@@ -493,6 +562,8 @@ private final class CameraFrameSource {
         if reader.status == .reading {
             reader.cancelReading()
         }
+        held = nil
+        pending = nil
     }
 
     private func readNext() -> (buffer: CVPixelBuffer, time: TimeInterval)? {

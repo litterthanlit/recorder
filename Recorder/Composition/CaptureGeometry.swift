@@ -47,9 +47,15 @@ enum CaptureGeometry {
     /// origin (what `SCStreamConfiguration.sourceRect` takes), leaving out a strip of
     /// `topInset` points at the top (the menu bar). The inset is capped at half the
     /// display so a bad value can't leave nothing to record.
-    static func sourceRect(displaySize: CGSize, topInset: CGFloat) -> CGRect {
+    static func sourceRect(displaySize: CGSize, topInset: CGFloat, scale: CGFloat = 0) -> CGRect {
         let inset = topInset.isFinite ? min(max(topInset, 0), displaySize.height / 2) : 0
-        return CGRect(x: 0, y: inset, width: displaySize.width, height: displaySize.height - inset)
+        var height = displaySize.height - inset
+        if scale.isFinite && scale > 0 {
+            let pixels = Int((height * scale).rounded(.down))
+            let evenPixels = max(2, pixels - (pixels % 2))
+            height = CGFloat(evenPixels) / scale
+        }
+        return CGRect(x: 0, y: inset, width: displaySize.width, height: height)
     }
 
     /// The area to record on a display, as `SCStreamConfiguration.sourceRect` takes it

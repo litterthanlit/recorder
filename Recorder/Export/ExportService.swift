@@ -9,8 +9,13 @@ enum ExportService {
         let sourceSize = CGSize(width: project.metadata.width, height: project.metadata.height)
         let canvasSize = settings.canvasPixelSize(source: sourceSize)
         let timeline = settings.resolvedTimeline(sourceDuration: project.metadata.duration)
-        let plan = options.plan(canvas: canvasSize, sourceFrameRate: project.metadata.fps, duration: timeline.outputDuration)
         let audioTrackCount = try await AVURLAsset(url: project.videoURL).loadTracks(withMediaType: .audio).count
+        let plan = options.plan(
+            canvas: canvasSize,
+            sourceFrameRate: project.metadata.fps,
+            duration: timeline.outputDuration,
+            hasAudio: audioTrackCount > 0
+        )
         return ExportConfiguration(
             keyframes: project.keyframes,
             outputSize: plan.size,
@@ -53,11 +58,12 @@ enum ExportService {
         let configuration = try await configuration(for: project, options: options)
 
         let fileManager = FileManager.default
-        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let parentDirectory = destination.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
         let workDirectory = try fileManager.url(
             for: .itemReplacementDirectory,
             in: .userDomainMask,
-            appropriateFor: destination,
+            appropriateFor: parentDirectory,
             create: true
         )
         defer { try? fileManager.removeItem(at: workDirectory) }

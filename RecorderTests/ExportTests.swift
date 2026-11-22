@@ -20,6 +20,20 @@ struct ExportOptionsTests {
         #expect(Int(gif.height) % 2 == 0)
         let small = CGSize(width: 640, height: 360)
         #expect(ExportOptions(format: .gif).outputSize(canvas: small) == small)
+        // Portrait 9:16 GIFs cap height as well as width so memory stays bounded.
+        let portrait = ExportOptions(format: .gif).outputSize(canvas: CGSize(width: 1080, height: 1920))
+        #expect(isClose(portrait.height, ExportOptions.gifMaximumWidth))
+        #expect(isClose(portrait.width, 404))
+    }
+
+    @Test func silentRecordingDoesNotDeductAudioFromSizeLimit() {
+        let canvas = CGSize(width: 1920, height: 1080)
+        let options = ExportOptions(format: .mp4, quality: .high, maxMegabytes: 10, includeAudio: true)
+        let withAudio = options.plan(canvas: canvas, sourceFrameRate: 30, duration: 300, hasAudio: true)
+        let silent = options.plan(canvas: canvas, sourceFrameRate: 30, duration: 300, hasAudio: false)
+        #expect(withAudio.audioBitrate == ExportOptions.limitedAudioBitrate)
+        #expect(silent.audioBitrate == 0)
+        #expect(silent.videoBitrate > withAudio.videoBitrate)
     }
 
     @Test func bitratesAndSizes() {

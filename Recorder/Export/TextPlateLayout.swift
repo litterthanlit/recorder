@@ -33,12 +33,19 @@ enum TextPlateLayout {
         }
     }
 
-    /// Creates a system UI font of `size` and CoreText `weight` (`kCTFontWeightMedium`, etc.).
-    static func systemFont(size: CGFloat, weight: CGFloat, monospacedDigits: Bool = false) -> CTFont {
+    /// Normalized CoreText font weight trait values matching `NSFont.Weight`.
+    enum FontWeight: CGFloat {
+        case medium = 0.23
+        case semibold = 0.30
+        case bold = 0.40
+    }
+
+    /// Creates a system UI font of `size` and CoreText `weight`.
+    static func systemFont(size: CGFloat, weight: FontWeight, monospacedDigits: Bool = false) -> CTFont {
         let clampedSize = max(6, size)
         let base = CTFontCreateUIFontForLanguage(.system, clampedSize, nil)
             ?? CTFontCreateWithName("HelveticaNeue" as CFString, clampedSize, nil)
-        let traits: [CFString: Any] = [kCTFontWeightTrait: weight]
+        let traits: [CFString: Any] = [kCTFontWeightTrait: weight.rawValue]
         var attributes: [CFString: Any] = [kCTFontTraitsAttribute: traits]
         if monospacedDigits {
             let feature: [CFString: Any] = [
@@ -87,17 +94,17 @@ enum TextPlateLayout {
     static func layout(text: String, style: TextOverlay.Style, scale: Double, unit: CGFloat, maxWidth: CGFloat) -> Layout {
         let clampedScale = CGFloat(min(max(scale, 0.3), 4))
         let fontSize = max(6, style.baseFontSize * clampedScale * unit)
-        let weight: CGFloat
+        let weight: FontWeight
         let padding: CGSize
         switch style {
         case .title:
-            weight = kCTFontWeightBold
+            weight = .bold
             padding = CGSize(width: 20 * unit, height: 18 * unit)
         case .caption:
-            weight = kCTFontWeightMedium
+            weight = .medium
             padding = CGSize(width: fontSize * 0.7, height: fontSize * 0.38)
         case .callout:
-            weight = kCTFontWeightSemibold
+            weight = .semibold
             padding = CGSize(width: fontSize * 0.8, height: fontSize * 0.42)
         }
 

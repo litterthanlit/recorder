@@ -85,10 +85,14 @@ final class CameraTrackWriter {
                 activeWriter.endSession(atSourceTime: lastFrameTime)
                 activeWriter.finishWriting { [weak self] in
                     let url = activeWriter.status == .completed ? finishedURL : nil
-                    self?.queue.async {
-                        self?.resetWriter(cancelling: false)
+                    guard let self else {
+                        continuation.resume(returning: url)
+                        return
                     }
-                    continuation.resume(returning: url)
+                    self.queue.async {
+                        self.resetWriter(cancelling: false)
+                        continuation.resume(returning: url)
+                    }
                 }
             }
         }
@@ -103,19 +107,18 @@ final class CameraTrackWriter {
     }
 
     private func setUpWriter(outputURL: URL, width: Int, height: Int) throws {
+        let evenWidth = max(2, width & ~1)
+        let evenHeight = max(2, height & ~1)
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
-        let input = AVAssetWriterInput(
-            mediaType: .video,
-            outputSettings: [
-                AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: width,
-                AVVideoHeightKey: height,
-                AVVideoCompressionPropertiesKey: [
-                    AVVideoAverageBitRateKey: max(2_000_000, width * height * 4),
-                    AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
-                ]
+        let codec = VideoCodecChoice.forFrame(width: evenWidth, height: evenHeight)
+        let outputSettings = codec.outputSettings(
+            width: evenWidth,
+            height: evenHeight,
+            compression: [
+                AVVideoAverageBitRateKey: max(2_000_000, evenWidth * evenHeight * 4)
             ]
         )
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
         input.expectsMediaDataInRealTime = true
         guard writer.canAdd(input) else {
             throw CameraTrackWriterError.setupFailed
@@ -126,8 +129,9 @@ final class CameraTrackWriter {
             assetWriterInput: input,
             sourcePixelBufferAttributes: [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: width,
-                kCVPixelBufferHeightKey as String: height
+                kCVPixelBufferWidthKey as String: evenWidth,
+                kCVPixelBufferHeightKey as String: evenHeight,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any]
             ]
         )
 

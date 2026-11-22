@@ -101,17 +101,27 @@ struct CanvasSpec: Codable, Equatable {
         self.resolution = resolution
     }
 
+    /// Hardware HEVC and Metal safe dimension cap.
+    static let maximumLongSide: CGFloat = 8192
+
     /// The pixel size for a recording of `source` pixels, with even dimensions.
     func pixelSize(source: CGSize) -> CGSize {
         let sourceAspect = source.width > 0 && source.height > 0 ? source.width / source.height : 16.0 / 9.0
+        var size: CGSize
         if aspect == .auto, resolution == .source {
-            return CanvasLayout.even(source)
+            size = source
+        } else {
+            let ratio = aspect.ratio ?? sourceAspect
+            let shortSide = resolution.shortSide ?? max(2, min(source.width, source.height))
+            size = ratio >= 1
+                ? CGSize(width: shortSide * ratio, height: shortSide)
+                : CGSize(width: shortSide, height: shortSide / ratio)
         }
-        let ratio = aspect.ratio ?? sourceAspect
-        let shortSide = resolution.shortSide ?? max(2, min(source.width, source.height))
-        let size = ratio >= 1
-            ? CGSize(width: shortSide * ratio, height: shortSide)
-            : CGSize(width: shortSide, height: shortSide / ratio)
+        let longSide = max(size.width, size.height)
+        if longSide > Self.maximumLongSide, longSide > 0 {
+            let scale = Self.maximumLongSide / longSide
+            size = CGSize(width: size.width * scale, height: size.height * scale)
+        }
         return CanvasLayout.even(size)
     }
 

@@ -146,7 +146,7 @@ enum AgentFrameRenderer {
     /// Tiles in a grid on a dark sheet, each labelled underneath.
     static func contactSheet(_ images: [CGImage], labels: [String], layout: FrameSampling.SheetLayout) -> CGImage? {
         let size = layout.size
-        let font = TextPlateLayout.systemFont(size: 13, weight: kCTFontWeightSemibold, monospacedDigits: true)
+        let font = TextPlateLayout.systemFont(size: 13, weight: .semibold, monospacedDigits: true)
         let textColor = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.9)
         return drawBitmap(size: size) { context in
             context.setFillColor(CGColor(srgbRed: 0.11, green: 0.11, blue: 0.12, alpha: 1))
@@ -171,7 +171,7 @@ enum AgentFrameRenderer {
     static func drawGrid(on image: CGImage) -> CGImage {
         let size = CGSize(width: image.width, height: image.height)
         let fontSize = max(10, min(size.width, size.height) / 40)
-        let font = TextPlateLayout.systemFont(size: fontSize, weight: kCTFontWeightBold, monospacedDigits: true)
+        let font = TextPlateLayout.systemFont(size: fontSize, weight: .bold, monospacedDigits: true)
         let textColor = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
         let badgeColor = CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.55)
         return drawBitmap(size: size) { context in

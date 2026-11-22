@@ -166,12 +166,14 @@ struct ExportOptions: Codable, Equatable {
         return max(1, source)
     }
 
-    /// Pixel size of the export for a canvas of `canvas` pixels (GIFs are scaled down).
+    /// Pixel size of the export for a canvas of `canvas` pixels (GIFs are scaled down on
+    /// whichever side is longer so tall portrait GIFs don't exhaust ImageIO memory).
     func outputSize(canvas: CGSize) -> CGSize {
-        guard format == .gif, canvas.width > Self.gifMaximumWidth, canvas.width > 0 else {
+        let longest = max(canvas.width, canvas.height)
+        guard format == .gif, longest > Self.gifMaximumWidth, longest > 0 else {
             return canvas
         }
-        let scale = Self.gifMaximumWidth / canvas.width
+        let scale = Self.gifMaximumWidth / longest
         return CanvasLayout.even(CGSize(width: canvas.width * scale, height: canvas.height * scale))
     }
 
@@ -184,17 +186,19 @@ struct ExportOptions: Codable, Equatable {
 
     /// Size, frame rate and bitrates of an export of a `canvas`-sized edit, `duration`
     /// seconds long, from a recording made at `sourceFrameRate` fps.
-    func plan(canvas: CGSize, sourceFrameRate: Int, duration: TimeInterval) -> ExportPlan {
+    /// - Parameter hasAudio: whether the source recording actually carries an audio track.
+    func plan(canvas: CGSize, sourceFrameRate: Int, duration: TimeInterval, hasAudio: Bool = true) -> ExportPlan {
         let size = outputSize(canvas: canvas)
         let fps = outputFrameRate(source: sourceFrameRate)
         let seconds = max(duration, 0)
+        let effectiveAudio = includeAudio && hasAudio
         switch format {
         case .gif:
             return ExportPlan(size: size, frameRate: fps, videoBitrate: 0, audioBitrate: 0, duration: seconds)
         case .prores:
             // ProRes 422 is about 5.3 bits per pixel per frame.
             let video = Int(Double(size.width * size.height) * Double(fps) * 5.3)
-            let audio = includeAudio ? Self.pcmAudioBitrate : 0
+            let audio = effectiveAudio ? Self.pcmAudioBitrate : 0
             return ExportPlan(size: size, frameRate: fps, videoBitrate: video, audioBitrate: audio, duration: seconds)
         case .mp4, .hevc:
             guard let maxMegabytes, maxMegabytes > 0, seconds > 0 else {
@@ -202,18 +206,30 @@ struct ExportOptions: Codable, Equatable {
                     size: size,
                     frameRate: fps,
                     videoBitrate: bitrate(size: size, fps: fps),
-                    audioBitrate: includeAudio ? Self.audioBitrate : 0,
+                    audioBitrate: effectiveAudio ? Self.audioBitrate : 0,
                     duration: seconds
                 )
             }
-            return fittedPlan(canvas: size, fps: fps, seconds: seconds, limitBytes: Int64(maxMegabytes) * 1_000_000)
+            return fittedPlan(
+                canvas: size,
+                fps: fps,
+                seconds: seconds,
+                limitBytes: Int64(maxMegabytes) * 1_000_000,
+                effectiveAudio: effectiveAudio
+            )
         }
     }
 
     /// The largest size and frame rate whose picture still holds up within the limit,
     /// at the quality's bitrate or less.
-    private func fittedPlan(canvas: CGSize, fps: Int, seconds: TimeInterval, limitBytes: Int64) -> ExportPlan {
-        let audio = includeAudio ? Self.limitedAudioBitrate : 0
+    private func fittedPlan(
+        canvas: CGSize,
+        fps: Int,
+        seconds: TimeInterval,
+        limitBytes: Int64,
+        effectiveAudio: Bool
+    ) -> ExportPlan {
+        let audio = effectiveAudio ? Self.limitedAudioBitrate : 0
         let budget = Double(limitBytes) * 8 * Self.sizeLimitHeadroom / seconds - Double(audio)
         let minimum = Self.minimumBitsPerPixelPerFrame(format)
         let candidates = Self.fitCandidates(canvas: canvas, fps: fps)
