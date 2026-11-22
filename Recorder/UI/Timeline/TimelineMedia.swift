@@ -36,7 +36,14 @@ final class TimelineMedia: ObservableObject {
         let url = project.videoURL
         async let levels = Self.loadPeaks(url: url)
         await loadThumbnails(url: url, duration: duration)
-        peaks = await levels
+        let loadedPeaks = await levels
+        if Task.isCancelled {
+            if loadedProjectID == project.metadata.id {
+                loadedProjectID = nil
+            }
+            return
+        }
+        peaks = loadedPeaks
         isLoaded = true
     }
 

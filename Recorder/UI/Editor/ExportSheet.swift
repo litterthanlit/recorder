@@ -265,7 +265,7 @@ struct ExportSheet: View {
 
     private func targetButton(_ target: ClipTarget) -> some View {
         let isActive = activeTarget == target
-        let tint: Color = isActive ? DS.Palette.accent : DS.Palette.primaryText
+        let tint: Color = isActive ? DS.Palette.accent : Color.primary
         let fill: Color = isActive ? DS.Palette.accent.opacity(0.12) : DS.Palette.raisedSurface
         let border: Color = isActive ? DS.Palette.accent : Color.primary.opacity(0.1)
         return Button {

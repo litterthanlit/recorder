@@ -39,12 +39,12 @@ final class ActivationPolicyController {
     func update() {
         let hasDocumentWindow = NSApp.windows.contains { window in
             guard window.identifier?.rawValue.hasPrefix(Self.identifierPrefix) == true else { return false }
-            return window.isVisible || window.isMiniaturized
+            return window.isVisible || window.isMiniaturized || (NSApp.isHidden && window.contentViewController != nil)
         }
         let policy: NSApplication.ActivationPolicy = hasDocumentWindow ? .regular : .accessory
         guard NSApp.activationPolicy() != policy else { return }
         NSApp.setActivationPolicy(policy)
-        if policy == .regular {
+        if policy == .regular && !NSApp.isHidden {
             NSApp.activate()
         }
     }

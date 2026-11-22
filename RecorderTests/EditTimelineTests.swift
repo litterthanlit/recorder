@@ -162,7 +162,7 @@ struct EditTimelineTests {
         #expect(edit.segments.count == 1)
     }
 
-    @Test func speedIsClamped() {
+    @Test func speedIsClamped() throws {
         var edit = EditTimeline(sourceDuration: 10)
         let id = edit.segments[0].id
         edit.setSpeed(100, forSegment: id)
@@ -171,6 +171,11 @@ struct EditTimelineTests {
         #expect(edit.segments[0].speed == EditTimeline.speedRange.lowerBound)
         edit.setSpeed(.nan, forSegment: id)
         #expect(edit.segments[0].speed == 1)
+
+        let badJSON = Data(#"{ "source": { "start": 0, "end": 5 }, "speed": 0 }"#.utf8)
+        let decoded = try JSONDecoder().decode(EditSegment.self, from: badJSON)
+        #expect(decoded.speed == EditTimeline.speedRange.lowerBound)
+        #expect(decoded.outputDuration.isFinite)
     }
 
     @Test func edgesCanReclaimCutMaterialButNotOverlap() {
@@ -178,9 +183,13 @@ struct EditTimelineTests {
         let second = edit.segments[1].id
         edit.setSourceStart(5, forSegment: second)
         #expect(isClose(edit.segments[1].source.start, 5))
+        edit.setSourceStart(.nan, forSegment: second)
+        #expect(isClose(edit.segments[1].source.start, 5))
         edit.setSourceStart(2, forSegment: second)
         #expect(isClose(edit.segments[1].source.start, 4))
         edit.setSourceEnd(20, forSegment: second, sourceDuration: 12)
+        #expect(isClose(edit.segments[1].source.end, 12))
+        edit.setSourceEnd(.infinity, forSegment: second, sourceDuration: 12)
         #expect(isClose(edit.segments[1].source.end, 12))
         edit.setSourceEnd(0, forSegment: second, sourceDuration: 12)
         #expect(isClose(edit.segments[1].source.duration, EditTimeline.minimumSegmentDuration))

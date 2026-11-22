@@ -382,6 +382,7 @@ final class AppState: ObservableObject {
     /// Moves a project to the Trash, closing it first if it's open.
     func moveToTrash(_ summary: ProjectSummary) {
         guard !session.isBusy else { return }
+        quickAccess?.dismiss(projectID: summary.id)
         editorPresenter.close(projectID: summary.id)
         session.forgetProject(id: summary.id)
         do {

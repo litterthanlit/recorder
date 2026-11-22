@@ -41,7 +41,8 @@ struct EditSegment: Codable, Equatable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         source = try container.decode(TimeSpan.self, forKey: .source)
-        speed = try container.decodeIfPresent(Double.self, forKey: .speed) ?? 1
+        let rawSpeed = try container.decodeIfPresent(Double.self, forKey: .speed) ?? 1
+        speed = EditTimeline.clampSpeed(rawSpeed)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -275,18 +276,22 @@ struct EditTimeline: Codable, Equatable {
     /// Moves a segment's start (in source time). It can grow back into cut material up to
     /// the previous segment, and can't shrink below the minimum.
     mutating func setSourceStart(_ time: TimeInterval, forSegment id: UUID) {
-        guard let index = segments.firstIndex(where: { $0.id == id }) else { return }
+        guard time.isFinite, let index = segments.firstIndex(where: { $0.id == id }) else { return }
         let lower = index > 0 ? segments[index - 1].source.end : 0
         let upper = segments[index].source.end - Self.minimumSegmentDuration
+        guard lower <= upper else { return }
         segments[index].source.start = min(max(time, lower), upper)
     }
 
     /// Moves a segment's end (in source time), up to the next segment or the end of the
     /// recording.
     mutating func setSourceEnd(_ time: TimeInterval, forSegment id: UUID, sourceDuration: TimeInterval) {
-        guard let index = segments.firstIndex(where: { $0.id == id }) else { return }
+        guard time.isFinite, sourceDuration.isFinite,
+              let index = segments.firstIndex(where: { $0.id == id })
+        else { return }
         let lower = segments[index].source.start + Self.minimumSegmentDuration
         let upper = index + 1 < segments.count ? segments[index + 1].source.start : sourceDuration
+        guard lower <= upper else { return }
         segments[index].source.end = max(min(time, upper), lower)
     }
 

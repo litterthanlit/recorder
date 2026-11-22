@@ -243,8 +243,12 @@ struct StylePresetTests {
         #expect(decodedSettings.music.isEnabled)
         #expect(isClose(BackgroundMusicSettings(volume: 2.0).clampedVolume, BackgroundMusicSettings.volumeRange.upperBound))
 
-        #expect(BackgroundStyle(kind: .solid, solidColor: .black).isDark)
-        #expect(!BackgroundStyle(kind: .solid, solidColor: .white).isDark)
+        var darkSolid = BackgroundStyle(kind: .solid)
+        darkSolid.solidColor = .black
+        var lightSolid = BackgroundStyle(kind: .solid)
+        lightSolid.solidColor = .white
+        #expect(darkSolid.isDark)
+        #expect(!lightSolid.isDark)
         #expect(ProjectStore.isMusicTrackName("music-abcdef01.m4a"))
         #expect(!ProjectStore.isMusicTrackName("../music-abcdef01.m4a"))
     }

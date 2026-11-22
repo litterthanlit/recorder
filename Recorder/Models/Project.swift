@@ -666,6 +666,10 @@ extension ProjectStore {
         for url in bundles {
             do {
                 let metadata = try loadMetadata(from: url)
+                let settingsURL = url.appendingPathComponent(File.settings)
+                if let settingsData = try? Data(contentsOf: settingsURL) {
+                    try FormatProbe.check(settingsData)
+                }
                 scan.projects.append(ProjectSummary(metadata: metadata, bundleURL: url, latestExport: latestExport(in: url)))
             } catch let ProjectStoreError.newerFormat(version) {
                 scan.unreadable.append(UnreadableProject(bundleURL: url, reason: .newerFormat(version)))

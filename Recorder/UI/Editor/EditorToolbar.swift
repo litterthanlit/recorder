@@ -108,6 +108,11 @@ private struct EditorNameField: View {
             .frame(width: 220, height: 28)
             .focused($isFocused)
             .onAppear { name = editor.displayName }
+            .onChange(of: editor.displayName) { _, updated in
+                if !isFocused {
+                    name = updated
+                }
+            }
             .onSubmit(commit)
             .onChange(of: isFocused) { _, focused in
                 if !focused {
@@ -119,7 +124,12 @@ private struct EditorNameField: View {
     }
 
     private func commit() {
-        editor.rename(to: name)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == editor.displayName {
+            name = editor.displayName
+            return
+        }
+        editor.rename(to: trimmed)
         name = editor.displayName
     }
 }
@@ -405,6 +415,10 @@ final class EditorKeyCommandView: NSView {
     /// Space and the arrow keys.
     private static let controlKeys: Set<UInt16> = [0x31, 0x7B, 0x7C, 0x7D, 0x7E]
 
+    deinit {
+        removeMonitor()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
@@ -418,7 +432,7 @@ final class EditorKeyCommandView: NSView {
     }
 
     private func handle(_ event: NSEvent) -> Bool {
-        guard let window, event.window === window, window.isKeyWindow else { return false }
+        guard let window, event.window === window, window.isKeyWindow, window.attachedSheet == nil else { return false }
         let responder = window.firstResponder
         // Typing in a text field (its field editor is an NSText).
         if responder is NSText {
@@ -430,7 +444,8 @@ final class EditorKeyCommandView: NSView {
             modifiers: combo.modifiers,
             character: event.charactersIgnoringModifiers
         ) else { return false }
-        if responder is NSControl, Self.controlKeys.contains(event.keyCode) {
+        let isFocusedControl = responder is NSControl || (responder as? NSView)?.canBecomeKeyView == true
+        if isFocusedControl, Self.controlKeys.contains(event.keyCode) {
             return false
         }
         // Holding a key down repeats stepping and nudging, nothing else.

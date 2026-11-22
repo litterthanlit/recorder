@@ -113,6 +113,19 @@ final class ShortcutRecorderControl: NSView {
         return true
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            isRecording = false
+        }
+    }
+
+    deinit {
+        if isRecording {
+            onRecordingChange?(false)
+        }
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()

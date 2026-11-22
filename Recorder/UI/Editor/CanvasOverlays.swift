@@ -206,16 +206,41 @@ private struct ManualZoomSelection: View {
                 }
             }
         }
-        .onHover { inside in
-            if inside {
-                NSCursor.crosshair.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
+        .hoverCursor(.crosshair)
         .accessibilityElement()
         .accessibilityLabel("Zoom area picker")
         .accessibilityHint("Drag over the preview to choose the area to zoom into")
+    }
+}
+
+/// Pushes `cursor` while hovered and guarantees a matching `pop()` on exit or disappear.
+private struct HoverCursorModifier: ViewModifier {
+    let cursor: NSCursor
+    @State private var isPushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                if inside, !isPushed {
+                    cursor.push()
+                    isPushed = true
+                } else if !inside, isPushed {
+                    NSCursor.pop()
+                    isPushed = false
+                }
+            }
+            .onDisappear {
+                if isPushed {
+                    NSCursor.pop()
+                    isPushed = false
+                }
+            }
+    }
+}
+
+extension View {
+    func hoverCursor(_ cursor: NSCursor) -> some View {
+        modifier(HoverCursorModifier(cursor: cursor))
     }
 }
 

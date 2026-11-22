@@ -173,11 +173,13 @@ final class ProjectEditor: ObservableObject {
     func rename(to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let newName = trimmed.isEmpty ? nil : trimmed
-        guard newName != project.metadata.name else { return }
+        let previousName = project.metadata.name
+        guard newName != previousName else { return }
         project.metadata.name = newName
         do {
             try ProjectStore.rename(bundleURL: project.bundleURL, to: trimmed)
         } catch {
+            project.metadata.name = previousName
             Log.editor.error("Rename failed: \(error.localizedDescription, privacy: .public)")
         }
     }
