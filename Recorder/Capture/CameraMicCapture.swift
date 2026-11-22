@@ -17,7 +17,18 @@ final class CameraMicCapture: NSObject {
     weak var delegate: CameraMicCaptureDelegate?
 
     /// Called on the capture queue whenever a (possibly processed) camera frame is ready.
-    var onCameraFrame: ((CVPixelBuffer) -> Void)?
+    var onCameraFrame: ((CVPixelBuffer) -> Void)? {
+        get {
+            bufferLock.lock()
+            defer { bufferLock.unlock() }
+            return _onCameraFrame
+        }
+        set {
+            bufferLock.lock()
+            _onCameraFrame = newValue
+            bufferLock.unlock()
+        }
+    }
 
     private let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "com.recorder.camera-mic.session")
@@ -29,6 +40,7 @@ final class CameraMicCapture: NSObject {
     private let audioOutput = AVCaptureAudioDataOutput()
     private let bufferLock = NSLock()
     private var latestCameraBuffer: CVPixelBuffer?
+    private var _onCameraFrame: ((CVPixelBuffer) -> Void)?
     private var isRunning = false
     private let backgroundProcessor = CameraBackgroundProcessor()
     private var backgroundMode: CameraBackgroundMode = .none
@@ -54,78 +66,94 @@ final class CameraMicCapture: NSObject {
         guard enableCamera || enableMicrophone else { return }
         guard !isRunning else { return }
 
+        bufferLock.lock()
         backgroundMode = cameraBackground
+        bufferLock.unlock()
 
-        session.beginConfiguration()
-        session.sessionPreset = .high
+        try sessionQueue.sync {
+            session.beginConfiguration()
+            defer { session.commitConfiguration() }
 
-        for input in session.inputs {
-            session.removeInput(input)
-        }
-        for output in session.outputs {
-            session.removeOutput(output)
-        }
+            session.sessionPreset = .high
 
-        if enableCamera {
-            let device = resolveDevice(mediaType: .video, preferredID: cameraID)
-                ?? AVCaptureDevice.default(for: .video)
-            guard let device else {
-                throw CameraMicCaptureError.cameraUnavailable
+            for input in session.inputs {
+                session.removeInput(input)
             }
-            let input = try AVCaptureDeviceInput(device: device)
-            guard session.canAddInput(input) else {
-                throw CameraMicCaptureError.cameraUnavailable
+            for output in session.outputs {
+                session.removeOutput(output)
             }
-            session.addInput(input)
 
-            videoOutput.alwaysDiscardsLateVideoFrames = true
-            videoOutput.videoSettings = [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-            ]
-            videoOutput.setSampleBufferDelegate(self, queue: videoQueue)
-            guard session.canAddOutput(videoOutput) else {
-                throw CameraMicCaptureError.cameraUnavailable
-            }
-            session.addOutput(videoOutput)
+            if enableCamera {
+                let device = resolveDevice(mediaType: .video, preferredID: cameraID)
+                    ?? AVCaptureDevice.default(for: .video)
+                guard let device else {
+                    throw CameraMicCaptureError.cameraUnavailable
+                }
+                let input = try AVCaptureDeviceInput(device: device)
+                guard session.canAddInput(input) else {
+                    throw CameraMicCaptureError.cameraUnavailable
+                }
+                session.addInput(input)
 
-            if let connection = videoOutput.connection(with: .video) {
-                if connection.isVideoMirroringSupported {
+                videoOutput.alwaysDiscardsLateVideoFrames = true
+                videoOutput.videoSettings = [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+                ]
+                videoOutput.setSampleBufferDelegate(self, queue: videoQueue)
+                guard session.canAddOutput(videoOutput) else {
+                    throw CameraMicCaptureError.cameraUnavailable
+                }
+                session.addOutput(videoOutput)
+
+                if let connection = videoOutput.connection(with: .video),
+                   connection.isVideoMirroringSupported {
+                    // Must disable automatic mirroring before setting `isVideoMirrored`,
+                    // otherwise AVFoundation throws NSInvalidArgumentException.
+                    connection.automaticallyAdjustsVideoMirroring = false
                     connection.isVideoMirrored = true
                 }
             }
 
-            // Raw preview layer only when no virtual background — effects need processed frames.
-            if cameraBackground.requiresProcessing {
-                previewLayer = nil
-            } else {
-                let layer = AVCaptureVideoPreviewLayer(session: session)
-                layer.videoGravity = .resizeAspectFill
-                previewLayer = layer
+            if enableMicrophone {
+                let device = resolveDevice(mediaType: .audio, preferredID: microphoneID)
+                    ?? AVCaptureDevice.default(for: .audio)
+                guard let device else {
+                    throw CameraMicCaptureError.microphoneUnavailable
+                }
+                let input = try AVCaptureDeviceInput(device: device)
+                guard session.canAddInput(input) else {
+                    throw CameraMicCaptureError.microphoneUnavailable
+                }
+                session.addInput(input)
+
+                // Normalize native mic formats (16 kHz Bluetooth HFP, 96 kHz USB, multi-channel
+                // MacBook arrays) to 48 kHz mono PCM so AAC encoding always accepts them.
+                audioOutput.audioSettings = [
+                    AVFormatIDKey: kAudioFormatLinearPCM,
+                    AVSampleRateKey: 48_000,
+                    AVNumberOfChannelsKey: 1,
+                    AVLinearPCMBitDepthKey: 16,
+                    AVLinearPCMIsFloatKey: false,
+                    AVLinearPCMIsBigEndianKey: false,
+                    AVLinearPCMIsNonInterleaved: false
+                ]
+                audioOutput.setSampleBufferDelegate(self, queue: audioQueue)
+                guard session.canAddOutput(audioOutput) else {
+                    throw CameraMicCaptureError.microphoneUnavailable
+                }
+                session.addOutput(audioOutput)
             }
+        }
+
+        // Raw preview layer only when no virtual background — effects need processed frames.
+        if enableCamera, !cameraBackground.requiresProcessing {
+            let layer = AVCaptureVideoPreviewLayer(session: session)
+            layer.videoGravity = .resizeAspectFill
+            previewLayer = layer
         } else {
             previewLayer = nil
         }
 
-        if enableMicrophone {
-            let device = resolveDevice(mediaType: .audio, preferredID: microphoneID)
-                ?? AVCaptureDevice.default(for: .audio)
-            guard let device else {
-                throw CameraMicCaptureError.microphoneUnavailable
-            }
-            let input = try AVCaptureDeviceInput(device: device)
-            guard session.canAddInput(input) else {
-                throw CameraMicCaptureError.microphoneUnavailable
-            }
-            session.addInput(input)
-
-            audioOutput.setSampleBufferDelegate(self, queue: audioQueue)
-            guard session.canAddOutput(audioOutput) else {
-                throw CameraMicCaptureError.microphoneUnavailable
-            }
-            session.addOutput(audioOutput)
-        }
-
-        session.commitConfiguration()
         sessionQueue.async { [weak self] in
             self?.session.startRunning()
         }
@@ -135,15 +163,15 @@ final class CameraMicCapture: NSObject {
     func stop() {
         guard isRunning else { return }
         isRunning = false
-        onCameraFrame = nil
+        bufferLock.lock()
+        _onCameraFrame = nil
+        latestCameraBuffer = nil
+        backgroundMode = .none
+        bufferLock.unlock()
         sessionQueue.async { [weak self] in
             self?.session.stopRunning()
         }
-        bufferLock.lock()
-        latestCameraBuffer = nil
-        bufferLock.unlock()
         previewLayer = nil
-        backgroundMode = .none
     }
 
     /// Capture timestamps are on the session's clock; convert to the host clock that
@@ -164,18 +192,25 @@ final class CameraMicCapture: NSObject {
     }
 
     private func storeCameraFrame(_ pixelBuffer: CVPixelBuffer, hostTime: CMTime) {
-        let output: CVPixelBuffer
-        if backgroundMode.requiresProcessing {
-            output = backgroundProcessor.process(pixelBuffer, mode: backgroundMode) ?? pixelBuffer
-        } else {
-            output = pixelBuffer
-        }
+        autoreleasepool {
+            bufferLock.lock()
+            let mode = backgroundMode
+            let frameHandler = _onCameraFrame
+            bufferLock.unlock()
 
-        bufferLock.lock()
-        latestCameraBuffer = output
-        bufferLock.unlock()
-        trackWriter.append(output, hostTime: hostTime)
-        onCameraFrame?(output)
+            let output: CVPixelBuffer
+            if mode.requiresProcessing {
+                output = backgroundProcessor.process(pixelBuffer, mode: mode) ?? pixelBuffer
+            } else {
+                output = pixelBuffer
+            }
+
+            bufferLock.lock()
+            latestCameraBuffer = output
+            bufferLock.unlock()
+            trackWriter.append(output, hostTime: hostTime)
+            frameHandler?(output)
+        }
     }
 }
 

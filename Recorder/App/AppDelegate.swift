@@ -13,6 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.applicationDidFinishLaunching()
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        appState.applicationShouldTerminate()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         appState.applicationWillTerminate()
     }

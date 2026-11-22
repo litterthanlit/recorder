@@ -24,22 +24,33 @@ enum GIFWriter {
         ]
         CGImageDestinationSetProperties(destination, fileProperties as CFDictionary)
 
+        var pool: CVPixelBufferPool?
+        let poolAttributes: [CFString: Any] = [
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey: frames.outputWidth,
+            kCVPixelBufferHeightKey: frames.outputHeight,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary
+        ]
+        CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, poolAttributes as CFDictionary, &pool)
+
         let delays = GIFTiming.delays(frameCount: count, fps: frameRate)
         var lastReported = -1.0
         for index in 0..<count {
             try Task.checkCancellation()
-            let buffer = try frames.renderFrame(index, pool: nil)
-            guard let image = compactImage(from: buffer) else {
-                throw VideoExporterError.bufferCreationFailed
-            }
-            let delay = Double(delays[index]) / 100
-            let frameProperties: [CFString: Any] = [
-                kCGImagePropertyGIFDictionary: [
-                    kCGImagePropertyGIFDelayTime: delay,
-                    kCGImagePropertyGIFUnclampedDelayTime: delay
+            try autoreleasepool {
+                let buffer = try frames.renderFrame(index, pool: pool)
+                guard let image = compactImage(from: buffer) else {
+                    throw VideoExporterError.bufferCreationFailed
+                }
+                let delay = Double(delays[index]) / 100
+                let frameProperties: [CFString: Any] = [
+                    kCGImagePropertyGIFDictionary: [
+                        kCGImagePropertyGIFDelayTime: delay,
+                        kCGImagePropertyGIFUnclampedDelayTime: delay
+                    ]
                 ]
-            ]
-            CGImageDestinationAddImage(destination, image, frameProperties as CFDictionary)
+                CGImageDestinationAddImage(destination, image, frameProperties as CFDictionary)
+            }
 
             let fraction = Double(index + 1) / Double(count)
             if fraction - lastReported >= 0.01 || index == count - 1 {

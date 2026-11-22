@@ -114,6 +114,7 @@ final class AppState: ObservableObject {
     }
 
     func applicationDidFinishLaunching() {
+        PresentationModeManager.recoverDockIfNeeded()
         permissions.refresh()
         // Started in the background for an agent: no windows; the agent reports problems.
         let launchedForAgent = CommandLine.arguments.contains(TraceAppLauncher.argument)
@@ -122,7 +123,66 @@ final class AppState: ObservableObject {
         }
     }
 
+    func applicationShouldTerminate() -> NSApplication.TerminateReply {
+        switch session.state {
+        case .recording:
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Stop recording before quitting?"
+            alert.informativeText = "Quitting now without stopping will lose your current recording."
+            alert.addButton(withTitle: "Stop & Save")
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Discard & Quit")
+            NSApp.activate()
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                Task { @MainActor in
+                    await session.stop()
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                }
+                return .terminateLater
+            case .alertThirdButtonReturn:
+                Task { @MainActor in
+                    await session.discard()
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                }
+                return .terminateLater
+            default:
+                return .terminateCancel
+            }
+        case .countdown:
+            session.cancelCountdown()
+            return .terminateNow
+        case .processing:
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = "Saving your recording…"
+            alert.informativeText = "Wait a moment for the recording to finish saving before quitting."
+            alert.addButton(withTitle: "Keep Open")
+            alert.addButton(withTitle: "Quit Anyway")
+            NSApp.activate()
+            return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+        case .idle, .editing, .finished, .failed:
+            break
+        }
+
+        if session.activeEditor?.isExporting == true {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "An export is still running"
+            alert.informativeText = "Quitting now will cancel the export in progress."
+            alert.addButton(withTitle: "Keep Exporting")
+            alert.addButton(withTitle: "Quit Anyway")
+            NSApp.activate()
+            if alert.runModal() != .alertSecondButtonReturn {
+                return .terminateCancel
+            }
+        }
+        return .terminateNow
+    }
+
     func applicationWillTerminate() {
+        session.restorePresentationModeOnTerminate()
         agentBridge.stop()
     }
 

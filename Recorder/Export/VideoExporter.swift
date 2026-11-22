@@ -97,6 +97,11 @@ final class VideoExporter {
             }
         }
 
+        let frameCount = frames.frameCount
+        guard frameCount > 0 else {
+            throw VideoExporterError.missingVideoTrack
+        }
+
         let outputWidth = frames.outputWidth
         let outputHeight = frames.outputHeight
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: format == .prores ? .mov : .mp4)
@@ -117,7 +122,9 @@ final class VideoExporter {
             sourcePixelBufferAttributes: [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
                 kCVPixelBufferWidthKey as String: outputWidth,
-                kCVPixelBufferHeightKey as String: outputHeight
+                kCVPixelBufferHeightKey as String: outputHeight,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
+                kCVPixelBufferMetalCompatibilityKey as String: true
             ]
         )
 
@@ -142,7 +149,7 @@ final class VideoExporter {
             throw writer.error ?? VideoExporterError.writerSetupFailed
         }
         writer.startSession(atSourceTime: .zero)
-        if let audioReader, !audioReader.startReading() {
+        if audioWriterInput != nil, let audioReader, !audioReader.startReading() {
             writer.cancelWriting()
             throw audioReader.error ?? VideoExporterError.readerFailed
         }
@@ -155,7 +162,13 @@ final class VideoExporter {
             func pumpAudio() throws {
                 guard !audioFinished, let audioReaderOutput, let audioWriterInput else { return }
                 while audioWriterInput.isReadyForMoreMediaData {
+                    guard writer.status == .writing else {
+                        throw writer.error ?? VideoExporterError.writerSetupFailed
+                    }
                     guard let audioSample = audioReaderOutput.copyNextSampleBuffer() else {
+                        if let audioReader, audioReader.status == .failed {
+                            throw audioReader.error ?? VideoExporterError.readerFailed
+                        }
                         audioWriterInput.markAsFinished()
                         audioFinished = true
                         return
@@ -171,10 +184,12 @@ final class VideoExporter {
             var lastVideoTime = CMTime.zero
             var frameIndex = 0
             var lastReportedProgress = -1.0
-            let frameCount = frames.frameCount
 
             while frameIndex < frameCount {
                 try Task.checkCancellation()
+                guard writer.status == .writing else {
+                    throw writer.error ?? VideoExporterError.writerSetupFailed
+                }
                 try pumpAudio()
 
                 guard writerInput.isReadyForMoreMediaData else {
@@ -182,10 +197,12 @@ final class VideoExporter {
                     continue
                 }
 
-                let processed = try frames.renderFrame(frameIndex, pool: adaptor.pixelBufferPool)
                 let presentationTime = CMTime(value: CMTimeValue(frameIndex), timescale: outputTimescale)
-                if !adaptor.append(processed, withPresentationTime: presentationTime) {
-                    throw writer.error ?? VideoExporterError.writerSetupFailed
+                try autoreleasepool {
+                    let processed = try frames.renderFrame(frameIndex, pool: adaptor.pixelBufferPool)
+                    if !adaptor.append(processed, withPresentationTime: presentationTime) {
+                        throw writer.error ?? VideoExporterError.writerSetupFailed
+                    }
                 }
                 lastVideoTime = presentationTime
                 frameIndex += 1
@@ -196,6 +213,9 @@ final class VideoExporter {
                     lastReportedProgress = progress
                     progressHandler(progress)
                 }
+                if frameIndex % 8 == 0 {
+                    await Task.yield()
+                }
             }
 
             writerInput.markAsFinished()
@@ -203,6 +223,9 @@ final class VideoExporter {
 
             while !audioFinished {
                 try Task.checkCancellation()
+                guard writer.status == .writing else {
+                    throw writer.error ?? VideoExporterError.writerSetupFailed
+                }
                 try pumpAudio()
                 if !audioFinished {
                     try await Task.sleep(nanoseconds: 2_000_000)

@@ -56,6 +56,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     /// Presentation time of the last frame written (writer queue only); timestamps must
     /// keep increasing, including across a pause.
     private var lastAppendedTime = CMTime.invalid
+    /// End timestamp of the last audio buffer appended to each audio input (writer queue only).
+    private var lastMicAudioEndTime = CMTime.invalid
+    private var lastSystemAudioEndTime = CMTime.invalid
     /// The newest frame delivered while paused, written when the take resumes so the
     /// video doesn't show the pre-pause screen until something changes.
     private var pausedPixelBuffer: CVPixelBuffer?
@@ -205,6 +208,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         writerQueue.sync {
             firstSampleTime = nil
             lastAppendedTime = .invalid
+            lastMicAudioEndTime = .invalid
+            lastSystemAudioEndTime = .invalid
             pausedPixelBuffer = nil
             droppedVideoFrames = 0
             droppedAudioBuffers = 0
@@ -556,7 +561,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
         // Write in fragments so a crash mid-take leaves a recoverable movie.
         writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
-        writer.startWriting()
+        guard writer.startWriting() else {
+            throw writer.error ?? ScreenRecorderError.writerFailed
+        }
         writer.startSession(atSourceTime: .zero)
 
         assetWriter = writer
@@ -575,16 +582,23 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
         let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let isFirstFrame = firstSampleTime == nil
+
+        let relativeTime: CMTime
         if isFirstFrame {
-            firstSampleTime = presentationTime
-            options.clock.setEpoch(presentationTime)
+            guard !options.clock.isPaused else {
+                pausedPixelBuffer = pixelBuffer
+                return
+            }
+            relativeTime = .zero
+        } else {
+            guard let mapped = options.clock.recordingTime(forHost: presentationTime) else {
+                // Paused: nothing is written, but keep the newest frame for the resume.
+                pausedPixelBuffer = pixelBuffer
+                return
+            }
+            relativeTime = mapped
         }
 
-        guard let relativeTime = options.clock.recordingTime(forHost: presentationTime) else {
-            // Paused: nothing is written, but keep the newest frame for the resume.
-            pausedPixelBuffer = pixelBuffer
-            return
-        }
         guard writerInput.isReadyForMoreMediaData else {
             droppedVideoFrames += 1
             return
@@ -593,12 +607,19 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         // The camera is recorded to its own track (CameraTrackWriter) and composited at
         // render time, so screen frames are written untouched.
         guard appendVideoFrame(pixelBuffer, at: relativeTime) else { return }
+        if isFirstFrame {
+            firstSampleTime = presentationTime
+            options.clock.setEpoch(presentationTime)
+        }
         lastWrittenTime = CMTimeAdd(relativeTime, resolvedFrameDuration(for: sampleBuffer))
 
+        let shouldNotifyFirstFrame = isFirstFrame && !didNotifyFirstFrame
+        if shouldNotifyFirstFrame {
+            didNotifyFirstFrame = true
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if isFirstFrame, !self.didNotifyFirstFrame {
-                self.didNotifyFirstFrame = true
+            if shouldNotifyFirstFrame {
                 self.delegate?.screenRecorder(self, didReceiveFirstFrameAt: presentationTime)
             }
             self.delegate?.screenRecorder(self, didWriteFrameAt: CMTimeGetSeconds(relativeTime))
@@ -642,9 +663,42 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         // narration by however long the mic took to start. Audio from before t = 0 or
         // while paused is dropped; a buffer that straddles a pause edge is trimmed.
         guard let kept = keptAudio(sampleBuffer, hostTime: hostTime),
-              let recordingTime = options.clock.recordingTime(forHost: kept.hostTime)
+              var recordingTime = options.clock.recordingTime(forHost: kept.hostTime)
         else { return }
-        let buffer = kept.buffer
+        var buffer = kept.buffer
+
+        // Enforce strictly non-overlapping, monotonic timestamps per audio track so AAC
+        // encoding never rejects buffers around pause/resume boundaries.
+        let isMicInput = (audioWriterInput === self.audioWriterInput)
+        let previousEnd = isMicInput ? lastMicAudioEndTime : lastSystemAudioEndTime
+        if previousEnd.isValid, recordingTime < previousEnd {
+            let duration = CMSampleBufferGetDuration(buffer)
+            let sampleCount = CMSampleBufferGetNumSamples(buffer)
+            guard duration.isValid, duration > .zero, sampleCount > 1 else { return }
+            let secondsPerSample = CMTimeGetSeconds(duration) / Double(sampleCount)
+            guard secondsPerSample > 0 else { return }
+            let overlap = CMTimeGetSeconds(CMTimeSubtract(previousEnd, recordingTime))
+            let skip = Int((overlap / secondsPerSample).rounded(.up))
+            guard skip < sampleCount else { return }
+            if skip > 0 {
+                var trimmed: CMSampleBuffer?
+                let status = CMSampleBufferCopySampleBufferForRange(
+                    allocator: kCFAllocatorDefault,
+                    sampleBuffer: buffer,
+                    sampleRange: CFRange(location: skip, length: sampleCount - skip),
+                    sampleBufferOut: &trimmed
+                )
+                guard status == OSStatus(noErr), let trimmed else { return }
+                buffer = trimmed
+                recordingTime = CMTimeMaximum(
+                    previousEnd,
+                    CMTimeAdd(recordingTime, CMTime(seconds: Double(skip) * secondsPerSample, preferredTimescale: 1_000_000_000))
+                )
+            } else {
+                recordingTime = previousEnd
+            }
+        }
+
         guard audioWriterInput.isReadyForMoreMediaData else {
             droppedAudioBuffers += 1
             return
@@ -654,6 +708,17 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         guard let retimed = buffer.retimed(by: offset) else { return }
         if !audioWriterInput.append(retimed) {
             reportFailure(assetWriter.error ?? ScreenRecorderError.writerFailed)
+            return
+        }
+
+        let appendedDuration = CMSampleBufferGetDuration(retimed)
+        let appendedEnd = (appendedDuration.isValid && appendedDuration > .zero)
+            ? CMTimeAdd(recordingTime, appendedDuration)
+            : recordingTime
+        if isMicInput {
+            lastMicAudioEndTime = appendedEnd
+        } else {
+            lastSystemAudioEndTime = appendedEnd
         }
     }
 
@@ -673,9 +738,12 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         let sampleCount = CMSampleBufferGetNumSamples(sampleBuffer)
         guard sampleCount > 1 else { return nil }
         let secondsPerSample = CMTimeGetSeconds(duration) / Double(sampleCount)
-        let first = Int((CMTimeGetSeconds(CMTimeSubtract(kept.start, hostTime)) / secondsPerSample).rounded())
-        let count = Int((CMTimeGetSeconds(kept.duration) / secondsPerSample).rounded())
-        guard first >= 0, count > 0, first + count <= sampleCount else { return nil }
+        guard secondsPerSample > 0 else { return nil }
+        let rawFirst = Int((CMTimeGetSeconds(CMTimeSubtract(kept.start, hostTime)) / secondsPerSample).rounded(.up))
+        let rawEnd = Int((CMTimeGetSeconds(CMTimeSubtract(kept.end, hostTime)) / secondsPerSample).rounded(.down))
+        let first = min(max(rawFirst, 0), sampleCount)
+        let count = min(max(rawEnd - first, 0), sampleCount - first)
+        guard count > 0 else { return nil }
 
         var trimmed: CMSampleBuffer?
         let status = CMSampleBufferCopySampleBufferForRange(
@@ -685,7 +753,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
             sampleBufferOut: &trimmed
         )
         guard status == OSStatus(noErr), let trimmed else { return nil }
-        let trimmedHostTime = CMTimeAdd(hostTime, CMTime(seconds: Double(first) * secondsPerSample, preferredTimescale: 1_000_000_000))
+        let shifted = CMTimeAdd(hostTime, CMTime(seconds: Double(first) * secondsPerSample, preferredTimescale: 1_000_000_000))
+        // Clamp up to `kept.start` so floating-point rounding never lands inside the pause.
+        let trimmedHostTime = CMTimeMaximum(kept.start, shifted)
         return (trimmed, trimmedHostTime)
     }
 

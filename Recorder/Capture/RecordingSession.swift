@@ -140,6 +140,11 @@ final class RecordingSession: ObservableObject {
         }
     }
 
+    /// Restores the Dock synchronously when the app is terminating.
+    func restorePresentationModeOnTerminate() {
+        presentationMode.exitSynchronously()
+    }
+
     func refreshWindows() async {
         guard PermissionsManager.shared.hasScreenRecordingPermission else {
             availableWindows = []

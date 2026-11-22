@@ -65,7 +65,9 @@ final class RecordingOverlays {
 
     /// Below the recorded area if there's room, otherwise near the bottom of the screen.
     private func hudOrigin(size: CGSize) -> CGPoint {
-        let screen = session.recordingScreen ?? NSScreen.main ?? NSScreen.screens[0]
+        guard let screen = session.recordingScreen ?? NSScreen.main ?? NSScreen.screens.first else {
+            return .zero
+        }
         let visible = screen.visibleFrame
         if let area = session.recordingAreaFrame, area.minY - size.height - 16 > visible.minY {
             return CGPoint(

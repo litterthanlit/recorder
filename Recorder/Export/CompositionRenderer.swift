@@ -1,5 +1,5 @@
-import AppKit
 import CoreImage
+import CoreText
 import CoreVideo
 import Foundation
 
@@ -743,13 +743,12 @@ final class CompositionRenderer {
 
     /// Just the text, in a bitmap the size of the text.
     private func makeWatermarkImage(text: String, fontSize: CGFloat) -> CIImage {
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: max(6, fontSize), weight: .medium),
-            .foregroundColor: NSColor.white.withAlphaComponent(0.55)
-        ]
-        let size = (text as NSString).size(withAttributes: attributes)
-        return renderBitmap(size: CGSize(width: size.width + 2, height: size.height + 2)) { _ in
-            (text as NSString).draw(at: CGPoint(x: 1, y: 1), withAttributes: attributes)
+        let font = TextPlateLayout.systemFont(size: fontSize, weight: kCTFontWeightMedium)
+        let color = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.55)
+        let measured = TextPlateLayout.measureLine(text, font: font, color: color)
+        let size = measured.size
+        return renderBitmap(size: CGSize(width: size.width + 2, height: size.height + 2)) { context in
+            TextPlateLayout.drawLine(measured, at: CGPoint(x: 1, y: 1), in: context)
         }
     }
 
@@ -871,13 +870,19 @@ final class CompositionRenderer {
                 context.addPath(Self.roundedPath(plateRect, radius: min(size.height / 2, fontSize * 0.9)))
                 context.fillPath()
             }
-            let string = revealed.map { TextPlateLayout.revealing(layout.string, characters: $0) } ?? layout.string
-            string.draw(in: CGRect(
-                x: layout.padding.width,
-                y: layout.padding.height,
-                width: layout.textSize.width,
-                height: layout.textSize.height
-            ))
+            TextPlateLayout.draw(
+                layout,
+                revealed: revealed,
+                style: style,
+                unit: unit,
+                in: context,
+                rect: CGRect(
+                    x: layout.padding.width,
+                    y: layout.padding.height,
+                    width: layout.textSize.width,
+                    height: layout.textSize.height
+                )
+            )
         }
         textCache[key] = plate
         return plate
@@ -915,12 +920,10 @@ final class CompositionRenderer {
             pillCache.removeAll()
         }
 
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: max(6, fontSize), weight: .semibold),
-            .foregroundColor: NSColor.white,
-            .kern: fontSize * 0.02
-        ]
-        let textSize = (text as NSString).size(withAttributes: attributes)
+        let font = TextPlateLayout.systemFont(size: fontSize, weight: kCTFontWeightSemibold)
+        let color = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        let measured = TextPlateLayout.measureLine(text, font: font, color: color, kern: fontSize * 0.02)
+        let textSize = measured.size
         let padding = CGSize(width: fontSize * 0.75, height: fontSize * 0.42)
         let size = CGSize(
             width: (textSize.width + padding.width * 2).rounded(.up),
@@ -937,9 +940,10 @@ final class CompositionRenderer {
             context.setLineWidth(border)
             context.addPath(path)
             context.strokePath()
-            (text as NSString).draw(
+            TextPlateLayout.drawLine(
+                measured,
                 at: CGPoint(x: (size.width - textSize.width) / 2, y: (size.height - textSize.height) / 2),
-                withAttributes: attributes
+                in: context
             )
         }
         pillCache[key] = pill
@@ -1310,8 +1314,7 @@ final class CompositionRenderer {
     }
 
     /// Draws into a transparent sRGB bitmap with a bottom-left origin (Core Image space).
-    /// AppKit drawing (strings, NSImage) works inside `draw`: an `NSGraphicsContext` is
-    /// installed around it, since the render queues don't have one.
+    /// Pure CoreGraphics/CoreText only so render and export queues never touch AppKit.
     private func renderBitmap(size: CGSize, draw: (CGContext) -> Void) -> CIImage {
         let width = Int(size.width.rounded(.up))
         let height = Int(size.height.rounded(.up))
@@ -1329,10 +1332,7 @@ final class CompositionRenderer {
             return CIImage.empty()
         }
 
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
         draw(context)
-        NSGraphicsContext.restoreGraphicsState()
 
         guard let cgImage = context.makeImage() else {
             return CIImage.empty()

@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import MediaToolbox
 
 /// Builds an `AVMutableComposition` that plays a recording as edited: kept segments in
 /// order, each scaled to its speed. The editor's player plays it (so preview audio and
@@ -34,8 +35,12 @@ enum TimelineCompositionBuilder {
 
         if includeVideo, let videoTrack = try await asset.loadTracks(withMediaType: .video).first,
            let compositionTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            try await insert(timeline: timeline, from: videoTrack, into: compositionTrack)
-            compositionTrack.preferredTransform = try await videoTrack.load(.preferredTransform)
+            let inserted = try await insert(timeline: timeline, from: videoTrack, into: compositionTrack)
+            if inserted {
+                compositionTrack.preferredTransform = try await videoTrack.load(.preferredTransform)
+            } else {
+                composition.removeTrack(compositionTrack)
+            }
         }
 
         var audioTracks: [AVMutableCompositionTrack] = []
@@ -49,16 +54,27 @@ enum TimelineCompositionBuilder {
                     withMediaType: .audio,
                     preferredTrackID: kCMPersistentTrackID_Invalid
                 ) else { continue }
-                try await insert(timeline: timeline, from: sourceTrack, into: compositionTrack)
+                let inserted = try await insert(timeline: timeline, from: sourceTrack, into: compositionTrack)
+                // An empty audio track can fail AVAssetReaderAudioMixOutput.startReading().
+                guard inserted else {
+                    composition.removeTrack(compositionTrack)
+                    continue
+                }
                 audioTracks.append(compositionTrack)
 
                 let role = index < audioRoles.count ? audioRoles[index] : .systemAudio
                 let input = AVMutableAudioMixInputParameters(track: compositionTrack)
-                let level = Float(audio.volume(for: role))
+                let requestedLevel = Float(audio.volume(for: role))
+                // AVAudioMix enforces 0...1; apply >1.0 boost via a pre-effects processing tap
+                // with soft limiting so cut fades and muting still fade cleanly to 0.
+                let mixLevel = min(max(requestedLevel, 0), 1)
+                if requestedLevel > 1.001, let tap = AudioGainTap.make(gain: requestedLevel) {
+                    input.audioTapProcessor = tap
+                }
                 if envelope.isEmpty {
-                    input.setVolume(level, at: .zero)
+                    input.setVolume(mixLevel, at: .zero)
                 } else {
-                    apply(envelope, level: level, to: input)
+                    apply(envelope, level: mixLevel, to: input)
                 }
                 input.audioTimePitchAlgorithm = .spectral
                 parameters.append(input)
@@ -78,32 +94,43 @@ enum TimelineCompositionBuilder {
 
     /// The track's level, shaped by `envelope` (output time).
     private static func apply(_ envelope: [VolumeRamp], level: Float, to input: AVMutableAudioMixInputParameters) {
+        let clampedLevel = min(max(level, 0), 1)
         if let first = envelope.first, first.start > 1e-9 {
-            input.setVolume(level, at: .zero)
+            input.setVolume(clampedLevel, at: .zero)
         }
+        var previousEnd = CMTime.zero
         for ramp in envelope {
+            // Convert start and end boundaries to CMTime directly (not independent duration)
+            // and clamp to `previousEnd` so rounding can never produce intersecting or
+            // zero-duration ranges (which throw NSInvalidArgumentException in AVAudioMix).
+            let rawStart = CMTime(seconds: ramp.start, preferredTimescale: timescale)
+            let start = CMTimeMaximum(rawStart, previousEnd)
+            let end = CMTime(seconds: ramp.start + ramp.duration, preferredTimescale: timescale)
+            guard end > start else { continue }
+            let fromVolume = clampedLevel * Float(min(max(ramp.from, 0), 1))
+            let toVolume = clampedLevel * Float(min(max(ramp.to, 0), 1))
             input.setVolumeRamp(
-                fromStartVolume: level * Float(ramp.from),
-                toEndVolume: level * Float(ramp.to),
-                timeRange: CMTimeRange(
-                    start: CMTime(seconds: ramp.start, preferredTimescale: timescale),
-                    duration: CMTime(seconds: ramp.duration, preferredTimescale: timescale)
-                )
+                fromStartVolume: fromVolume,
+                toEndVolume: toVolume,
+                timeRange: CMTimeRange(start: start, end: end)
             )
+            previousEnd = end
         }
     }
 
-    /// Lays `track` out along the edit.
+    /// Lays `track` out along the edit. Returns `true` if at least one segment was inserted.
+    @discardableResult
     private static func insert(
         timeline: EditTimeline,
         from track: AVAssetTrack,
         into compositionTrack: AVMutableCompositionTrack
-    ) async throws {
+    ) async throws -> Bool {
         let trackRange = try await track.load(.timeRange)
         let trackStart = CMTimeGetSeconds(trackRange.start)
         let trackEnd = CMTimeGetSeconds(trackRange.end)
-        guard trackStart.isFinite, trackEnd.isFinite, trackEnd > trackStart else { return }
+        guard trackStart.isFinite, trackEnd.isFinite, trackEnd > trackStart else { return false }
 
+        var insertedAny = false
         for entry in timeline.compositionPlan {
             let kept = TimeSpan(start: max(entry.source.start, trackStart), end: min(entry.source.end, trackEnd))
             guard kept.duration > 0.0005 else { continue }
@@ -124,12 +151,98 @@ enum TimelineCompositionBuilder {
                 duration: CMTime(seconds: kept.duration, preferredTimescale: timescale)
             )
             try compositionTrack.insertTimeRange(sourceRange, of: track, at: insertAt)
+            let insertedDuration = CMTimeSubtract(compositionTrack.timeRange.end, insertAt)
+            guard insertedDuration > .zero else { continue }
+            insertedAny = true
             if abs(entry.speed - 1) > 1e-9 {
-                compositionTrack.scaleTimeRange(
-                    CMTimeRange(start: insertAt, duration: sourceRange.duration),
-                    toDuration: CMTime(seconds: kept.duration / entry.speed, preferredTimescale: timescale)
+                let targetDuration = CMTime(
+                    seconds: CMTimeGetSeconds(insertedDuration) / entry.speed,
+                    preferredTimescale: timescale
                 )
+                if targetDuration > .zero {
+                    compositionTrack.scaleTimeRange(
+                        CMTimeRange(start: insertAt, duration: insertedDuration),
+                        toDuration: targetDuration
+                    )
+                }
             }
         }
+        return insertedAny
+    }
+}
+
+/// Applies >1.0 audio boost with a gentle soft-clip limiter inside an `AVAudioMix`.
+private enum AudioGainTap {
+    private final class Context {
+        let gain: Float
+        var isFloat32 = false
+
+        init(gain: Float) {
+            self.gain = gain
+        }
+    }
+
+    static func make(gain: Float) -> MTAudioProcessingTap? {
+        let context = Context(gain: gain)
+        let retained = Unmanaged.passRetained(context)
+        var callbacks = MTAudioProcessingTapCallbacks(
+            version: kMTAudioProcessingTapCallbacksVersion_0,
+            clientInfo: retained.toOpaque(),
+            init: { _, clientInfo, tapStorageOut in
+                tapStorageOut.pointee = clientInfo
+            },
+            finalize: { tap in
+                let storage = MTAudioProcessingTapGetStorage(tap)
+                Unmanaged<Context>.fromOpaque(storage).release()
+            },
+            prepare: { tap, _, processingFormat in
+                let context = Unmanaged<Context>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
+                let asbd = processingFormat.pointee
+                context.isFloat32 = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0 && asbd.mBitsPerChannel == 32
+            },
+            unprepare: nil,
+            process: { tap, numberFrames, _, bufferListInOut, numberFramesOut, flagsOut in
+                let status = MTAudioProcessingTapGetSourceAudio(
+                    tap,
+                    numberFrames,
+                    bufferListInOut,
+                    flagsOut,
+                    nil,
+                    numberFramesOut
+                )
+                guard status == noErr else { return }
+                let context = Unmanaged<Context>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
+                guard context.isFloat32 else { return }
+                let gain = context.gain
+                let buffers = UnsafeMutableAudioBufferListPointer(bufferListInOut)
+                for buffer in buffers {
+                    guard let data = buffer.mData else { continue }
+                    let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+                    let samples = data.bindMemory(to: Float.self, capacity: count)
+                    for index in 0..<count {
+                        let boosted = samples[index] * gain
+                        let magnitude = abs(boosted)
+                        if magnitude > 0.85 {
+                            let limited = 0.85 + 0.15 * tanh((magnitude - 0.85) / 0.15)
+                            samples[index] = boosted >= 0 ? limited : -limited
+                        } else {
+                            samples[index] = boosted
+                        }
+                    }
+                }
+            }
+        )
+        var tap: Unmanaged<MTAudioProcessingTap>?
+        let status = MTAudioProcessingTapCreate(
+            kCFAllocatorDefault,
+            &callbacks,
+            kMTAudioProcessingTapCreationFlag_PreEffects,
+            &tap
+        )
+        guard status == noErr, let tap else {
+            retained.release()
+            return nil
+        }
+        return tap.takeRetainedValue()
     }
 }
