@@ -15,6 +15,12 @@ final class LineSocket: @unchecked Sendable {
             self.descriptor = descriptor
         }
 
+        var open: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return isOpen
+        }
+
         func write(_ data: Data) -> Bool {
             lock.lock()
             defer { lock.unlock() }
@@ -42,6 +48,7 @@ final class LineSocket: @unchecked Sendable {
 
     private let channel: Channel
     private let queue: DispatchQueue
+    private let writeQueue: DispatchQueue
     private let stateLock = NSLock()
     private var source: DispatchSourceRead?
     private var isClosing = false
@@ -49,6 +56,7 @@ final class LineSocket: @unchecked Sendable {
     init(descriptor: Int32, label: String = "app.hypher.recorder.agent.socket") {
         channel = Channel(descriptor: descriptor)
         queue = DispatchQueue(label: label)
+        writeQueue = DispatchQueue(label: "\(label).write")
         UnixSocket.setNonBlocking(descriptor)
     }
 
@@ -99,10 +107,19 @@ final class LineSocket: @unchecked Sendable {
         source.resume()
     }
 
-    /// Writes one message and its newline. `false` once the socket is closed.
+    /// Queues one message and its newline for writing off the caller's thread. Returns
+    /// `false` once the socket is closed; if writing later fails, the socket closes.
     @discardableResult
     func send(_ message: JSONValue) -> Bool {
-        channel.write(message.line())
+        guard channel.open else { return false }
+        let line = message.line()
+        let channel = self.channel
+        writeQueue.async { [weak self] in
+            if !channel.write(line) {
+                self?.close()
+            }
+        }
+        return true
     }
 
     /// Stops reading and closes the descriptor (safe to call more than once).

@@ -97,11 +97,40 @@ struct LoudnessMeter {
     }
 
     /// Silence up to sample `index`, when that's more than a frame ahead (audio that
-    /// went missing), so later levels stay in place.
+    /// went missing), so later levels stay in place without allocating a zero buffer.
     mutating func pad(toSample index: Int) {
+        guard index > position else { return }
         let missing = index - position
         guard missing > frameLength else { return }
-        add([Float](repeating: 0, count: missing))
+
+        var remaining = missing
+        if filled > 0 {
+            let needed = frameLength - filled
+            if remaining >= needed {
+                filled = frameLength
+                position += needed
+                remaining -= needed
+                flush()
+            } else {
+                filled += remaining
+                position += remaining
+                return
+            }
+        }
+
+        // Guard against corrupt timestamps producing millions of silence frames.
+        let maximumPadFrames = 500_000
+        let fullFrames = min(remaining / frameLength, maximumPadFrames)
+        if fullFrames > 0 {
+            levels.append(contentsOf: repeatElement(SpeechDetector.silence, count: fullFrames))
+            position += fullFrames * frameLength
+            remaining -= fullFrames * frameLength
+        }
+        if remaining > 0 && remaining < frameLength {
+            filled = remaining
+            sum = 0
+            position += remaining
+        }
     }
 
     /// All the levels, the last (partial) frame included.

@@ -955,6 +955,11 @@ final class ProjectEditor: ObservableObject {
         snapshot
     }
 
+    /// Undo history handed back to the agent journal when the editor window closes.
+    var currentHistory: EditHistory<EditorSnapshot> {
+        history
+    }
+
     /// Applies an outside edit (an AI agent's) as one undo step named `actionName`. The
     /// preview, timeline and inspector follow as they do for any edit.
     func applyExternalEdit(_ actionName: String, _ change: (inout EditorSnapshot) throws -> Void) rethrows {

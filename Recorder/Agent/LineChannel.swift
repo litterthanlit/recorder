@@ -29,6 +29,11 @@ struct LineBuffer {
             if lineEnd > lineStart, pending[lineEnd - 1] == 0x0D {
                 lineEnd -= 1
             }
+            if lineEnd - lineStart > maximumLineLength {
+                pending.removeAll()
+                scanned = 0
+                throw Failure.lineTooLong
+            }
             if lineEnd > lineStart {
                 lines.append(pending.subdata(in: lineStart..<lineEnd))
             }
@@ -75,7 +80,13 @@ enum FileDescriptorIO {
                     if code == EINTR { continue }
                     if code == EAGAIN || code == EWOULDBLOCK {
                         var waiting = pollfd(fd: descriptor, events: Int16(POLLOUT), revents: 0)
-                        if poll(&waiting, 1, writeTimeout) > 0 { continue }
+                        var ready: Int32
+                        repeat {
+                            ready = poll(&waiting, 1, writeTimeout)
+                        } while ready < 0 && errno == EINTR
+                        if ready > 0 && (waiting.revents & Int16(POLLERR | POLLHUP | POLLNVAL)) == 0 {
+                            continue
+                        }
                     }
                     return false
                 }

@@ -74,8 +74,12 @@ final class AgentExportJobs {
 
     /// Whether an unfinished export is writing to `url`, so a new one picks another name.
     func isWriting(to url: URL) -> Bool {
-        let path = url.standardizedFileURL.path
-        return jobs.contains { !$0.isFinished && $0.destination.standardizedFileURL.path == path }
+        let key = Self.canonicalKey(for: url)
+        return jobs.contains { !$0.isFinished && Self.canonicalKey(for: $0.destination) == key }
+    }
+
+    private static func canonicalKey(for url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path.lowercased()
     }
 
     /// Queues an export of `project` (as given: the caller picks the edit to export).
@@ -85,6 +89,7 @@ final class AgentExportJobs {
         options: ExportOptions,
         destination: URL,
         outputDuration: TimeInterval,
+        canStart: @escaping @MainActor () -> Bool = { true },
         onFinish: @escaping @MainActor (Job) -> Void
     ) -> Job {
         let id = "exp_" + UUID().uuidString.prefix(8).lowercased()
@@ -101,9 +106,19 @@ final class AgentExportJobs {
             await previous?.value
             // Cancelled while it waited its turn.
             guard !job.isFinished else { return }
+            guard canStart() else {
+                job.finish(.failed(AgentAccessText.busy))
+                onFinish(job)
+                return
+            }
             job.state = .running
             do {
-                let url = try await ExportService.export(project, options: options, to: destination) { value in
+                let url = try await ExportService.export(
+                    project,
+                    options: options,
+                    to: destination,
+                    replaceExisting: false
+                ) { value in
                     guard job.state == .running else { return }
                     job.progress = min(max(value, job.progress), 1)
                 }
@@ -201,12 +216,14 @@ enum AgentExportTools {
         let destination = try self.destination(arguments, project: project, preferences: preferences, jobs: context.exports)
 
         let library = context.appState.library
+        let session = context.appState.session
         let job = context.exports.start(
             project: project,
             takeName: summary.displayName,
             options: options,
             destination: destination,
-            outputDuration: duration
+            outputDuration: duration,
+            canStart: { !session.isBusy }
         ) { _ in
             library.refresh()
         }
@@ -244,8 +261,9 @@ enum AgentExportTools {
         return status(job)
     }
 
-    /// Where the file goes: `folder` (or the export folder from Settings), named
-    /// `file_name` (or from the naming template), never replacing a file.
+    /// Where the file goes: `folder` (restricted to the configured export folder or
+    /// `~/Movies/Trace/Exports`), named `file_name` (or from the naming template), never
+    /// replacing a file.
     static func destination(
         _ arguments: AgentArguments,
         project: RecorderProject,
@@ -256,9 +274,20 @@ enum AgentExportTools {
         if let path = try arguments.string("folder") {
             let expanded = (path.trimmingCharacters(in: .whitespacesAndNewlines) as NSString).expandingTildeInPath
             guard expanded.hasPrefix("/") else {
-                throw AgentToolError("folder must be a full path, like ~/Desktop or /Users/you/Movies (got \"\(path)\").")
+                throw AgentToolError("folder must be a full path inside the export folder (got \"\(path)\").")
             }
-            folder = URL(fileURLWithPath: expanded, isDirectory: true)
+            let requested = URL(fileURLWithPath: expanded, isDirectory: true)
+            let resolved = requested.resolvingSymlinksInPath().standardizedFileURL
+            let allowedRoots = [
+                ProjectStore.exportsDirectory.resolvingSymlinksInPath().standardizedFileURL,
+                preferences.folderURL.resolvingSymlinksInPath().standardizedFileURL
+            ]
+            guard allowedRoots.contains(where: { isWithin($0, candidate: resolved) }) else {
+                throw AgentToolError(
+                    "Agents may only export into \(preferences.folderURL.path) or \(ProjectStore.exportsDirectory.path)."
+                )
+            }
+            folder = resolved
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory), !isDirectory.boolValue {
                 throw AgentToolError("\(folder.path) is a file, not a folder.")
@@ -286,6 +315,12 @@ enum AgentExportTools {
         return ExportNaming.uniqueURL(in: folder, fileName: fileName) { url in
             FileManager.default.fileExists(atPath: url.path) || jobs.isWriting(to: url)
         }
+    }
+
+    private static func isWithin(_ root: URL, candidate: URL) -> Bool {
+        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        let candidatePath = candidate.path
+        return candidatePath == root.path || candidatePath.hasPrefix(rootPath)
     }
 
     static func status(_ job: AgentExportJobs.Job) -> JSONValue {

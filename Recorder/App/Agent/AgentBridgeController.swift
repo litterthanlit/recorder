@@ -95,7 +95,7 @@ final class AgentToolHost: AgentBridgeHandler {
             case "view_frames":
                 return try await AgentTakeTools.viewFrames(arguments, context)
             case "open_take":
-                return try AgentTakeTools.openTake(arguments, context)
+                return try await AgentTakeTools.openTake(arguments, context)
             case "make_launch_demo":
                 return try await AgentLaunchDemoTools.makeLaunchDemo(arguments, context)
             case "edit_timeline":

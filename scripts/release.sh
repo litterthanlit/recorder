@@ -31,8 +31,8 @@ if [[ ! "$team_id" =~ ^[A-Z0-9]{10}$ ]]; then
   exit 1
 fi
 
-if ! security find-identity -v -p codesigning | grep -q "Developer ID Application"; then
-  echo "No \"Developer ID Application\" certificate in your keychain; see the setup notes in $0." >&2
+if ! security find-identity -v -p codesigning | grep -qE "Developer ID Application:.*\(${team_id}\)"; then
+  echo "No \"Developer ID Application\" certificate for team $team_id in your keychain; see the setup notes in $0." >&2
   exit 1
 fi
 
@@ -53,14 +53,20 @@ xcodebuild \
   -configuration Release \
   -quiet \
   SYMROOT="$out_dir/build" \
+  OBJROOT="$out_dir/obj" \
   RECORDER_SIGNING=developerid \
   DEVELOPMENT_TEAM="$team_id" \
   build
 
 echo "==> Checking the signature"
 codesign --verify --deep --strict --verbose=2 "$app"
-codesign -d --verbose=2 "$app" 2>&1 | grep -E '^(Authority=Developer ID Application|Timestamp=|flags=.*runtime)' \
-  || { echo "Not signed with Developer ID, a timestamp and the hardened runtime." >&2; exit 1; }
+sign_info="$(codesign -d --verbose=2 "$app" 2>&1)"
+grep -q '^Authority=Developer ID Application' <<<"$sign_info" \
+  || { echo "Not signed with a Developer ID Application certificate." >&2; exit 1; }
+grep -q '^Timestamp=' <<<"$sign_info" \
+  || { echo "Signature is missing a secure timestamp." >&2; exit 1; }
+grep -qE '^CodeDirectory .*flags=.*runtime' <<<"$sign_info" \
+  || { echo "Hardened runtime flag is not enabled on the signature." >&2; exit 1; }
 
 # notarytool takes a zip; ditto keeps the bundle's symlinks and extended attributes.
 ditto -c -k --keepParent "$app" "$zip"

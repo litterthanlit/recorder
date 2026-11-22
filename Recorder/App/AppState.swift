@@ -78,8 +78,12 @@ final class AppState: ObservableObject {
                 session?.soundsEnabled = enabled
             }
             .store(in: &cancellables)
-        editorPresenter.onClose = { [weak session] projectID in
-            session?.releaseEditor(id: projectID)
+        editorPresenter.onClose = { [weak self] projectID in
+            guard let self else { return }
+            if let editor = self.session.editor(for: projectID) {
+                self.agentBridge.host.journal.restore(editor.currentHistory, for: projectID)
+            }
+            self.session.releaseEditor(id: projectID)
         }
         editorPresenter.onRename = { [weak self] in
             self?.library.refresh()
@@ -385,6 +389,7 @@ final class AppState: ObservableObject {
         quickAccess?.dismiss(projectID: summary.id)
         editorPresenter.close(projectID: summary.id)
         session.forgetProject(id: summary.id)
+        agentBridge.host.journal.evict(summary.id)
         do {
             try library.moveToTrash(summary)
         } catch {

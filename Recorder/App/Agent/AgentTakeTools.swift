@@ -39,10 +39,24 @@ enum AgentTakeTools {
         return MCPToolResult.structured(detail, summary: "\(summary.displayName): \(length) recorded, \(edited) after the edit.")
     }
 
-    static func openTake(_ arguments: AgentArguments, _ context: AgentToolContext) throws -> JSONValue {
+    static func openTake(_ arguments: AgentArguments, _ context: AgentToolContext) async throws -> JSONValue {
         try context.ensureNotRecording()
         let summary = try context.resolveTake(arguments)
-        context.appState.openProject(summary)
+        if let editor = context.appState.session.editor(for: summary.id) {
+            context.appState.session.openProject(editor.project)
+        } else {
+            let bundleURL = summary.bundleURL
+            let loaded: RecorderProject
+            do {
+                loaded = try await Task.detached(priority: .userInitiated) {
+                    try ProjectStore.loadProject(from: bundleURL)
+                }.value
+            } catch {
+                throw AgentToolError("Couldn't open \(summary.displayName): \(error.localizedDescription)")
+            }
+            try context.ensureNotRecording()
+            context.appState.session.openProject(ProjectStore.reloadingEdits(of: loaded))
+        }
         let result: JSONValue = ["take_id": .string(summary.id.uuidString), "opened": true]
         return MCPToolResult.structured(result, summary: "Opened \(summary.displayName) in Trace's editor.")
     }

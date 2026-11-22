@@ -46,7 +46,7 @@ enum JSONRPCIncoming: Equatable {
                 : "Invalid request: expected a JSON object"
             return .invalid(id: nil, code: JSONRPC.invalidRequest, message: message)
         }
-        if let version = object["jsonrpc"], version != .string("2.0") {
+        guard object["jsonrpc"] == .string("2.0") else {
             return .invalid(id: object["id"].flatMap(JSONRPCID.init), code: JSONRPC.invalidRequest, message: "Invalid request: jsonrpc must be \"2.0\"")
         }
         guard let method = object["method"]?.stringValue else {
@@ -55,8 +55,11 @@ enum JSONRPCIncoming: Equatable {
             }
             return .invalid(id: object["id"].flatMap(JSONRPCID.init), code: JSONRPC.invalidRequest, message: "Invalid request: missing method")
         }
-        let params = object["params"]
+        let rawParams = object["params"]
+        let params: JSONValue? = (rawParams == .null) ? nil : rawParams
         if let params, params.objectValue == nil {
+            // JSON-RPC 2.0: notifications (no id) must never receive error responses.
+            guard object["id"] != nil else { return .response }
             return .invalid(id: object["id"].flatMap(JSONRPCID.init), code: JSONRPC.invalidRequest, message: "Invalid request: params must be an object")
         }
         guard let rawID = object["id"] else {

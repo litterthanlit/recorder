@@ -38,7 +38,8 @@ enum AgentLaunchDemoTools {
 
         progress.report(0.72, "Editing")
         var report = LaunchDemoReport()
-        let applied = try AgentEditTools.applyEdit("Launch Demo", arguments, context) { snapshot, take in
+        let pinnedArguments = AgentArguments(values: ["take_id": .string(summary.id.uuidString)])
+        let applied = try AgentEditTools.applyEdit("Launch Demo", pinnedArguments, context) { snapshot, take in
             report = try LaunchDemoRecipe(options: options).apply(to: &snapshot, take: take, analysis: analysis)
             return report.changes
         }

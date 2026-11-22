@@ -401,7 +401,9 @@ struct TakeAnalyzer {
                     .filter { $0.duration > 0.02 }
                     .map { TakeAnalysis.Cover.Piece(span: $0, rect: piece.rect, share: piece.share) }
             }
-            guard let first = pieces.first, let last = pieces.last else { continue }
+            guard let startTime = pieces.map(\.span.start).min(),
+                  let endTime = pieces.map(\.span.end).max()
+            else { continue }
             let action: TakeAnalysis.Cover.Action
             if group.inFront {
                 action = .keep
@@ -413,7 +415,7 @@ struct TakeAnalyzer {
             }
             result.append(TakeAnalysis.Cover(
                 appName: group.appName,
-                span: TimeSpan(start: first.span.start, end: last.span.end),
+                span: TimeSpan(start: startTime, end: endTime),
                 pieces: pieces,
                 action: action
             ))
