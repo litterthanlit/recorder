@@ -169,7 +169,7 @@ struct RecorderProject: Codable, Equatable {
         if FileManager.default.fileExists(atPath: local.path) {
             return local
         }
-        return StyleLibraryStore.imageURL(named: name)
+        return StyleLibraryStore.imageURL(named: name) ?? local
     }
 
     /// Optional background music file copied into the bundle.
