@@ -102,6 +102,13 @@ actor MCPServer {
             initialize(id: id, params: params)
             return
         }
+        if method == "server/discover" {
+            var result = discoverResult
+            // Always identify ourselves here, whichever era asked.
+            result = Self.adding([Self.serverInfoKey: serverInfo], toMetaOf: result)
+            respond(id, result, modern: true)
+            return
+        }
 
         let modern: Bool
         if let requested = params?["_meta"]?[Self.protocolVersionKey]?.stringValue {
@@ -132,11 +139,6 @@ actor MCPServer {
         }
 
         switch method {
-        case "server/discover":
-            var result = discoverResult
-            // Always identify ourselves here, whichever era asked.
-            result = Self.adding([Self.serverInfoKey: serverInfo], toMetaOf: result)
-            respond(id, result, modern: modern)
         case "ping":
             respond(id, [:], modern: modern)
         case "tools/list":
@@ -244,12 +246,10 @@ actor MCPServer {
 
     private func respond(_ id: JSONRPCID, _ result: JSONValue, modern: Bool) {
         var decorated = result
-        if case var .object(object) = decorated {
+        if modern, case var .object(object) = decorated {
             object["resultType"] = "complete"
             decorated = .object(object)
-            if modern {
-                decorated = Self.adding([Self.serverInfoKey: serverInfo], toMetaOf: decorated)
-            }
+            decorated = Self.adding([Self.serverInfoKey: serverInfo], toMetaOf: decorated)
         }
         emit(JSONRPC.result(id: id, decorated))
     }

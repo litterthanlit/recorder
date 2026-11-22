@@ -225,6 +225,7 @@ private struct ClipTrack: View {
             }
         }
         .frame(width: max(scale.contentWidth, 1), height: TimelineMetrics.clipHeight, alignment: .topLeading)
+        .coordinateSpace(name: "timelineTrack")
     }
 }
 
@@ -364,15 +365,9 @@ private struct ClipBlock: View {
             }
             .frame(width: 8, height: height)
             .contentShape(Rectangle())
-            .onHover { inside in
-                if inside {
-                    NSCursor.resizeLeftRight.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
+            .hoverCursor(.resizeLeftRight)
             .gesture(
-                DragGesture(minimumDistance: 1)
+                DragGesture(minimumDistance: 1, coordinateSpace: .named("timelineTrack"))
                     .onChanged { value in
                         if trimOrigin == nil {
                             trimOrigin = segment.source
@@ -394,6 +389,12 @@ private struct ClipBlock: View {
                         editor.endInteractiveEdit()
                     }
             )
+            .onDisappear {
+                if trimOrigin != nil {
+                    trimOrigin = nil
+                    editor.endInteractiveEdit()
+                }
+            }
             .accessibilityHidden(true)
     }
 }
@@ -435,6 +436,7 @@ private struct ZoomTrack: View {
             }
         }
         .frame(width: max(scale.contentWidth, 1), height: TimelineMetrics.zoomHeight, alignment: .topLeading)
+        .coordinateSpace(name: "timelineTrack")
     }
 
     /// Drag along empty track to add a zoom over that stretch; click to move the playhead.
@@ -523,6 +525,12 @@ private struct ZoomBlock: View {
                 }
                 .frame(width: width, height: height, alignment: .topLeading)
                 .offset(x: x, y: 4)
+                .onDisappear {
+                    if drag != nil {
+                        drag = nil
+                        editor.endInteractiveEdit()
+                    }
+                }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(keyframe.source == .manual ? "Added" : "Auto") zoom, \(String(format: "%.1f", Double(keyframe.scale))) times")
                 .accessibilityValue("\(Timecode.spoken(startOutput)) to \(Timecode.spoken(endOutput))")
@@ -548,18 +556,12 @@ private struct ZoomBlock: View {
             .fill(Color.clear)
             .frame(width: width, height: height)
             .contentShape(Rectangle())
-            .onHover { inside in
-                if inside {
-                    NSCursor.resizeLeftRight.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
+            .hoverCursor(.resizeLeftRight)
             .gesture(dragGesture(part, startOutput: startOutput, endOutput: endOutput))
     }
 
     private func dragGesture(_ part: Part, startOutput: TimeInterval, endOutput: TimeInterval) -> some Gesture {
-        DragGesture(minimumDistance: 2)
+        DragGesture(minimumDistance: 2, coordinateSpace: .named("timelineTrack"))
             .onChanged { value in
                 if drag == nil {
                     drag = (keyframe, startOutput, endOutput)
@@ -672,6 +674,7 @@ private struct ItemTrack: View {
             }
         }
         .frame(width: max(scale.contentWidth, 1), height: TimelineMetrics.itemHeight, alignment: .topLeading)
+        .coordinateSpace(name: "timelineTrack")
     }
 }
 
@@ -734,6 +737,12 @@ private struct ItemBlock: View {
                 }
                 .frame(width: width, height: height, alignment: .topLeading)
                 .offset(x: x, y: 3)
+                .onDisappear {
+                    if drag != nil {
+                        drag = nil
+                        editor.endInteractiveEdit()
+                    }
+                }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(item.title)
                 .accessibilityValue("\(Timecode.spoken(startOutput)) to \(Timecode.spoken(endOutput))")
@@ -758,18 +767,12 @@ private struct ItemBlock: View {
             .fill(Color.clear)
             .frame(width: width, height: height)
             .contentShape(Rectangle())
-            .onHover { inside in
-                if inside {
-                    NSCursor.resizeLeftRight.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
+            .hoverCursor(.resizeLeftRight)
             .gesture(dragGesture(part, startOutput: startOutput, endOutput: endOutput))
     }
 
     private func dragGesture(_ part: Part, startOutput: TimeInterval, endOutput: TimeInterval) -> some Gesture {
-        DragGesture(minimumDistance: 2)
+        DragGesture(minimumDistance: 2, coordinateSpace: .named("timelineTrack"))
             .onChanged { value in
                 if drag == nil {
                     drag = (item.span, startOutput, endOutput)
@@ -814,6 +817,7 @@ private struct WaveformTrack: View {
         let start = visibleRange.lowerBound
         let width = visibleRange.upperBound - visibleRange.lowerBound
         let timeline = editor.timeline
+        let outputSpans = timeline.outputSpans
         let peaks = media.peaks
         let end = scale.contentWidth
         return ZStack(alignment: .topLeading) {
@@ -831,9 +835,16 @@ private struct WaveformTrack: View {
                     let middle = size.height / 2
                     var x: CGFloat = 0
                     while x < size.width, start + x < end {
-                        let from = timeline.sourceTime(forOutput: scale.time(for: start + x))
-                        let to = timeline.sourceTime(forOutput: scale.time(for: start + x + barWidth + gap))
-                        let level = Waveform.displayLevel(Waveform.peak(in: peaks, from: from, to: to))
+                        let barOutStart = scale.time(for: start + x)
+                        let barOutEnd = scale.time(for: start + x + barWidth + gap)
+                        let peak = Self.keptPeak(
+                            in: peaks,
+                            timeline: timeline,
+                            outputSpans: outputSpans,
+                            fromOutput: barOutStart,
+                            toOutput: barOutEnd
+                        )
+                        let level = Waveform.displayLevel(peak)
                         let barHeight = max(1, level * (size.height - 6))
                         let bar = Path(roundedRect: CGRect(x: x, y: middle - barHeight / 2, width: barWidth, height: barHeight), cornerRadius: 1)
                         context.fill(bar, with: .color(DS.Palette.audioTrack.opacity(0.75)))
@@ -851,5 +862,29 @@ private struct WaveformTrack: View {
         }
         .accessibilityElement()
         .accessibilityLabel(peaks.isEmpty ? "No audio" : "Audio waveform")
+    }
+
+    /// Maximum peak within `[fromOutput, toOutput]` across kept segments only (never scanning cut-out gaps).
+    private static func keptPeak(
+        in peaks: [Float],
+        timeline: EditTimeline,
+        outputSpans: [TimeSpan],
+        fromOutput: TimeInterval,
+        toOutput: TimeInterval
+    ) -> Float {
+        guard !peaks.isEmpty else { return 0 }
+        let barSpan = TimeSpan(start: fromOutput, end: max(fromOutput, toOutput))
+        var best: Float = 0
+        for (index, outSpan) in outputSpans.enumerated() {
+            if outSpan.end <= barSpan.start { continue }
+            if outSpan.start >= barSpan.end { break }
+            let clippedStart = max(barSpan.start, outSpan.start)
+            let clippedEnd = min(barSpan.end, outSpan.end)
+            let seg = timeline.segments[index]
+            let srcStart = seg.source.start + (clippedStart - outSpan.start) * seg.speed
+            let srcEnd = min(seg.source.end, seg.source.start + (clippedEnd - outSpan.start) * seg.speed)
+            best = max(best, Waveform.peak(in: peaks, from: srcStart, to: srcEnd))
+        }
+        return best
     }
 }

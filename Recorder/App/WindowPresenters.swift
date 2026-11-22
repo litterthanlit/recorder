@@ -113,6 +113,26 @@ final class EditorPresenter: NSObject, NSWindowDelegate {
         onExported: @escaping (RecorderProject) -> Void,
         onRetake: (@MainActor () -> Void)? = nil
     ) {
+        if presentedEditor === editor, let existing = windowController?.window {
+            windowController?.showWindow(nil)
+            WindowPresenter.bringForward(existing)
+            return
+        }
+        if let previous = presentedEditor, previous !== editor {
+            if previous.isExporting {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "An export is still running"
+                alert.informativeText = "Opening another recording will cancel the export in progress."
+                alert.addButton(withTitle: "Keep Exporting")
+                alert.addButton(withTitle: "Switch Anyway")
+                NSApp.activate()
+                guard alert.runModal() == .alertSecondButtonReturn else { return }
+                previous.cancelExport()
+            }
+            previous.pausePlayback()
+            previous.flushAutosave()
+        }
         presentedEditor = editor
         let actions = EditorActions(
             export: { [weak editor] in

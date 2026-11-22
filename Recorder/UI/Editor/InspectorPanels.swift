@@ -149,6 +149,13 @@ struct BackgroundInspector: View {
                 range: 0...48
             ) { "\(Int($0.rounded())) pt" }
             InspectorToggle(title: "Shadow", isOn: editor.settingBinding(\.exportStyle.shadowEnabled, actionName: "Shadow"))
+            InspectorLabeled("Bezel") {
+                InspectorSegmentedPicker(
+                    "Bezel",
+                    selection: editor.settingBinding(\.exportStyle.frameBezel, actionName: "Frame Bezel"),
+                    options: FrameBezelStyle.allCases
+                ) { $0.label }
+            }
         }
         .disabled(!style.backgroundEnabled)
         .opacity(style.backgroundEnabled ? 1 : 0.45)
@@ -666,6 +673,7 @@ struct AudioInspector: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.lg) {
             levels
+            musicSection
             CutAudioSection(editor: editor)
         }
     }
@@ -692,5 +700,54 @@ struct AudioInspector: View {
             }
             InspectorHint("Sped-up clips keep their pitch.")
         }
+    }
+
+    private var musicSection: some View {
+        let hasMusic = editor.project.musicTrackURL != nil
+        return InspectorSection("Background music") {
+            HStack(spacing: DS.Spacing.xs) {
+                Button {
+                    chooseMusic()
+                } label: {
+                    Label(hasMusic ? "Replace Track…" : "Choose Track…", systemImage: "music.note")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                if hasMusic {
+                    Button(role: .destructive) {
+                        editor.removeMusicTrack()
+                    } label: {
+                        Text("Remove")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
+            }
+            if hasMusic {
+                EditorSlider(
+                    editor: editor,
+                    title: "Music volume",
+                    actionName: "Music Volume",
+                    value: editor.settingBinding(\.music.volume, actionName: "Music Volume", continuous: true),
+                    range: BackgroundMusicSettings.volumeRange
+                ) { $0 < 0.005 ? "Muted" : "\(Int(($0 * 100).rounded()))%" }
+                InspectorToggle(
+                    title: "Duck under narration",
+                    subtitle: "Softens music automatically when the microphone is audible.",
+                    isOn: editor.settingBinding(\.music.duckUnderNarration, actionName: "Music Ducking")
+                )
+            } else {
+                InspectorHint("Add a local audio track to loop softly behind your demo with automatic fade-in and fade-out.")
+            }
+        }
+    }
+
+    private func chooseMusic() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = "Add Music"
+        panel.message = "Choose a music track to loop behind the recording."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        editor.useMusicTrack(at: url)
     }
 }

@@ -87,6 +87,17 @@ struct SpeechDetectorTests {
         #expect(levels[2] == SpeechDetector.silence)
         #expect(meter.position == 20)
     }
+
+    @Test func padsHugeGapsWithoutAllocatingSampleBuffers() {
+        var meter = LoudnessMeter(frameLength: 160)
+        meter.add([0.5, 0.5])
+        // 10 minutes of missing audio at 8 kHz = 4,800,000 samples (30,000 silence frames).
+        meter.pad(toSample: 4_800_000)
+        let levels = meter.finish()
+        #expect(levels.count == 30_000)
+        #expect(levels.last == SpeechDetector.silence)
+        #expect(meter.position == 4_800_000)
+    }
 }
 
 @Suite("Screen changes")

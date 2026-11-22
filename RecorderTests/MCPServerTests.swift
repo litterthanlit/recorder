@@ -116,7 +116,7 @@ struct MCPServerTests {
         #expect(initialize["serverInfo"]?["version"]?.stringValue == "9.9")
         #expect(initialize["capabilities"]?["tools"] != nil)
         #expect(initialize["instructions"]?.stringValue == "Use the tools.")
-        #expect(initialize["resultType"]?.stringValue == "complete")
+        #expect(initialize["resultType"] == nil)
 
         let tools = try #require(log.response(id: 2)?["result"]?["tools"]?.arrayValue)
         #expect(tools.compactMap { $0["name"]?.stringValue } == ["echo", "slow", "progress"])
@@ -136,6 +136,8 @@ struct MCPServerTests {
         let log = EmittedMessages()
         let server = makeServer(log)
         await server.receive(request(1, "server/discover"))
+        // Discovery also succeeds without _meta so clients can learn supported versions first.
+        await server.receive(request(2, "server/discover", meta: nil))
 
         let result = try #require(log.response(id: 1)?["result"])
         let versions = result["supportedVersions"]?.arrayValue?.compactMap(\.stringValue) ?? []
@@ -144,6 +146,7 @@ struct MCPServerTests {
         #expect(result["_meta"]?[MCPServer.serverInfoKey]?["name"]?.stringValue == "trace")
         #expect(result["capabilities"]?["prompts"] != nil)
         #expect(result["resultType"]?.stringValue == "complete")
+        #expect(log.response(id: 2)?["result"]?["supportedVersions"] != nil)
     }
 
     @Test func modernResultsIdentifyTheServer() async throws {
@@ -185,7 +188,10 @@ struct MCPServerTests {
         let log = EmittedMessages()
         let server = makeServer(log)
         await server.receive(request(1, "ping", meta: nil))
-        #expect(log.response(id: 1)?["result"]?["resultType"]?.stringValue == "complete")
+        await server.receive(request(2, "ping"))
+        #expect(log.response(id: 1)?["result"] != nil)
+        #expect(log.response(id: 1)?["result"]?["resultType"] == nil)
+        #expect(log.response(id: 2)?["result"]?["resultType"]?.stringValue == "complete")
     }
 
     @Test func unknownMethodsAreNotFound() async {
@@ -303,15 +309,24 @@ struct JSONRPCMessageTests {
 
     @Test func rejectsBadShapes() {
         let wrongVersion: JSONValue = ["jsonrpc": "1.0", "id": 1, "method": "ping"]
+        let missingVersion: JSONValue = ["id": 1, "method": "ping"]
         let arrayParams: JSONValue = ["jsonrpc": "2.0", "id": 1, "method": "ping", "params": [1, 2]]
         let fractionalID: JSONValue = ["jsonrpc": "2.0", "id": 1.5, "method": "ping"]
-        for message in [wrongVersion, arrayParams, fractionalID] {
+        for message in [wrongVersion, missingVersion, arrayParams, fractionalID] {
             guard case let .invalid(_, code, _) = JSONRPCIncoming.classify(message) else {
                 Issue.record("Expected \(message.text) to be invalid")
                 continue
             }
             #expect(code == JSONRPC.invalidRequest)
         }
+
+        // params: null is treated like omitted params.
+        let nullParams: JSONValue = ["jsonrpc": "2.0", "id": 2, "method": "ping", "params": .null]
+        #expect(JSONRPCIncoming.classify(nullParams) == .request(id: .number(2), method: "ping", params: nil))
+
+        // Malformed notifications must not emit error responses.
+        let badNotification: JSONValue = ["jsonrpc": "2.0", "method": "notifications/initialized", "params": [1, 2]]
+        #expect(JSONRPCIncoming.classify(badNotification) == .response)
     }
 
     @Test func buildsResponses() {
@@ -397,6 +412,16 @@ struct LineFramingTests {
             failure = error
         }
         #expect(failure as? LineBuffer.Failure == LineBuffer.Failure.lineTooLong)
+
+        // A single completed line over the limit is also rejected.
+        var completedFailure: Error?
+        do {
+            _ = try buffer.append(Data("0123456789\n".utf8))
+        } catch {
+            completedFailure = error
+        }
+        #expect(completedFailure as? LineBuffer.Failure == LineBuffer.Failure.lineTooLong)
+
         let next = try buffer.append(Data("ok\n".utf8))
         #expect(next == [Data("ok".utf8)])
     }

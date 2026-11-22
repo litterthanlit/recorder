@@ -27,7 +27,7 @@ enum UnixSocket {
         MemoryLayout.size(ofValue: sockaddr_un().sun_path) - 1
     }
 
-    /// Connects to the socket at `path`.
+    /// Connects to the socket at `path`, verifying the peer belongs to the current user.
     static func connect(to path: String) throws -> Int32 {
         let address = try makeAddress(path)
         let descriptor = try makeSocket()
@@ -40,6 +40,10 @@ enum UnixSocket {
             let code = errno
             Darwin.close(descriptor)
             throw Failure.system("connect", code)
+        }
+        guard peerUserID(descriptor) == getuid() else {
+            Darwin.close(descriptor)
+            throw Failure.system("getpeereid", EACCES)
         }
         return descriptor
     }
@@ -55,11 +59,17 @@ enum UnixSocket {
     /// behind by a crash is replaced; a live one is not (`alreadyServing`).
     static func listen(at path: String) throws -> Int32 {
         let address = try makeAddress(path)
-        if FileManager.default.fileExists(atPath: path) {
+        var info = stat()
+        if lstat(path, &info) == 0 {
+            guard (info.st_mode & S_IFMT) == S_IFSOCK else {
+                throw Failure.system("lstat", EEXIST)
+            }
             if isListening(at: path) {
                 throw Failure.alreadyServing(path)
             }
-            unlink(path)
+            guard unlink(path) == 0 || errno == ENOENT else {
+                throw Failure.system("unlink", errno)
+            }
         }
         let descriptor = try makeSocket()
         let bound = withUnsafePointer(to: address) { pointer in
@@ -72,7 +82,12 @@ enum UnixSocket {
             Darwin.close(descriptor)
             throw Failure.system("bind", code)
         }
-        chmod(path, 0o600)
+        guard chmod(path, 0o600) == 0 else {
+            let code = errno
+            Darwin.close(descriptor)
+            unlink(path)
+            throw Failure.system("chmod", code)
+        }
         guard Darwin.listen(descriptor, 8) == 0 else {
             let code = errno
             Darwin.close(descriptor)

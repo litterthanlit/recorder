@@ -203,6 +203,7 @@ extension AgentEdits {
         duration: TimeInterval,
         notes: inout [String]
     ) throws {
+        var clearedTransition = false
         if let text = try arguments.string("cut_transition") {
             switch parseTransition(text) {
             case let .style(style)?:
@@ -212,12 +213,13 @@ extension AgentEdits {
                 notes.append("A \(style.label.lowercased()) transition at every cut.")
             case .straight?:
                 settings.cutTransition = nil
+                clearedTransition = true
                 notes.append("Straight cuts.")
             case nil:
                 throw AgentToolError("cut_transition must be zoom_blur, whip, blur_dip or none (got \"\(text)\").")
             }
         }
-        if let length = try arguments.double("cut_transition_duration", in: CutTransition.durationRange) {
+        if !clearedTransition, let length = try arguments.double("cut_transition_duration", in: CutTransition.durationRange) {
             var transition = settings.cutTransition ?? CutTransition()
             transition.duration = length
             settings.cutTransition = transition

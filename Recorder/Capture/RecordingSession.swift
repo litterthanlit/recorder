@@ -50,6 +50,7 @@ final class RecordingSession: ObservableObject {
     /// before the state says `.recording`; it's kept here and handled right after.
     private var pendingFirstFrameHostTime: CMTime?
     private var screenParametersObserver: NSObjectProtocol?
+    private var isStarting = false
 
     init() {
         screenRecorder.delegate = self
@@ -66,6 +67,12 @@ final class RecordingSession: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.refreshDisplays() }
+        }
+    }
+
+    deinit {
+        if let screenParametersObserver {
+            NotificationCenter.default.removeObserver(screenParametersObserver)
         }
     }
 
@@ -132,12 +139,18 @@ final class RecordingSession: ObservableObject {
 
     /// True while a take is being set up, captured, or saved.
     var isBusy: Bool {
+        if isStarting { return true }
         switch state {
         case .countdown, .recording, .processing:
             return true
         case .idle, .editing, .finished, .failed:
             return false
         }
+    }
+
+    /// Restores the Dock synchronously when the app is terminating.
+    func restorePresentationModeOnTerminate() {
+        presentationMode.exitSynchronously()
     }
 
     func refreshWindows() async {
@@ -154,6 +167,7 @@ final class RecordingSession: ObservableObject {
     /// Starts a new take. Works from any state that isn't already recording, so a bad
     /// take can be abandoned without exporting it.
     func start() async {
+        guard !isStarting else { return }
         switch state {
         case .idle:
             break
@@ -162,7 +176,10 @@ final class RecordingSession: ObservableObject {
         case .countdown, .recording, .processing:
             return
         }
+        isStarting = true
+        defer { isStarting = false }
         notice = nil
+        PermissionsManager.shared.refresh()
         guard PermissionsManager.shared.hasRequiredPermissions else {
             state = .failed("Screen Recording and Accessibility permissions are required.")
             return
@@ -488,9 +505,16 @@ final class RecordingSession: ObservableObject {
             if let interruption {
                 notice = "Recording stopped early (\(interruption.localizedDescription)). What was captured was saved."
             }
+            isPaused = false
+            currentBundleURL = nil
             state = .idle
             onTakeFinished?(project)
         } catch {
+            isPaused = false
+            if let currentBundleURL {
+                try? FileManager.default.removeItem(at: currentBundleURL)
+            }
+            currentBundleURL = nil
             state = .failed(error.localizedDescription)
         }
     }

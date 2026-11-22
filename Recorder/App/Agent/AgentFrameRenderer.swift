@@ -1,6 +1,6 @@
-import AppKit
 import AVFoundation
 import CoreImage
+import CoreText
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -59,6 +59,8 @@ enum AgentFrameRenderer {
         if request.rendered, let cameraURL = request.cameraURL {
             let camera = AVAssetImageGenerator(asset: AVURLAsset(url: cameraURL))
             camera.appliesPreferredTrackTransform = true
+            camera.requestedTimeToleranceBefore = .zero
+            camera.requestedTimeToleranceAfter = .zero
             camera.maximumSize = CGSize(width: 640, height: 640)
             cameraGenerator = camera
         }
@@ -144,22 +146,22 @@ enum AgentFrameRenderer {
     /// Tiles in a grid on a dark sheet, each labelled underneath.
     static func contactSheet(_ images: [CGImage], labels: [String], layout: FrameSampling.SheetLayout) -> CGImage? {
         let size = layout.size
+        let font = TextPlateLayout.systemFont(size: 13, weight: .semibold, monospacedDigits: true)
+        let textColor = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.9)
         return drawBitmap(size: size) { context in
             context.setFillColor(CGColor(srgbRed: 0.11, green: 0.11, blue: 0.12, alpha: 1))
             context.fill(CGRect(origin: .zero, size: size))
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold),
-                .foregroundColor: NSColor.white.withAlphaComponent(0.9)
-            ]
             for (index, image) in images.enumerated() {
                 // Layout frames are top-left origin; the bitmap is bottom-left.
                 let tile = layout.tileFrame(index)
                 let flipped = CGRect(x: tile.minX, y: size.height - tile.maxY, width: tile.width, height: tile.height)
                 context.draw(image, in: aspectFit(CGSize(width: image.width, height: image.height), in: flipped))
                 let text = index < labels.count ? labels[index] : "\(index + 1)"
-                (text as NSString).draw(
+                let measured = TextPlateLayout.measureLine(text, font: font, color: textColor)
+                TextPlateLayout.drawLine(
+                    measured,
                     at: CGPoint(x: flipped.minX + 2, y: flipped.minY - layout.labelHeight + 4),
-                    withAttributes: attributes
+                    in: context
                 )
             }
         }
@@ -169,15 +171,13 @@ enum AgentFrameRenderer {
     static func drawGrid(on image: CGImage) -> CGImage {
         let size = CGSize(width: image.width, height: image.height)
         let fontSize = max(10, min(size.width, size.height) / 40)
+        let font = TextPlateLayout.systemFont(size: fontSize, weight: .bold, monospacedDigits: true)
+        let textColor = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        let badgeColor = CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.55)
         return drawBitmap(size: size) { context in
             context.draw(image, in: CGRect(origin: .zero, size: size))
             context.setLineWidth(max(1, fontSize / 10))
             context.setStrokeColor(CGColor(srgbRed: 1, green: 0.2, blue: 0.6, alpha: 0.65))
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold),
-                .foregroundColor: NSColor.white,
-                .backgroundColor: NSColor.black.withAlphaComponent(0.55)
-            ]
             for step in 1...9 {
                 let fraction = CGFloat(step) / 10
                 let x = size.width * fraction
@@ -187,9 +187,13 @@ enum AgentFrameRenderer {
                 context.move(to: CGPoint(x: 0, y: y))
                 context.addLine(to: CGPoint(x: size.width, y: y))
                 context.strokePath()
-                let value = String(format: "%.1f", fraction) as NSString
-                value.draw(at: CGPoint(x: x + 3, y: size.height - fontSize * 1.5), withAttributes: attributes)
-                value.draw(at: CGPoint(x: 3, y: y + 3), withAttributes: attributes)
+                let measured = TextPlateLayout.measureLine(String(format: "%.1f", fraction), font: font, color: textColor)
+                let badgeSize = measured.size
+                for origin in [CGPoint(x: x + 3, y: size.height - fontSize * 1.5), CGPoint(x: 3, y: y + 3)] {
+                    context.setFillColor(badgeColor)
+                    context.fill(CGRect(origin: origin, size: badgeSize))
+                    TextPlateLayout.drawLine(measured, at: origin, in: context)
+                }
             }
         } ?? image
     }
@@ -201,7 +205,7 @@ enum AgentFrameRenderer {
         return CGRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height)
     }
 
-    /// An sRGB bitmap with a bottom-left origin; AppKit text drawing works inside `draw`.
+    /// An sRGB bitmap with a bottom-left origin; thread-safe (no AppKit graphics context).
     private static func drawBitmap(size: CGSize, draw: (CGContext) -> Void) -> CGImage? {
         let width = Int(size.width.rounded(.up))
         let height = Int(size.height.rounded(.up))
@@ -216,10 +220,7 @@ enum AgentFrameRenderer {
                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
               )
         else { return nil }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
         draw(context)
-        NSGraphicsContext.restoreGraphicsState()
         return context.makeImage()
     }
 

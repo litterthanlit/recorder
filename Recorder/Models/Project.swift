@@ -158,13 +158,27 @@ struct RecorderProject: Codable, Equatable {
         ProjectStore.latestExport(in: bundleURL)
     }
 
-    /// The picture behind the recording when the background is an image in the bundle.
+    /// The picture behind the recording when the background is an image in the bundle
+    /// (or shared from a saved Look in `StyleLibraryStore.imagesDirectory`).
     var backgroundImageURL: URL? {
         let background = editSettings.exportStyle.background
         guard background.kind == .image, let name = background.imageFileName,
               ProjectStore.isBackgroundImageName(name)
         else { return nil }
-        return bundleURL.appendingPathComponent(name)
+        let local = bundleURL.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: local.path) {
+            return local
+        }
+        return StyleLibraryStore.imageURL(named: name) ?? local
+    }
+
+    /// Optional background music file copied into the bundle.
+    var musicTrackURL: URL? {
+        guard let name = editSettings.music.fileName,
+              ProjectStore.isMusicTrackName(name)
+        else { return nil }
+        let url = bundleURL.appendingPathComponent(name)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     init(
@@ -203,7 +217,8 @@ enum ProjectFormat {
     /// 4: a crop that follows a window (`ProjectEditSettings.cropPath`).
     /// 5: the washes, dusk and aura wallpapers (an older build would swap them for
     /// midnight and save that).
-    static let current = 5
+    /// 6: frame bezel styles (`ExportStyle.frameBezel`) and background music (`ProjectEditSettings.music`).
+    static let current = 6
 }
 
 enum ProjectStoreError: LocalizedError, Equatable {
@@ -402,11 +417,35 @@ enum ProjectStore {
     }
 
     private static let backgroundImagePrefix = "background-"
+    private static let musicTrackPrefix = "music-"
 
     /// A file name this app gave an imported background (never a path, so a
     /// hand-edited settings.json can't point outside the bundle).
     static func isBackgroundImageName(_ name: String) -> Bool {
         name.hasPrefix(backgroundImagePrefix) && !name.contains("/") && !name.contains("..")
+    }
+
+    /// Copies an audio file into the bundle for a background music bed and returns its file name.
+    static func importMusicTrack(from sourceURL: URL, into bundleURL: URL) throws -> String {
+        let pathExtension = sourceURL.pathExtension.lowercased()
+        let allowed = ["m4a", "mp3", "wav", "aiff", "aif", "aac", "caf"]
+        let ext = allowed.contains(pathExtension) ? pathExtension : "m4a"
+        let name = "\(musicTrackPrefix)\(UUID().uuidString.prefix(8).lowercased()).\(ext)"
+        try FileManager.default.copyItem(at: sourceURL, to: bundleURL.appendingPathComponent(name))
+        return name
+    }
+
+    /// Removes music tracks in the bundle other than `keeping`.
+    static func removeUnusedMusicTracks(in bundleURL: URL, keeping name: String?) {
+        let fileManager = FileManager.default
+        guard let contents = try? fileManager.contentsOfDirectory(atPath: bundleURL.path) else { return }
+        for file in contents where isMusicTrackName(file) && file != name {
+            try? fileManager.removeItem(at: bundleURL.appendingPathComponent(file))
+        }
+    }
+
+    static func isMusicTrackName(_ name: String) -> Bool {
+        name.hasPrefix(musicTrackPrefix) && !name.contains("/") && !name.contains("..")
     }
 
     /// Names a project (an empty name clears it). Only meta.json is rewritten.
@@ -627,6 +666,10 @@ extension ProjectStore {
         for url in bundles {
             do {
                 let metadata = try loadMetadata(from: url)
+                let settingsURL = url.appendingPathComponent(File.settings)
+                if let settingsData = try? Data(contentsOf: settingsURL) {
+                    try FormatProbe.check(settingsData)
+                }
                 scan.projects.append(ProjectSummary(metadata: metadata, bundleURL: url, latestExport: latestExport(in: url)))
             } catch let ProjectStoreError.newerFormat(version) {
                 scan.unreadable.append(UnreadableProject(bundleURL: url, reason: .newerFormat(version)))

@@ -45,6 +45,10 @@ struct CanvasOverlay: View {
                 .onTapGesture { location in
                     selectItem(at: location)
                 }
+            if editor.showSafeZones {
+                SocialSafeZonesOverlay(aspect: editor.editSettings.canvas.aspect, canvasSize: canvasSize)
+                    .allowsHitTesting(false)
+            }
             tools
         }
         .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
@@ -202,16 +206,41 @@ private struct ManualZoomSelection: View {
                 }
             }
         }
-        .onHover { inside in
-            if inside {
-                NSCursor.crosshair.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
+        .hoverCursor(.crosshair)
         .accessibilityElement()
         .accessibilityLabel("Zoom area picker")
         .accessibilityHint("Drag over the preview to choose the area to zoom into")
+    }
+}
+
+/// Pushes `cursor` while hovered and guarantees a matching `pop()` on exit or disappear.
+private struct HoverCursorModifier: ViewModifier {
+    let cursor: NSCursor
+    @State private var isPushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                if inside, !isPushed {
+                    cursor.push()
+                    isPushed = true
+                } else if !inside, isPushed {
+                    NSCursor.pop()
+                    isPushed = false
+                }
+            }
+            .onDisappear {
+                if isPushed {
+                    NSCursor.pop()
+                    isPushed = false
+                }
+            }
+    }
+}
+
+extension View {
+    func hoverCursor(_ cursor: NSCursor) -> some View {
+        modifier(HoverCursorModifier(cursor: cursor))
     }
 }
 
@@ -467,3 +496,85 @@ private struct TextBoxEditor: View {
             .accessibilityHint("Drag to move it")
     }
 }
+
+// MARK: - Social safe zones
+
+/// Non-interactive overlay showing where social platform UI (Reels/TikTok/Shorts buttons
+/// and captions, or Instagram 4:5 feed crops) overlaps the canvas.
+private struct SocialSafeZonesOverlay: View {
+    let aspect: OutputAspect
+    let canvasSize: CGSize
+
+    var body: some View {
+        let width = max(canvasSize.width, 1)
+        let height = max(canvasSize.height, 1)
+        ZStack(alignment: .topLeading) {
+            if aspect == .portrait {
+                portraitGuides(width: width, height: height)
+            } else {
+                feedGuides(width: width, height: height)
+            }
+        }
+        .frame(width: width, height: height, alignment: .topLeading)
+    }
+
+    private func portraitGuides(width: CGFloat, height: CGFloat) -> some View {
+        let topH = height * 0.14
+        let bottomH = height * 0.28
+        let railW = width * 0.16
+        let safeRect = CGRect(
+            x: width * 0.05,
+            y: topH,
+            width: max(1, width - width * 0.05 - railW),
+            height: max(1, height - topH - bottomH)
+        )
+        return ZStack(alignment: .topLeading) {
+            // Top bar (camera / search / following)
+            Rectangle()
+                .fill(Color.black.opacity(0.22))
+                .frame(width: width, height: topH)
+            // Bottom captions & nav bar
+            Rectangle()
+                .fill(Color.black.opacity(0.26))
+                .frame(width: width, height: bottomH)
+                .offset(y: height - bottomH)
+            // Right action rail (like / comment / share)
+            Rectangle()
+                .fill(Color.black.opacity(0.22))
+                .frame(width: railW, height: max(1, height - topH - bottomH))
+                .offset(x: width - railW, y: topH)
+            // Dashed safe-area box
+            Rectangle()
+                .strokeBorder(Color.white.opacity(0.65), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                .frame(width: safeRect.width, height: safeRect.height)
+                .offset(x: safeRect.minX, y: safeRect.minY)
+            badge("Reels / Shorts Safe Area")
+                .offset(x: safeRect.minX + 6, y: safeRect.minY + 6)
+        }
+    }
+
+    private func feedGuides(width: CGFloat, height: CGFloat) -> some View {
+        let insetX = width * 0.06
+        let insetY = height * 0.06
+        let safeW = max(1, width - insetX * 2)
+        let safeH = max(1, height - insetY * 2)
+        return ZStack(alignment: .topLeading) {
+            Rectangle()
+                .strokeBorder(Color.white.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                .frame(width: safeW, height: safeH)
+                .offset(x: insetX, y: insetY)
+            badge("Safe Area")
+                .offset(x: insetX + 6, y: insetY + 6)
+        }
+    }
+
+    private func badge(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(Color.white.opacity(0.9))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.black.opacity(0.55)))
+    }
+}
+

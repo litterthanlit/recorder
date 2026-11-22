@@ -8,21 +8,35 @@ import Foundation
 /// the menu bar out instead (`ScreenRecorderOptions.cropsMenuBar`).
 @MainActor
 final class PresentationModeManager {
+    private static let restoreDefaultsKey = "presentationMode.dockAutohideRestoreValue"
+    private static let scriptQueue = DispatchQueue(label: "com.recorder.presentation-mode")
+
     private var isActive = false
-    private var dockWasAutoHidden: Bool?
+
+    /// Restores the Dock's auto-hide preference if a previous session crashed or was
+    /// force-quit while presentation mode was active.
+    static func recoverDockIfNeeded(defaults: UserDefaults = .standard) {
+        guard let saved = defaults.object(forKey: restoreDefaultsKey) as? Bool else { return }
+        scriptQueue.async {
+            if setDockAutohide(saved) {
+                defaults.removeObject(forKey: restoreDefaultsKey)
+            }
+        }
+    }
 
     func enter() {
         guard !isActive else { return }
         isActive = true
 
-        // Read Dock prefs via System Events (app UserDefaults "autohide" is unrelated).
-        if let current = readDockAutohide() {
-            dockWasAutoHidden = current
-            if !current {
-                _ = setDockAutohide(true)
+        // Run AppleScript off the main thread so a first-run Automation TCC prompt
+        // never deadlocks the UI.
+        Self.scriptQueue.async {
+            guard let current = Self.readDockAutohide() else { return }
+            guard !current else { return }
+            UserDefaults.standard.set(current, forKey: Self.restoreDefaultsKey)
+            if !Self.setDockAutohide(true) {
+                UserDefaults.standard.removeObject(forKey: Self.restoreDefaultsKey)
             }
-        } else {
-            dockWasAutoHidden = nil
         }
     }
 
@@ -30,13 +44,27 @@ final class PresentationModeManager {
         guard isActive else { return }
         isActive = false
 
-        if let dockWasAutoHidden {
-            _ = setDockAutohide(dockWasAutoHidden)
-            self.dockWasAutoHidden = nil
+        Self.scriptQueue.async {
+            Self.restoreDockIfSaved()
         }
     }
 
-    private func readDockAutohide() -> Bool? {
+    /// Blocks briefly during app termination so the Dock is restored before process exit.
+    func exitSynchronously() {
+        isActive = false
+        Self.scriptQueue.sync {
+            Self.restoreDockIfSaved()
+        }
+    }
+
+    private nonisolated static func restoreDockIfSaved() {
+        guard let saved = UserDefaults.standard.object(forKey: restoreDefaultsKey) as? Bool else { return }
+        if setDockAutohide(saved) {
+            UserDefaults.standard.removeObject(forKey: restoreDefaultsKey)
+        }
+    }
+
+    private nonisolated static func readDockAutohide() -> Bool? {
         let script = """
         tell application "System Events"
             return autohide of dock preferences
@@ -52,7 +80,7 @@ final class PresentationModeManager {
         return result.booleanValue
     }
 
-    private func setDockAutohide(_ enabled: Bool) -> Bool {
+    private nonisolated static func setDockAutohide(_ enabled: Bool) -> Bool {
         let value = enabled ? "true" : "false"
         let script = """
         tell application "System Events"

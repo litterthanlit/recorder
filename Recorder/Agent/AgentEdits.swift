@@ -178,20 +178,20 @@ enum AgentEdits {
                 if let start, let end, end - start < EditTimeline.minimumSegmentDuration {
                     throw AgentToolError("trim end must come after its start.")
                 }
-                // Earlier than the edit begins grows it back; later cuts everything before.
-                if let start {
-                    if start < timeline.trimStart {
-                        timeline.setTrimStart(start)
-                    } else if start > timeline.trimStart, !timeline.excludeSource(TimeSpan(start: 0, end: start)) {
-                        throw AgentToolError("That would cut everything; keep at least part of the video.")
-                    }
+                // Expand outer bounds before cutting so shifting a trimmed range (e.g. 2–5 -> 6–9) works.
+                if let start, start < timeline.trimStart {
+                    timeline.setTrimStart(start)
                 }
-                if let end {
-                    if end > timeline.trimEnd {
-                        timeline.setTrimEnd(end, sourceDuration: take.duration)
-                    } else if end < timeline.trimEnd, !timeline.excludeSource(TimeSpan(start: end, end: take.duration)) {
-                        throw AgentToolError("That would cut everything; keep at least part of the video.")
-                    }
+                if let end, end > timeline.trimEnd {
+                    timeline.setTrimEnd(end, sourceDuration: take.duration)
+                }
+                if let start, start > timeline.trimStart,
+                   !timeline.excludeSource(TimeSpan(start: 0, end: start)) {
+                    throw AgentToolError("That would cut everything; keep at least part of the video.")
+                }
+                if let end, end < timeline.trimEnd,
+                   !timeline.excludeSource(TimeSpan(start: end, end: take.duration)) {
+                    throw AgentToolError("That would cut everything; keep at least part of the video.")
                 }
                 return "Trimmed to \(describe(TimeSpan(start: timeline.trimStart, end: timeline.trimEnd)))."
             case "speed":

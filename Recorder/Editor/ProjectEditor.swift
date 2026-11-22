@@ -40,7 +40,12 @@ final class ProjectEditor: ObservableObject {
     @Published var isCropMode = false
     /// The canvas shows the whole recording with the selected zoom's focus to drag.
     @Published var isEditingZoomFocus = false
+    /// Translucent overlay showing platform UI margins (Reels/Shorts 9:16, Instagram 4:5).
+    @Published var showSafeZones = false
     @Published var isExportSheetPresented = false
+    @Published private(set) var isPolishing = false
+    @Published private(set) var polishProgress: Double = 0
+    @Published var polishError: String?
     let playback = EditorPlayback()
     @Published private(set) var state: State = .editing
     @Published private(set) var exportProgress: Double = 0
@@ -59,6 +64,7 @@ final class ProjectEditor: ObservableObject {
     }
 
     private let autosaver = ProjectAutosaver()
+    private let mediaScanner = AgentMediaScanner()
     private var timeObserver: Any?
     private var terminationObserver: NSObjectProtocol?
     private var history = EditHistory<EditorSnapshot>()
@@ -66,6 +72,7 @@ final class ProjectEditor: ObservableObject {
     /// it's what the preview must map player time with.
     @Published private(set) var playerTimeline: EditTimeline?
     private var builtAudio: AudioMixSettings?
+    private var builtMusic: BackgroundMusicSettings?
     private var compositionTask: Task<Void, Never>?
     private var exportTask: Task<Void, Never>?
     /// State at the start of a drag or slider gesture that's still in progress.
@@ -166,11 +173,13 @@ final class ProjectEditor: ObservableObject {
     func rename(to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let newName = trimmed.isEmpty ? nil : trimmed
-        guard newName != project.metadata.name else { return }
+        let previousName = project.metadata.name
+        guard newName != previousName else { return }
         project.metadata.name = newName
         do {
             try ProjectStore.rename(bundleURL: project.bundleURL, to: trimmed)
         } catch {
+            project.metadata.name = previousName
             Log.editor.error("Rename failed: \(error.localizedDescription, privacy: .public)")
         }
     }
@@ -534,6 +543,98 @@ final class ProjectEditor: ObservableObject {
     /// the recording.
     static let desktopPictureBlur = 0.55
 
+    // MARK: - Background music
+
+    /// Copies an audio file into the bundle and sets it as the background music bed.
+    @discardableResult
+    func useMusicTrack(at url: URL) -> Bool {
+        do {
+            let name = try ProjectStore.importMusicTrack(from: url, into: project.bundleURL)
+            performEdit("Add Music") {
+                editSettings.music.fileName = name
+            }
+            return true
+        } catch {
+            Log.editor.error("Couldn't import music track: \(error.localizedDescription, privacy: .public)")
+            NSSound.beep()
+            return false
+        }
+    }
+
+    func removeMusicTrack() {
+        guard editSettings.music.fileName != nil else { return }
+        performEdit("Remove Music") {
+            editSettings.music.fileName = nil
+        }
+    }
+
+    // MARK: - Polish for socials
+
+    /// Runs the automated launch-demo pass (trim, cut dead air, speed up waits, auto-zoom,
+    /// look, aspect, tilt-in, optional title) and commits the entire result as one undo step.
+    @discardableResult
+    func polishForSocials(
+        target: ClipTarget,
+        pace: LaunchDemoPace,
+        title: String?,
+        look: StylePreset?
+    ) async -> Bool {
+        guard !isPolishing, !isExporting else { return false }
+        isPolishing = true
+        polishProgress = 0.05
+        polishError = nil
+        defer {
+            isPolishing = false
+            polishProgress = 0
+        }
+
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var options = LaunchDemoOptions()
+        options.title = (trimmedTitle?.isEmpty == false) ? trimmedTitle : nil
+        options.look = look?.name
+        options.aspect = target.canvas.aspect
+        options.pace = pace
+
+        do {
+            let key = mediaScanner.start(project)
+            let progress = MCPProgress { [weak self] fraction, _ in
+                Task { @MainActor in
+                    self?.polishProgress = min(0.95, 0.05 + fraction * 0.85)
+                }
+            }
+            let scanState = try await mediaScanner.wait(key, timeout: 120, progress: progress)
+            let scan: TakeMediaScan
+            switch scanState {
+            case let .done(result):
+                scan = result
+            case let .failed(message):
+                polishError = message
+                return false
+            case .running:
+                polishError = "Scanning timed out. Try again in a moment."
+                return false
+            }
+
+            let analysis = AgentAnalysisTools.analyze(project, scan: scan, app: nil)
+            let looks = StyleLibraryModel.shared.library.allPresets
+            let take = AgentEditTake(project: project, looks: looks)
+
+            try applyExternalEdit("Polish Demo") { snapshot in
+                _ = try LaunchDemoRecipe(options: options).apply(to: &snapshot, take: take, analysis: analysis)
+                snapshot.editSettings.canvas = target.canvas
+            }
+            showSafeZones = target.showsSafeZones
+            polishProgress = 1
+            return true
+        } catch is CancellationError {
+            return false
+        } catch {
+            Log.editor.error("Polish demo failed: \(error.localizedDescription, privacy: .public)")
+            polishError = error.localizedDescription
+            return false
+        }
+    }
+
     // MARK: - Editing
 
     func resolveKeyframeOverlaps() {
@@ -854,6 +955,11 @@ final class ProjectEditor: ObservableObject {
         snapshot
     }
 
+    /// Undo history handed back to the agent journal when the editor window closes.
+    var currentHistory: EditHistory<EditorSnapshot> {
+        history
+    }
+
     /// Applies an outside edit (an AI agent's) as one undo step named `actionName`. The
     /// preview, timeline and inspector follow as they do for any edit.
     func applyExternalEdit(_ actionName: String, _ change: (inout EditorSnapshot) throws -> Void) rethrows {
@@ -1104,7 +1210,7 @@ final class ProjectEditor: ObservableObject {
     }
 
     /// Writes any pending edit to disk now (the window is closing), and removes
-    /// background pictures that were replaced (undo can't bring them back any more).
+    /// background pictures and music tracks that were replaced (undo can't bring them back).
     func flushAutosave() {
         endInteractiveEdit()
         persist()
@@ -1112,6 +1218,10 @@ final class ProjectEditor: ObservableObject {
         ProjectStore.removeUnusedBackgroundImages(
             in: project.bundleURL,
             keeping: editSettings.exportStyle.background.imageFileName
+        )
+        ProjectStore.removeUnusedMusicTracks(
+            in: project.bundleURL,
+            keeping: editSettings.music.fileName
         )
     }
 
@@ -1124,7 +1234,7 @@ final class ProjectEditor: ObservableObject {
         project.keyframes = keyframes
         project.editSettings = editSettings
         autosaver.schedule(project)
-        if timeline != playerTimeline || editSettings.audio != builtAudio {
+        if timeline != playerTimeline || editSettings.audio != builtAudio || editSettings.music != builtMusic {
             scheduleCompositionRebuild()
         }
     }
@@ -1147,7 +1257,8 @@ final class ProjectEditor: ObservableObject {
     private func rebuildComposition() async {
         let timeline = self.timeline
         let audio = editSettings.audio
-        guard timeline != playerTimeline || audio != builtAudio else { return }
+        let music = editSettings.music
+        guard timeline != playerTimeline || audio != builtAudio || music != builtMusic else { return }
 
         // Keep showing the same moment of the recording across the change.
         let playheadSource = (playerTimeline ?? timeline).sourceTime(forOutput: playheadTime)
@@ -1160,7 +1271,9 @@ final class ProjectEditor: ObservableObject {
                 timeline: timeline,
                 includeVideo: true,
                 audioRoles: project.metadata.resolvedAudioTrackRoles(trackCount: audioTrackCount),
-                audio: audio
+                audio: audio,
+                musicURL: project.musicTrackURL,
+                music: music
             )
             var cameraItem: AVPlayerItem?
             if cameraPlayer != nil {
@@ -1173,7 +1286,7 @@ final class ProjectEditor: ObservableObject {
                 cameraItem = AVPlayerItem(asset: camera.composition)
             }
             // A newer change arrived while building: its rebuild takes over.
-            guard !Task.isCancelled, timeline == self.timeline, audio == editSettings.audio else { return }
+            guard !Task.isCancelled, timeline == self.timeline, audio == editSettings.audio, music == editSettings.music else { return }
 
             let item = AVPlayerItem(asset: screen.composition)
             item.audioMix = screen.audioMix
@@ -1186,6 +1299,7 @@ final class ProjectEditor: ObservableObject {
             cameraPlayer?.replaceCurrentItem(with: cameraItem)
             playerTimeline = timeline
             builtAudio = audio
+            builtMusic = music
             seek(to: timeline.outputTimeClamped(forSource: playheadSource))
             if wasPlaying {
                 player.play()

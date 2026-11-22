@@ -56,6 +56,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     /// Presentation time of the last frame written (writer queue only); timestamps must
     /// keep increasing, including across a pause.
     private var lastAppendedTime = CMTime.invalid
+    /// End timestamp of the last audio buffer appended to each audio input (writer queue only).
+    private var lastMicAudioEndTime = CMTime.invalid
+    private var lastSystemAudioEndTime = CMTime.invalid
     /// The newest frame delivered while paused, written when the take resumes so the
     /// video doesn't show the pre-pause screen until something changes.
     private var pausedPixelBuffer: CVPixelBuffer?
@@ -87,9 +90,16 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     private(set) var capturedWindowID: UInt32?
 
     static func listCapturableWindows() async throws -> [CaptureWindowInfo] {
+        let ownPID = ProcessInfo.processInfo.processIdentifier
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         return content.windows
-            .filter { $0.isOnScreen && $0.frame.width > 120 && $0.frame.height > 120 }
+            .filter {
+                $0.isOnScreen
+                    && $0.windowLayer == 0
+                    && $0.owningApplication?.processID != ownPID
+                    && $0.frame.width > 120
+                    && $0.frame.height > 120
+            }
             .map {
                 CaptureWindowInfo(
                     windowID: $0.windowID,
@@ -121,10 +131,18 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
             guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
                 throw ScreenRecorderError.noDisplayAvailable
             }
-            filter = makeDisplayFilter(display: display, content: content, options: options)
-            // NSScreen.main is the screen with the key window, not necessarily this display.
-            let screen = NSScreen.screen(forDisplayID: display.displayID)
-            displayScale = screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+            let builtFilter = makeDisplayFilter(display: display, content: content, options: options)
+            filter = builtFilter.filter
+            excludedFinderWindowIDs = builtFilter.exceptedFinderIDs
+            // NSScreen and NSWorkspace are AppKit main-thread APIs.
+            let screenInfo = await MainActor.run { () -> (scale: CGFloat, menuBarHeight: CGFloat, frontmostApp: String?) in
+                let screen = NSScreen.screen(forDisplayID: display.displayID)
+                let scale = screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+                let menuBar = screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
+                let front = NSWorkspace.shared.frontmostApplication?.localizedName
+                return (scale, menuBar, front)
+            }
+            displayScale = screenInfo.scale
             windowTitle = nil
             appName = nil
             capturedWindowID = nil
@@ -138,13 +156,11 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
                     throw ScreenRecorderError.areaNotAvailable
                 }
                 sourceRect = rect
-                appName = NSWorkspace.shared.frontmostApplication?.localizedName
+                appName = screenInfo.frontmostApp
             } else {
                 // visibleFrame's top inset is the menu bar (0 when it auto-hides).
-                let menuBarHeight = options.cropsMenuBar
-                    ? screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
-                    : 0
-                sourceRect = CaptureGeometry.sourceRect(displaySize: displaySize, topInset: menuBarHeight)
+                let menuBarHeight = options.cropsMenuBar ? screenInfo.menuBarHeight : 0
+                sourceRect = CaptureGeometry.sourceRect(displaySize: displaySize, topInset: menuBarHeight, scale: displayScale)
             }
             configureCaptureGeometry(display: display, displayScale: displayScale, sourceRect: sourceRect)
 
@@ -155,12 +171,13 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
                 throw ScreenRecorderError.windowNotAvailable
             }
             let windowCenter = CGPoint(x: window.frame.midX, y: window.frame.midY)
-            let screen = Self.screen(containingGlobalPoint: windowCenter) ?? NSScreen.main
             // A display filter that includes one window still captures the whole display,
             // squeezed into the window-sized output. This filter captures just the window,
             // wherever it is, even when covered by other windows.
             filter = SCContentFilter(desktopIndependentWindow: window)
-            displayScale = screen?.backingScaleFactor ?? 2
+            displayScale = await MainActor.run {
+                (Self.screen(containingGlobalPoint: windowCenter) ?? NSScreen.main)?.backingScaleFactor ?? 2
+            }
             windowTitle = window.title
             appName = window.owningApplication?.applicationName
             capturedWindowID = window.windowID
@@ -174,6 +191,10 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         let configuration = SCStreamConfiguration()
         configuration.width = captureWidth
         configuration.height = captureHeight
+        if options.captureTarget == .window {
+            // Exclude drop shadow so SCK's frame matches `window.frame` 1:1 with InputTracker clicks.
+            configuration.ignoreShadowsSingleWindow = true
+        }
         if let displaySourceRect {
             configuration.sourceRect = displaySourceRect
         }
@@ -205,6 +226,8 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         writerQueue.sync {
             firstSampleTime = nil
             lastAppendedTime = .invalid
+            lastMicAudioEndTime = .invalid
+            lastSystemAudioEndTime = .invalid
             pausedPixelBuffer = nil
             droppedVideoFrames = 0
             droppedAudioBuffers = 0
@@ -225,15 +248,15 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         } catch {
             writerQueue.sync {
                 isRecording = false
-                assetWriter?.cancelWriting()
-                assetWriter = nil
+                clearWriterLocked(cancelling: true)
+                try? FileManager.default.removeItem(at: url)
             }
             throw error
         }
 
         self.stream = stream
         sessionStartTime = CACurrentMediaTime()
-        startFilterRefreshIfNeeded(display: options.captureTarget == .window ? nil : filterDisplay)
+        await startFilterRefreshIfNeeded(display: options.captureTarget == .window ? nil : filterDisplay)
     }
 
     // MARK: - Content filter
@@ -244,7 +267,11 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     /// Leaves out this app's windows (camera bubble, countdown, HUD, panel, editor: the
     /// camera is recorded separately and composited at export) and, on request,
     /// notification banners and desktop icons.
-    private func makeDisplayFilter(display: SCDisplay, content: SCShareableContent, options: ScreenRecorderOptions) -> SCContentFilter {
+    private func makeDisplayFilter(
+        display: SCDisplay,
+        content: SCShareableContent,
+        options: ScreenRecorderOptions
+    ) -> (filter: SCContentFilter, exceptedFinderIDs: Set<UInt32>) {
         filterDisplay = display
         let plan = CaptureExclusion.plan(
             ownBundleID: Bundle.main.bundleIdentifier,
@@ -258,22 +285,36 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
             hideDesktopIcons: options.hideDesktopIcons,
             hideNotifications: options.hideNotifications
         )
-        excludedFinderWindowIDs = plan.exceptedWindowIDs
-        excludedBundleIDs = plan.excludedBundleIDs
+        // Normal Finder windows are excepted so they appear in the recording; don't hide
+        // Finder from AppFocusSampler cover detection.
+        var coverIgnored = plan.excludedBundleIDs
+        if options.hideDesktopIcons {
+            coverIgnored.remove(CaptureExclusion.finderBundleID)
+        }
+        excludedBundleIDs = coverIgnored
+
         let ownPID = ProcessInfo.processInfo.processIdentifier
         let excludedApps = content.applications.filter {
             plan.excludedBundleIDs.contains($0.bundleIdentifier) || $0.processID == ownPID
         }
         if excludedApps.isEmpty {
-            let excludedWindows = content.windows.filter { options.excludeWindowIDs.contains($0.windowID) }
-            return SCContentFilter(display: display, excludingWindows: excludedWindows)
+            let excludedWindows = content.windows.filter {
+                options.excludeWindowIDs.contains($0.windowID) || $0.owningApplication?.processID == ownPID
+            }
+            return (SCContentFilter(display: display, excludingWindows: excludedWindows), plan.exceptedWindowIDs)
         }
-        let exceptedWindows = content.windows.filter { plan.exceptedWindowIDs.contains($0.windowID) }
-        return SCContentFilter(display: display, excludingApplications: excludedApps, exceptingWindows: exceptedWindows)
+        let exceptedWindows = content.windows.filter {
+            plan.exceptedWindowIDs.contains($0.windowID) && !options.excludeWindowIDs.contains($0.windowID)
+        }
+        return (
+            SCContentFilter(display: display, excludingApplications: excludedApps, exceptingWindows: exceptedWindows),
+            plan.exceptedWindowIDs
+        )
     }
 
     /// With desktop icons hidden, all of Finder is left out except the windows open when
     /// the take started. Check now and then for new Finder windows so they're recorded.
+    @MainActor
     private func startFilterRefreshIfNeeded(display: SCDisplay?) {
         filterRefreshTimer?.invalidate()
         filterRefreshTimer = nil
@@ -285,6 +326,12 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         filterRefreshTimer = timer
     }
 
+    @MainActor
+    private func stopFilterRefreshTimer() {
+        filterRefreshTimer?.invalidate()
+        filterRefreshTimer = nil
+    }
+
     private func refreshFilterIfFinderWindowsChanged() async {
         guard let stream, let display = filterDisplay,
               let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
@@ -293,9 +340,10 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
             .filter { $0.owningApplication?.bundleIdentifier == CaptureExclusion.finderBundleID && $0.windowLayer == 0 }
             .map(\.windowID))
         guard finderWindows != excludedFinderWindowIDs else { return }
-        let filter = makeDisplayFilter(display: display, content: content, options: options)
+        let built = makeDisplayFilter(display: display, content: content, options: options)
         do {
-            try await stream.updateContentFilter(filter)
+            try await stream.updateContentFilter(built.filter)
+            excludedFinderWindowIDs = built.exceptedFinderIDs
         } catch {
             Log.capture.error("Updating the capture filter failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -305,9 +353,11 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
     /// Stops writing samples; the clock leaves the paused time out of the recording.
     func pause() {
+        // Pause the lock-protected clock synchronously so audio, input, and HUD cues
+        // (like the "Tink" sound) stop recording immediately before returning.
+        options.clock.pause()
         writerQueue.async { [self] in
             guard isRecording else { return }
-            options.clock.pause()
             pausedPixelBuffer = nil
         }
     }
@@ -329,8 +379,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
     /// Stops capture and throws the take away (restart, discard).
     func cancelRecording() async {
-        filterRefreshTimer?.invalidate()
-        filterRefreshTimer = nil
+        await stopFilterRefreshTimer()
         let wasRecording = writerQueue.sync {
             let wasRecording = isRecording
             isRecording = false
@@ -342,10 +391,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         }
         stream = nil
         writerQueue.sync {
-            assetWriter?.cancelWriting()
-            assetWriter = nil
-            lastWrittenPixelBuffer = nil
-            pausedPixelBuffer = nil
+            clearWriterLocked(cancelling: true)
             if let outputURL {
                 try? FileManager.default.removeItem(at: outputURL)
             }
@@ -364,8 +410,7 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
     /// writer is always finished so whatever was recorded stays playable.
     func stopRecording() async throws -> RecordingResult {
         let stopHostTime = CMClockGetTime(CMClockGetHostTimeClock())
-        filterRefreshTimer?.invalidate()
-        filterRefreshTimer = nil
+        await stopFilterRefreshTimer()
         let wasRecording = writerQueue.sync {
             let wasRecording = isRecording
             isRecording = false
@@ -395,10 +440,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
                       writer.status == .writing,
                       self.firstSampleTime != nil
                 else {
-                    let failedWriter = self.assetWriter
-                    failedWriter?.cancelWriting()
-                    self.assetWriter = nil
-                    continuation.resume(throwing: failedWriter?.error ?? ScreenRecorderError.noFramesCaptured)
+                    let error = self.assetWriter?.error ?? ScreenRecorderError.noFramesCaptured
+                    self.clearWriterLocked(cancelling: true)
+                    continuation.resume(throwing: error)
                     return
                 }
 
@@ -407,36 +451,31 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
                 // Stopping while paused ends where the pause began.
                 let stopTime = self.options.clock.activeDuration(atHost: stopHostTime)
                 if stopTime > self.lastWrittenTime, let lastBuffer = self.lastWrittenPixelBuffer {
-                    self.appendVideoFrame(lastBuffer, at: stopTime)
-                    self.lastWrittenTime = CMTimeMaximum(self.lastWrittenTime, stopTime)
+                    if self.appendVideoFrame(lastBuffer, at: stopTime) {
+                        self.lastWrittenTime = CMTimeMaximum(self.lastWrittenTime, stopTime)
+                    }
                 }
 
                 if self.droppedVideoFrames > 0 || self.droppedAudioBuffers > 0 {
                     Log.capture.warning("Writer dropped \(self.droppedVideoFrames) video frames and \(self.droppedAudioBuffers) audio buffers")
                 }
 
+                let finalDuration = CMTimeGetSeconds(self.lastWrittenTime)
                 self.writerInput?.markAsFinished()
                 self.audioWriterInput?.markAsFinished()
                 self.systemAudioWriterInput?.markAsFinished()
                 writer.endSession(atSourceTime: self.lastWrittenTime)
                 self.lastWrittenPixelBuffer = nil
+                self.pausedPixelBuffer = nil
 
-                writer.finishWriting {
+                writer.finishWriting { [weak self] in
+                    let result: Result<RecordingResult, Error>
                     if writer.status == .failed {
-                        continuation.resume(throwing: writer.error ?? ScreenRecorderError.writerFailed)
-                        return
-                    }
-
-                    guard let outputURL else {
-                        continuation.resume(throwing: ScreenRecorderError.writerFailed)
-                        return
-                    }
-
-                    let duration = CMTimeGetSeconds(self.lastWrittenTime)
-                    continuation.resume(
-                        returning: RecordingResult(
+                        result = .failure(writer.error ?? ScreenRecorderError.writerFailed)
+                    } else if let outputURL, let self {
+                        result = .success(RecordingResult(
                             videoURL: outputURL,
-                            duration: duration,
+                            duration: finalDuration,
                             width: self.captureWidth,
                             height: self.captureHeight,
                             fps: self.fps,
@@ -445,11 +484,36 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
                             captureSize: self.captureSizePoints,
                             windowTitle: self.windowTitle,
                             appName: self.appName
-                        )
-                    )
+                        ))
+                    } else {
+                        result = .failure(ScreenRecorderError.writerFailed)
+                    }
+
+                    guard let self else {
+                        continuation.resume(with: result)
+                        return
+                    }
+                    self.writerQueue.async {
+                        self.clearWriterLocked(cancelling: false)
+                        continuation.resume(with: result)
+                    }
                 }
             }
         }
+    }
+
+    /// Releases writer and retained frame buffers (writerQueue only).
+    private func clearWriterLocked(cancelling: Bool) {
+        if cancelling, let writer = assetWriter, writer.status == .writing {
+            writer.cancelWriting()
+        }
+        assetWriter = nil
+        writerInput = nil
+        pixelBufferAdaptor = nil
+        audioWriterInput = nil
+        systemAudioWriterInput = nil
+        lastWrittenPixelBuffer = nil
+        pausedPixelBuffer = nil
     }
 
     /// - Parameter sourceRect: the part of the display recorded, in display points with a
@@ -556,7 +620,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
         // Write in fragments so a crash mid-take leaves a recoverable movie.
         writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
-        writer.startWriting()
+        guard writer.startWriting() else {
+            throw writer.error ?? ScreenRecorderError.writerFailed
+        }
         writer.startSession(atSourceTime: .zero)
 
         assetWriter = writer
@@ -575,16 +641,23 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
 
         let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let isFirstFrame = firstSampleTime == nil
+
+        let relativeTime: CMTime
         if isFirstFrame {
-            firstSampleTime = presentationTime
-            options.clock.setEpoch(presentationTime)
+            guard !options.clock.isPaused else {
+                pausedPixelBuffer = pixelBuffer
+                return
+            }
+            relativeTime = .zero
+        } else {
+            guard let mapped = options.clock.recordingTime(forHost: presentationTime) else {
+                // Paused: nothing is written, but keep the newest frame for the resume.
+                pausedPixelBuffer = pixelBuffer
+                return
+            }
+            relativeTime = mapped
         }
 
-        guard let relativeTime = options.clock.recordingTime(forHost: presentationTime) else {
-            // Paused: nothing is written, but keep the newest frame for the resume.
-            pausedPixelBuffer = pixelBuffer
-            return
-        }
         guard writerInput.isReadyForMoreMediaData else {
             droppedVideoFrames += 1
             return
@@ -593,12 +666,19 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         // The camera is recorded to its own track (CameraTrackWriter) and composited at
         // render time, so screen frames are written untouched.
         guard appendVideoFrame(pixelBuffer, at: relativeTime) else { return }
+        if isFirstFrame {
+            firstSampleTime = presentationTime
+            options.clock.setEpoch(presentationTime)
+        }
         lastWrittenTime = CMTimeAdd(relativeTime, resolvedFrameDuration(for: sampleBuffer))
 
+        let shouldNotifyFirstFrame = isFirstFrame && !didNotifyFirstFrame
+        if shouldNotifyFirstFrame {
+            didNotifyFirstFrame = true
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if isFirstFrame, !self.didNotifyFirstFrame {
-                self.didNotifyFirstFrame = true
+            if shouldNotifyFirstFrame {
                 self.delegate?.screenRecorder(self, didReceiveFirstFrameAt: presentationTime)
             }
             self.delegate?.screenRecorder(self, didWriteFrameAt: CMTimeGetSeconds(relativeTime))
@@ -642,9 +722,42 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         // narration by however long the mic took to start. Audio from before t = 0 or
         // while paused is dropped; a buffer that straddles a pause edge is trimmed.
         guard let kept = keptAudio(sampleBuffer, hostTime: hostTime),
-              let recordingTime = options.clock.recordingTime(forHost: kept.hostTime)
+              var recordingTime = options.clock.recordingTime(forHost: kept.hostTime)
         else { return }
-        let buffer = kept.buffer
+        var buffer = kept.buffer
+
+        // Enforce strictly non-overlapping, monotonic timestamps per audio track so AAC
+        // encoding never rejects buffers around pause/resume boundaries.
+        let isMicInput = (audioWriterInput === self.audioWriterInput)
+        let previousEnd = isMicInput ? lastMicAudioEndTime : lastSystemAudioEndTime
+        if previousEnd.isValid, recordingTime < previousEnd {
+            let duration = CMSampleBufferGetDuration(buffer)
+            let sampleCount = CMSampleBufferGetNumSamples(buffer)
+            guard duration.isValid, duration > .zero, sampleCount > 1 else { return }
+            let secondsPerSample = CMTimeGetSeconds(duration) / Double(sampleCount)
+            guard secondsPerSample > 0 else { return }
+            let overlap = CMTimeGetSeconds(CMTimeSubtract(previousEnd, recordingTime))
+            let skip = Int((overlap / secondsPerSample).rounded(.up))
+            guard skip < sampleCount else { return }
+            if skip > 0 {
+                var trimmed: CMSampleBuffer?
+                let status = CMSampleBufferCopySampleBufferForRange(
+                    allocator: kCFAllocatorDefault,
+                    sampleBuffer: buffer,
+                    sampleRange: CFRange(location: skip, length: sampleCount - skip),
+                    sampleBufferOut: &trimmed
+                )
+                guard status == OSStatus(noErr), let trimmed else { return }
+                buffer = trimmed
+                recordingTime = CMTimeMaximum(
+                    previousEnd,
+                    CMTimeAdd(recordingTime, CMTime(seconds: Double(skip) * secondsPerSample, preferredTimescale: 1_000_000_000))
+                )
+            } else {
+                recordingTime = previousEnd
+            }
+        }
+
         guard audioWriterInput.isReadyForMoreMediaData else {
             droppedAudioBuffers += 1
             return
@@ -654,6 +767,17 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         guard let retimed = buffer.retimed(by: offset) else { return }
         if !audioWriterInput.append(retimed) {
             reportFailure(assetWriter.error ?? ScreenRecorderError.writerFailed)
+            return
+        }
+
+        let appendedDuration = CMSampleBufferGetDuration(retimed)
+        let appendedEnd = (appendedDuration.isValid && appendedDuration > .zero)
+            ? CMTimeAdd(recordingTime, appendedDuration)
+            : recordingTime
+        if isMicInput {
+            lastMicAudioEndTime = appendedEnd
+        } else {
+            lastSystemAudioEndTime = appendedEnd
         }
     }
 
@@ -673,9 +797,12 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
         let sampleCount = CMSampleBufferGetNumSamples(sampleBuffer)
         guard sampleCount > 1 else { return nil }
         let secondsPerSample = CMTimeGetSeconds(duration) / Double(sampleCount)
-        let first = Int((CMTimeGetSeconds(CMTimeSubtract(kept.start, hostTime)) / secondsPerSample).rounded())
-        let count = Int((CMTimeGetSeconds(kept.duration) / secondsPerSample).rounded())
-        guard first >= 0, count > 0, first + count <= sampleCount else { return nil }
+        guard secondsPerSample > 0 else { return nil }
+        let rawFirst = Int((CMTimeGetSeconds(CMTimeSubtract(kept.start, hostTime)) / secondsPerSample).rounded(.up))
+        let rawEnd = Int((CMTimeGetSeconds(CMTimeSubtract(kept.end, hostTime)) / secondsPerSample).rounded(.down))
+        let first = min(max(rawFirst, 0), sampleCount)
+        let count = min(max(rawEnd - first, 0), sampleCount - first)
+        guard count > 0 else { return nil }
 
         var trimmed: CMSampleBuffer?
         let status = CMSampleBufferCopySampleBufferForRange(
@@ -685,7 +812,9 @@ final class ScreenRecorder: NSObject, @unchecked Sendable {
             sampleBufferOut: &trimmed
         )
         guard status == OSStatus(noErr), let trimmed else { return nil }
-        let trimmedHostTime = CMTimeAdd(hostTime, CMTime(seconds: Double(first) * secondsPerSample, preferredTimescale: 1_000_000_000))
+        let shifted = CMTimeAdd(hostTime, CMTime(seconds: Double(first) * secondsPerSample, preferredTimescale: 1_000_000_000))
+        // Clamp up to `kept.start` so floating-point rounding never lands inside the pause.
+        let trimmedHostTime = CMTimeMaximum(kept.start, shifted)
         return (trimmed, trimmedHostTime)
     }
 

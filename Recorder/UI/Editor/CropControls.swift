@@ -113,13 +113,7 @@ struct CropSelection: View {
                 outline(shown, isDrawing: drawnFrame != nil)
             }
         }
-        .onHover { inside in
-            if inside {
-                NSCursor.crosshair.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
+        .hoverCursor(.crosshair)
         .accessibilityElement()
         .accessibilityLabel("Crop picker")
         .accessibilityValue(accessibilityState)

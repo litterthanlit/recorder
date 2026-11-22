@@ -11,6 +11,7 @@ struct EditorActions {
 extension NSToolbarItem.Identifier {
     static let editorName = NSToolbarItem.Identifier("trace.editor.name")
     static let editorShape = NSToolbarItem.Identifier("trace.editor.shape")
+    static let editorPolish = NSToolbarItem.Identifier("trace.editor.polish")
     static let editorHistory = NSToolbarItem.Identifier("trace.editor.history")
     static let editorRetake = NSToolbarItem.Identifier("trace.editor.retake")
     static let editorExport = NSToolbarItem.Identifier("trace.editor.export")
@@ -39,7 +40,9 @@ final class EditorToolbarController: NSObject, NSToolbarDelegate {
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        var identifiers: [NSToolbarItem.Identifier] = [.editorName, .flexibleSpace, .editorShape, .flexibleSpace, .editorHistory]
+        var identifiers: [NSToolbarItem.Identifier] = [
+            .editorName, .flexibleSpace, .editorShape, .flexibleSpace, .editorPolish, .editorHistory
+        ]
         if actions.retake != nil {
             identifiers.append(.editorRetake)
         }
@@ -64,6 +67,9 @@ final class EditorToolbarController: NSObject, NSToolbarDelegate {
         case .editorShape:
             item.label = "Shape"
             item.view = Self.hosting(CanvasShapeMenu(editor: editor))
+        case .editorPolish:
+            item.label = "Polish"
+            item.view = Self.hosting(PolishToolbarButton(editor: editor))
         case .editorHistory:
             item.label = "Undo"
             item.view = Self.hosting(UndoRedoButtons(editor: editor))
@@ -102,6 +108,11 @@ private struct EditorNameField: View {
             .frame(width: 220, height: 28)
             .focused($isFocused)
             .onAppear { name = editor.displayName }
+            .onChange(of: editor.displayName) { _, updated in
+                if !isFocused {
+                    name = updated
+                }
+            }
             .onSubmit(commit)
             .onChange(of: isFocused) { _, focused in
                 if !focused {
@@ -113,7 +124,12 @@ private struct EditorNameField: View {
     }
 
     private func commit() {
-        editor.rename(to: name)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == editor.displayName {
+            name = editor.displayName
+            return
+        }
+        editor.rename(to: trimmed)
         name = editor.displayName
     }
 }
@@ -130,14 +146,157 @@ private struct CanvasShapeMenu: View {
                 }
             }
             .pickerStyle(.inline)
+            Divider()
+            Toggle("Safe Zone Guides", isOn: $editor.showSafeZones)
         } label: {
             Label(editor.editSettings.canvas.aspect.label, systemImage: "aspectratio")
                 .labelStyle(.titleAndIcon)
                 .font(DS.Typeface.body)
         }
         .fixedSize()
-        .help("Shape of the video")
+        .help("Shape of the video and social safe-zone guides")
         .accessibilityLabel("Video shape, \(editor.editSettings.canvas.aspect.label)")
+    }
+}
+
+/// One-click launch-demo pass: trims dead air, speeds through waits, adds auto zooms,
+/// applies a social aspect + look + 3D tilt-in, all as one undo step.
+private struct PolishToolbarButton: View {
+    @ObservedObject var editor: ProjectEditor
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            if editor.isPolishing {
+                HStack(spacing: 5) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Polishing…")
+                }
+            } else {
+                Label("Polish", systemImage: "wand.and.stars")
+                    .labelStyle(.titleAndIcon)
+            }
+        }
+        .buttonStyle(SecondaryButtonStyle())
+        .disabled(editor.isExporting)
+        .help("Auto-polish this recording into a social demo (one undo step)")
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            PolishDemoPopover(editor: editor) {
+                isPresented = false
+            }
+        }
+    }
+}
+
+private struct PolishDemoPopover: View {
+    @ObservedObject var editor: ProjectEditor
+    @ObservedObject private var looks = StyleLibraryModel.shared
+    let onDismiss: () -> Void
+
+    @State private var target: ClipTarget = .xFeed
+    @State private var pace: LaunchDemoPace = .snappy
+    @State private var title = ""
+    @State private var selectedLookID: UUID? = StylePreset.builtIn.first { $0.name == "Clean Studio" }?.id
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.md) {
+            Text("Polish for Socials")
+                .font(DS.Typeface.headline)
+
+            VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
+                Text("Target")
+                    .font(DS.Typeface.caption)
+                    .foregroundStyle(DS.Palette.secondaryText)
+                Picker("Target", selection: $target) {
+                    ForEach(ClipTarget.allCases) { item in
+                        Text(item.label).tag(item)
+                    }
+                }
+                .labelsHidden()
+            }
+
+            VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
+                Text("Pace")
+                    .font(DS.Typeface.caption)
+                    .foregroundStyle(DS.Palette.secondaryText)
+                Picker("Pace", selection: $pace) {
+                    Text("Relaxed").tag(LaunchDemoPace.relaxed)
+                    Text("Snappy").tag(LaunchDemoPace.snappy)
+                    Text("Punchy").tag(LaunchDemoPace.punchy)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+
+            VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
+                Text("Look")
+                    .font(DS.Typeface.caption)
+                    .foregroundStyle(DS.Palette.secondaryText)
+                Picker("Look", selection: $selectedLookID) {
+                    Text("Keep current").tag(UUID?.none)
+                    ForEach(looks.library.allPresets) { preset in
+                        Text(preset.name).tag(UUID?.some(preset.id))
+                    }
+                }
+                .labelsHidden()
+            }
+
+            VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
+                Text("Opening title (optional)")
+                    .font(DS.Typeface.caption)
+                    .foregroundStyle(DS.Palette.secondaryText)
+                TextField("e.g. Ship faster with Trace", text: $title)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            if let error = editor.polishError {
+                Text(error)
+                    .font(DS.Typeface.caption)
+                    .foregroundStyle(DS.Palette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if editor.isPolishing {
+                ProgressView(value: editor.polishProgress)
+                    .progressViewStyle(.linear)
+            }
+
+            HStack {
+                Text("Single ⌘Z undoes everything.")
+                    .font(DS.Typeface.caption)
+                    .foregroundStyle(DS.Palette.secondaryText)
+                Spacer()
+                Button {
+                    runPolish()
+                } label: {
+                    Label("Polish Demo", systemImage: "wand.and.stars")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(editor.isPolishing)
+            }
+        }
+        .padding(DS.Spacing.md)
+        .frame(width: 280)
+    }
+
+    private func runPolish() {
+        let chosenLook = selectedLookID.flatMap { id in
+            looks.library.allPresets.first { $0.id == id }
+        }
+        Task {
+            let ok = await editor.polishForSocials(
+                target: target,
+                pace: pace,
+                title: title,
+                look: chosenLook
+            )
+            if ok {
+                onDismiss()
+            }
+        }
     }
 }
 
@@ -256,6 +415,10 @@ final class EditorKeyCommandView: NSView {
     /// Space and the arrow keys.
     private static let controlKeys: Set<UInt16> = [0x31, 0x7B, 0x7C, 0x7D, 0x7E]
 
+    deinit {
+        removeMonitor()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
@@ -269,7 +432,7 @@ final class EditorKeyCommandView: NSView {
     }
 
     private func handle(_ event: NSEvent) -> Bool {
-        guard let window, event.window === window, window.isKeyWindow else { return false }
+        guard let window, event.window === window, window.isKeyWindow, window.attachedSheet == nil else { return false }
         let responder = window.firstResponder
         // Typing in a text field (its field editor is an NSText).
         if responder is NSText {
@@ -281,7 +444,8 @@ final class EditorKeyCommandView: NSView {
             modifiers: combo.modifiers,
             character: event.charactersIgnoringModifiers
         ) else { return false }
-        if responder is NSControl, Self.controlKeys.contains(event.keyCode) {
+        let isFocusedControl = responder is NSControl || (responder as? NSView)?.canBecomeKeyView == true
+        if isFocusedControl, Self.controlKeys.contains(event.keyCode) {
             return false
         }
         // Holding a key down repeats stepping and nudging, nothing else.

@@ -70,8 +70,8 @@ enum LibraryMigration {
             }
         }
 
-        let remaining = (try? fileManager.contentsOfDirectory(at: legacy, includingPropertiesForKeys: nil)) ?? []
-        if remaining.allSatisfy(isFinderMetadata) {
+        if let remaining = try? fileManager.contentsOfDirectory(at: legacy, includingPropertiesForKeys: nil),
+           remaining.allSatisfy(isFinderMetadata) {
             do {
                 try fileManager.removeItem(at: legacy)
                 report.removedLegacyFolder = true

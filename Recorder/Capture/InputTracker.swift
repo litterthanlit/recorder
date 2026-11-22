@@ -132,11 +132,23 @@ final class InputTracker {
         }
     }
 
+    deinit {
+        if let eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
+            CFMachPortInvalidate(eventTap)
+        }
+        if let keyTap {
+            CGEvent.tapEnable(tap: keyTap, enable: false)
+            CFMachPortInvalidate(keyTap)
+        }
+    }
+
     func stop() -> InputTrackingResult {
         windowFrameTimer?.invalidate()
         windowFrameTimer = nil
         if let eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
+            CFMachPortInvalidate(eventTap)
         }
         if let runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
@@ -145,6 +157,7 @@ final class InputTracker {
         runLoopSource = nil
         if let keyTap {
             CGEvent.tapEnable(tap: keyTap, enable: false)
+            CFMachPortInvalidate(keyTap)
         }
         if let keyRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), keyRunLoopSource, .commonModes)
@@ -191,7 +204,7 @@ final class InputTracker {
     }
 
     private func handleKey(event: CGEvent, type: CGEventType) {
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        if type == .tapDisabledByTimeout {
             if let keyTap {
                 CGEvent.tapEnable(tap: keyTap, enable: true)
             }
@@ -202,6 +215,7 @@ final class InputTracker {
               event.getIntegerValueField(.keyboardEventAutorepeat) == 0,
               // A password field is focused: never record what's typed there.
               !IsSecureEventInputEnabled(),
+              shouldRecordKeystrokeForFrontmostApp(),
               let timestamp = clock?.recordingSeconds(forHostSeconds: CACurrentMediaTime())
         else { return }
 
@@ -221,11 +235,29 @@ final class InputTracker {
         lock.unlock()
     }
 
+    /// Avoids recording keystrokes typed into Trace itself, excluded apps, or other apps
+    /// while recording a specific window.
+    private func shouldRecordKeystrokeForFrontmostApp() -> Bool {
+        guard let front = NSWorkspace.shared.frontmostApplication else { return true }
+        if front.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+            return false
+        }
+        if let bundleID = front.bundleIdentifier, ignoredBundleIDs.contains(bundleID) {
+            return false
+        }
+        if let trackedWindowID,
+           let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(trackedWindowID)) as? [[String: Any]])?.first,
+           let ownerPID = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+           ownerPID != front.processIdentifier {
+            return false
+        }
+        return true
+    }
+
     private func handle(event: CGEvent, type: CGEventType) {
-        // macOS switches a tap off if it responds too slowly or on some user input, and
-        // tells us with these event types. Turn it back on, or click tracking (and with it
-        // auto zoom) silently stops for the rest of the take.
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        // macOS switches a tap off if it responds too slowly and tells us with this
+        // event type. Turn it back on, or click tracking (and auto zoom) silently stops.
+        if type == .tapDisabledByTimeout {
             if let eventTap {
                 CGEvent.tapEnable(tap: eventTap, enable: true)
             }
@@ -285,16 +317,28 @@ final class InputTracker {
         captureOrigin = bounds.origin
     }
 
-    /// On-screen windows, front to back.
+    /// Visible on-screen windows, front to back, excluding invisible helper windows and Trace's own overlays.
     private static func onScreenWindows() -> [WindowSnapshot] {
+        let ownPID = ProcessInfo.processInfo.processIdentifier
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] ?? []
         return list.compactMap { info in
             guard let number = info[kCGWindowNumber as String] as? NSNumber,
                   let bounds = bounds(of: info)
             else { return nil }
+            let ownerPID = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value ?? 0
             let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
-            return WindowSnapshot(windowID: number.uint32Value, layer: layer, bounds: bounds)
+            let alpha = (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1
+            let sharing = (info[kCGWindowSharingState as String] as? NSNumber)?.intValue ?? 1
+            guard ownerPID != ownPID, alpha >= WindowStack.minimumAlpha, sharing != 0 else { return nil }
+            return WindowSnapshot(
+                windowID: number.uint32Value,
+                layer: layer,
+                bounds: bounds,
+                ownerPID: ownerPID,
+                alpha: alpha,
+                isShared: true
+            )
         }
     }
 

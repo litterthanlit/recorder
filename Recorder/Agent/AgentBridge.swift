@@ -120,14 +120,18 @@ final class AgentBridgeServer: @unchecked Sendable {
     private var connections: [ObjectIdentifier: AgentBridgeConnection] = [:]
     private var ownsSocketFile = false
 
+    private static let maxConnections = 16
+
     init(path: String, handler: AgentBridgeHandler) {
         self.path = path
         self.handler = handler
     }
 
     /// Starts listening (throws `UnixSocket.Failure.alreadyServing` if another copy of
-    /// the app already is).
+    /// the app already is). Safe if already started.
     func start() throws {
+        let alreadyStarted = queue.sync { listener != nil }
+        guard !alreadyStarted else { return }
         let descriptor = try UnixSocket.listen(at: path)
         UnixSocket.setNonBlocking(descriptor)
         let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
@@ -167,7 +171,9 @@ final class AgentBridgeServer: @unchecked Sendable {
             let client = Darwin.accept(listener, nil, nil)
             guard client >= 0 else { return }
             // Only this user's processes; the socket file's permissions say the same.
-            guard UnixSocket.peerUserID(client) == getuid() else {
+            guard UnixSocket.peerUserID(client) == getuid(),
+                  connections.count < Self.maxConnections
+            else {
                 Darwin.close(client)
                 continue
             }
@@ -190,6 +196,8 @@ final class AgentBridgeServer: @unchecked Sendable {
 /// One `Trace --mcp` process. Its calls run concurrently; cancelling one stops its task
 /// and nothing is sent for it.
 final class AgentBridgeConnection: @unchecked Sendable {
+    private static let maxConcurrentCalls = 32
+
     private let socket: LineSocket
     private let handler: AgentBridgeHandler
     private let lock = NSLock()
@@ -239,13 +247,21 @@ final class AgentBridgeConnection: @unchecked Sendable {
         }
         // Registered before the task can finish: `finish` waits for the lock.
         lock.lock()
-        defer { lock.unlock() }
+        if tasks.count >= Self.maxConcurrentCalls {
+            lock.unlock()
+            socket.send(AgentBridgeMessage.result(
+                id: id,
+                result: MCPToolResult.error("Too many concurrent tool calls; wait for an earlier call to finish.")
+            ).json)
+            return
+        }
         tasks[id] = Task.detached { [weak self] in
             let result = await handler.handle(tool: tool, arguments: arguments, progress: progress)
             if self?.finish(id) == true {
                 socket.send(AgentBridgeMessage.result(id: id, result: result).json)
             }
         }
+        lock.unlock()
     }
 
     /// Forgets a finished call; `false` if it was cancelled in the meantime.
@@ -284,24 +300,31 @@ final class AgentBridgeClient: @unchecked Sendable {
     private var socket: LineSocket?
     private var nextID = 1
     private var pending: [Int: Pending] = [:]
+    /// IDs cancelled before `register` ran, preventing a leaked continuation on early cancel.
+    private var cancelledBeforeRegister: Set<Int> = []
 
     init(path: String) {
         self.path = path
     }
 
     func call(tool: String, arguments: JSONValue, progress: MCPProgress) async throws -> JSONValue {
+        try Task.checkCancellation()
         let socket = try connection()
         let id = makeID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<JSONValue, Error>) in
-                register(id, Pending(continuation: continuation, progress: progress))
+                let registered = register(id, Pending(continuation: continuation, progress: progress))
+                guard registered else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
                 if !socket.send(AgentBridgeMessage.call(id: id, tool: tool, arguments: arguments).json) {
                     finish(id, with: .failure(Failure.disconnected))
                 }
             }
         } onCancel: {
             socket.send(AgentBridgeMessage.cancel(id: id).json)
-            self.finish(id, with: .failure(CancellationError()))
+            self.cancelCall(id)
         }
     }
 
@@ -344,10 +367,24 @@ final class AgentBridgeClient: @unchecked Sendable {
         return id
     }
 
-    private func register(_ id: Int, _ entry: Pending) {
+    private func register(_ id: Int, _ entry: Pending) -> Bool {
         lock.lock()
+        defer { lock.unlock() }
+        if cancelledBeforeRegister.remove(id) != nil {
+            return false
+        }
         pending[id] = entry
+        return true
+    }
+
+    private func cancelCall(_ id: Int) {
+        lock.lock()
+        let entry = pending.removeValue(forKey: id)
+        if entry == nil {
+            cancelledBeforeRegister.insert(id)
+        }
         lock.unlock()
+        entry?.continuation.resume(throwing: CancellationError())
     }
 
     private func receive(_ line: Data) {
@@ -368,6 +405,7 @@ final class AgentBridgeClient: @unchecked Sendable {
     private func finish(_ id: Int, with result: Result<JSONValue, Error>) {
         lock.lock()
         let entry = pending.removeValue(forKey: id)
+        cancelledBeforeRegister.remove(id)
         lock.unlock()
         entry?.continuation.resume(with: result)
     }
@@ -379,6 +417,7 @@ final class AgentBridgeClient: @unchecked Sendable {
         }
         let failed = Array(pending.values)
         pending.removeAll()
+        cancelledBeforeRegister.removeAll()
         lock.unlock()
         for entry in failed {
             entry.continuation.resume(throwing: Failure.disconnected)

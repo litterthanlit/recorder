@@ -60,6 +60,7 @@ final class CompositorPreviewHost: NSView {
     private var videoOutput: AVPlayerItemVideoOutput?
     private var cameraOutput: AVPlayerItemVideoOutput?
     private var itemStatusObserver: NSKeyValueObservation?
+    private var cameraStatusObserver: NSKeyValueObservation?
     private var currentItemObserver: NSKeyValueObservation?
     private var cameraItemObserver: NSKeyValueObservation?
     private var displayLink: CVDisplayLink?
@@ -92,6 +93,8 @@ final class CompositorPreviewHost: NSView {
     private var sharedPixelHeight = 0
     private var isRenderInFlight = false
     private var needsRender = true
+    private var needsVideoBufferReset = false
+    private var needsCameraBufferReset = false
 
     /// Preview refresh cap. ProMotion displays tick at 120 Hz; rendering every tick would
     /// double the work for no visible gain in a preview.
@@ -135,11 +138,26 @@ final class CompositorPreviewHost: NSView {
 
     deinit {
         stopDisplayLink()
-        if let item = player.currentItem, let videoOutput {
-            item.remove(videoOutput)
+        stateLock.lock()
+        let vOut = videoOutput
+        let cOut = cameraOutput
+        videoOutput = nil
+        cameraOutput = nil
+        stateLock.unlock()
+        let vPlayer = player
+        let cPlayer = cameraPlayer
+        let cleanup = {
+            if let item = vPlayer.currentItem, let vOut {
+                item.remove(vOut)
+            }
+            if let item = cPlayer?.currentItem, let cOut {
+                item.remove(cOut)
+            }
         }
-        if let item = cameraPlayer?.currentItem, let cameraOutput {
-            item.remove(cameraOutput)
+        if Thread.isMainThread {
+            cleanup()
+        } else {
+            DispatchQueue.main.async(execute: cleanup)
         }
     }
 
@@ -232,6 +250,12 @@ final class CompositorPreviewHost: NSView {
         needsRender = false
         let pixelWidth = sharedPixelWidth
         let pixelHeight = sharedPixelHeight
+        let activeVideoOutput = videoOutput
+        let activeCameraOutput = cameraOutput
+        let resetVideo = needsVideoBufferReset
+        needsVideoBufferReset = false
+        let resetCamera = needsCameraBufferReset
+        needsCameraBufferReset = false
         stateLock.unlock()
 
         defer {
@@ -240,72 +264,80 @@ final class CompositorPreviewHost: NSView {
             stateLock.unlock()
         }
 
-        guard pixelWidth > 8, pixelHeight > 8, let videoOutput else { return }
+        if resetVideo { lastPixelBuffer = nil }
+        if resetCamera { lastCameraBuffer = nil }
 
-        let now = CACurrentMediaTime()
-        let time = videoOutput.itemTime(forHostTime: now)
-        guard time.isValid else { return }
-        let seconds = CMTimeGetSeconds(time)
-        guard seconds.isFinite else { return }
+        guard pixelWidth > 8, pixelHeight > 8, let activeVideoOutput else { return }
 
-        var screenFrameChanged = false
-        if videoOutput.hasNewPixelBuffer(forItemTime: time),
-           let buffer = videoOutput.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
-            lastPixelBuffer = buffer
-            screenFrameChanged = true
-        } else if lastPixelBuffer == nil,
-                  let buffer = videoOutput.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
-            lastPixelBuffer = buffer
-            screenFrameChanged = true
-        }
-        guard let screenBuffer = lastPixelBuffer else { return }
+        autoreleasepool {
+            let now = CACurrentMediaTime()
+            let time = activeVideoOutput.itemTime(forHostTime: now)
+            guard time.isValid else { return }
+            let seconds = CMTimeGetSeconds(time)
+            guard seconds.isFinite else { return }
 
-        // Camera and screen share a timeline, so ask for the camera frame at the same time.
-        var cameraFrameChanged = false
-        if let cameraOutput {
-            if cameraOutput.hasNewPixelBuffer(forItemTime: time),
-               let cameraBuffer = cameraOutput.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
-                lastCameraBuffer = cameraBuffer
-                cameraFrameChanged = true
-            } else if lastCameraBuffer == nil,
-                      let cameraBuffer = cameraOutput.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
-                lastCameraBuffer = cameraBuffer
-                cameraFrameChanged = true
+            var screenFrameChanged = false
+            if activeVideoOutput.hasNewPixelBuffer(forItemTime: time),
+               let buffer = activeVideoOutput.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
+                lastPixelBuffer = buffer
+                screenFrameChanged = true
+            } else if lastPixelBuffer == nil,
+                      let buffer = activeVideoOutput.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
+                lastPixelBuffer = buffer
+                screenFrameChanged = true
             }
+            guard let screenBuffer = lastPixelBuffer else { return }
+
+            // Query cameraOutput with its own host-time mapping so minor drift between the
+            // two AVPlayers doesn't miss the decoded camera frame window.
+            var cameraFrameChanged = false
+            if let activeCameraOutput {
+                let cameraItemTime = activeCameraOutput.itemTime(forHostTime: now)
+                let queryTime = cameraItemTime.isValid ? cameraItemTime : time
+                if activeCameraOutput.hasNewPixelBuffer(forItemTime: queryTime),
+                   let cameraBuffer = activeCameraOutput.copyPixelBuffer(forItemTime: queryTime, itemTimeForDisplay: nil) {
+                    lastCameraBuffer = cameraBuffer
+                    cameraFrameChanged = true
+                } else if lastCameraBuffer == nil,
+                          let cameraBuffer = activeCameraOutput.copyPixelBuffer(forItemTime: queryTime, itemTimeForDisplay: nil) {
+                    lastCameraBuffer = cameraBuffer
+                    cameraFrameChanged = true
+                }
+            }
+
+            // Zoom, cursor, and ripples animate with time even when the source frame is
+            // unchanged (still screen), so time is part of what needs a redraw.
+            let signature = pixelWidth &* 31 &+ pixelHeight &* 17 &+ Int((seconds * 1000).rounded())
+            let hasChanges = forced || screenFrameChanged || cameraFrameChanged || hasDeferredUpdate
+                || signature != lastRenderedSignature
+            guard hasChanges else { return }
+
+            if !forced, now - lastRenderHostTime < Self.minimumFrameInterval * 0.9 {
+                hasDeferredUpdate = true
+                return
+            }
+
+            guard let pool = outputPool(width: pixelWidth, height: pixelHeight),
+                  let rendered = try? renderer.renderFrame(
+                      pixelBuffer: screenBuffer,
+                      cameraBuffer: lastCameraBuffer,
+                      at: renderTimeline?.sourceTime(forOutput: seconds) ?? seconds,
+                      outputTime: seconds,
+                      outputWidth: pixelWidth,
+                      outputHeight: pixelHeight,
+                      pool: pool
+                  )
+            else { return }
+
+            lastRenderedSignature = signature
+            lastRenderHostTime = now
+            hasDeferredUpdate = false
+
+            if let colorSpace = Self.colorSpace {
+                CVBufferSetAttachment(rendered, kCVImageBufferCGColorSpaceKey, colorSpace, .shouldPropagate)
+            }
+            display(rendered)
         }
-
-        // Zoom, cursor, and ripples animate with time even when the source frame is
-        // unchanged (still screen), so time is part of what needs a redraw.
-        let signature = pixelWidth &* 31 &+ pixelHeight &* 17 &+ Int((seconds * 1000).rounded())
-        let hasChanges = forced || screenFrameChanged || cameraFrameChanged || hasDeferredUpdate
-            || signature != lastRenderedSignature
-        guard hasChanges else { return }
-
-        if !forced, now - lastRenderHostTime < Self.minimumFrameInterval * 0.9 {
-            hasDeferredUpdate = true
-            return
-        }
-
-        guard let pool = outputPool(width: pixelWidth, height: pixelHeight),
-              let rendered = try? renderer.renderFrame(
-                  pixelBuffer: screenBuffer,
-                  cameraBuffer: lastCameraBuffer,
-                  at: renderTimeline?.sourceTime(forOutput: seconds) ?? seconds,
-                  outputTime: seconds,
-                  outputWidth: pixelWidth,
-                  outputHeight: pixelHeight,
-                  pool: pool
-              )
-        else { return }
-
-        lastRenderedSignature = signature
-        lastRenderHostTime = now
-        hasDeferredUpdate = false
-
-        if let colorSpace = Self.colorSpace {
-            CVBufferSetAttachment(rendered, kCVImageBufferCGColorSpaceKey, colorSpace, .shouldPropagate)
-        }
-        display(rendered)
     }
 
     private func outputPool(width: Int, height: Int) -> CVPixelBufferPool? {
@@ -394,7 +426,10 @@ final class CompositorPreviewHost: NSView {
 
     private func attachVideoOutput() {
         guard let item = player.currentItem else { return }
-        if let videoOutput, item.outputs.contains(videoOutput) {
+        stateLock.lock()
+        let existing = videoOutput
+        stateLock.unlock()
+        if let existing, item.outputs.contains(existing) {
             return
         }
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
@@ -402,7 +437,10 @@ final class CompositorPreviewHost: NSView {
         ])
         output.suppressesPlayerRendering = true
         item.add(output)
+        stateLock.lock()
         videoOutput = output
+        needsVideoBufferReset = true
+        stateLock.unlock()
         itemStatusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             guard item.status == .readyToPlay else { return }
             self?.requestRender()
@@ -411,7 +449,10 @@ final class CompositorPreviewHost: NSView {
 
     private func attachCameraOutput() {
         guard let item = cameraPlayer?.currentItem else { return }
-        if let cameraOutput, item.outputs.contains(cameraOutput) {
+        stateLock.lock()
+        let existing = cameraOutput
+        stateLock.unlock()
+        if let existing, item.outputs.contains(existing) {
             return
         }
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
@@ -419,7 +460,14 @@ final class CompositorPreviewHost: NSView {
         ])
         output.suppressesPlayerRendering = true
         item.add(output)
+        stateLock.lock()
         cameraOutput = output
+        needsCameraBufferReset = true
+        stateLock.unlock()
+        cameraStatusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+            guard item.status == .readyToPlay else { return }
+            self?.requestRender()
+        }
     }
 
     // MARK: - Display link

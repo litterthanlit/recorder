@@ -61,7 +61,7 @@ private struct RecentProjectRow: View {
                     thumbnailView
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(project.title)
+                        Text(project.displayName)
                             .font(.callout.weight(.medium))
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -105,7 +105,7 @@ private struct RecentProjectRow: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .opacity(isHovered ? 1 : 0.55)
-            .accessibilityLabel("More actions for \(project.title)")
+            .accessibilityLabel("More actions for \(project.displayName)")
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 5)
@@ -151,7 +151,7 @@ private struct RecentProjectRow: View {
 
     private var accessibilityDescription: String {
         var parts = [
-            project.title,
+            project.displayName,
             "\(RecentProjectsView.formattedDuration(project.duration)) long",
             "recorded \(project.createdAt.formatted(.relative(presentation: .named)))"
         ]

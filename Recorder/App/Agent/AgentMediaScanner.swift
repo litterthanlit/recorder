@@ -266,7 +266,10 @@ final class AgentMediaScanner {
             if time.isNumeric {
                 if let start {
                     // Keep later levels in place across a gap (dropped audio).
-                    meter.pad(toSample: Int(((time.seconds - start) * sampleRate).rounded()))
+                    let deltaSamples = ((time.seconds - start) * sampleRate).rounded()
+                    if deltaSamples.isFinite, deltaSamples >= 0, deltaSamples < Double(Int.max / 2) {
+                        meter.pad(toSample: Int(deltaSamples))
+                    }
                 } else {
                     start = time.seconds
                 }

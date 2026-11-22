@@ -66,13 +66,23 @@ jobs:
           # Hardened runtime blocks Apple Events (the Dock toggle) without this.
           test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.automation.apple-events' Recorder/Recorder.entitlements)" = true
 
-      - name: Build app
+      - name: Build app (Debug)
         if: ${{ !cancelled() }}
         run: |
           xcodebuild \
             -project Recorder.xcodeproj \
             -target Recorder \
             -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Build app (Release)
+        if: ${{ !cancelled() }}
+        run: |
+          xcodebuild \
+            -project Recorder.xcodeproj \
+            -target Recorder \
+            -configuration Release \
             CODE_SIGNING_ALLOWED=NO \
             build
 

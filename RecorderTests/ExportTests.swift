@@ -20,6 +20,20 @@ struct ExportOptionsTests {
         #expect(Int(gif.height) % 2 == 0)
         let small = CGSize(width: 640, height: 360)
         #expect(ExportOptions(format: .gif).outputSize(canvas: small) == small)
+        // Portrait 9:16 GIFs cap height as well as width so memory stays bounded.
+        let portrait = ExportOptions(format: .gif).outputSize(canvas: CGSize(width: 1080, height: 1920))
+        #expect(isClose(portrait.height, ExportOptions.gifMaximumWidth))
+        #expect(isClose(portrait.width, 404))
+    }
+
+    @Test func silentRecordingDoesNotDeductAudioFromSizeLimit() {
+        let canvas = CGSize(width: 1920, height: 1080)
+        let options = ExportOptions(format: .mp4, quality: .high, maxMegabytes: 10, includeAudio: true)
+        let withAudio = options.plan(canvas: canvas, sourceFrameRate: 30, duration: 300, hasAudio: true)
+        let silent = options.plan(canvas: canvas, sourceFrameRate: 30, duration: 300, hasAudio: false)
+        #expect(withAudio.audioBitrate == ExportOptions.limitedAudioBitrate)
+        #expect(silent.audioBitrate == 0)
+        #expect(silent.videoBitrate > withAudio.videoBitrate)
     }
 
     @Test func bitratesAndSizes() {
@@ -262,5 +276,32 @@ struct ClipTargetTests {
             .plan(canvas: CGSize(width: 1920, height: 1080), sourceFrameRate: 60, duration: 10)
         #expect(limited.audioBitrate == 0)
         #expect(limited.videoBitrate >= withSound.videoBitrate)
+    }
+
+    @Test func socialTargetsProduceExpectedCanvasAndOptions() {
+        let base = ExportOptions()
+        for target in ClipTarget.allCases {
+            let options = target.options(from: base)
+            #expect(target.matches(canvas: target.canvas, options: options), "\(target)")
+            #expect(options.format == .mp4, "\(target)")
+            #expect(options.frameRate == target.frameRate, "\(target)")
+        }
+
+        let reels = ClipTarget.reels
+        #expect(reels.canvas == CanvasSpec(aspect: .portrait, resolution: .hd1080))
+        #expect(reels.showsSafeZones)
+        #expect(reels.options(from: base).includeAudio)
+
+        let ig = ClipTarget.instagramFeed
+        #expect(ig.canvas == CanvasSpec(aspect: .vertical, resolution: .hd1080))
+        #expect(ig.showsSafeZones)
+
+        let ph = ClipTarget.productHunt
+        #expect(ph.canvas == CanvasSpec(aspect: .widescreen, resolution: .qhd1440))
+        #expect(ph.options(from: base).quality == .studio)
+
+        let chat = ClipTarget.chat
+        #expect(chat.options(from: base).maxMegabytes == 10)
+        #expect(chat.frameRate == 30)
     }
 }

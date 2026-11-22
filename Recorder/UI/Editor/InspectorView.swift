@@ -262,6 +262,12 @@ struct LooksSection: View {
     private func saveCurrentLook() {
         let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        let background = editor.editSettings.exportStyle.background
+        if background.kind == .image,
+           let fileName = background.imageFileName,
+           let imageURL = editor.project.backgroundImageURL {
+            StyleLibraryStore.copyBackgroundImage(from: imageURL, fileName: fileName)
+        }
         looks.save(StylePreset(name: name, from: editor.editSettings))
         isNaming = false
     }

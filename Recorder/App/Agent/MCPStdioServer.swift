@@ -12,6 +12,18 @@ enum MCPStdioServer {
         // An agent that goes away mid-write must not kill the process.
         signal(SIGPIPE, SIG_IGN)
 
+        // Move the JSON-RPC stdout stream onto a private descriptor and redirect fd 1
+        // to stderr so stray print() or framework logs can never corrupt the framing.
+        let protocolStdout: Int32
+        let duplicated = dup(STDOUT_FILENO)
+        if duplicated >= 0 {
+            _ = fcntl(duplicated, F_SETFD, FD_CLOEXEC)
+            _ = dup2(STDERR_FILENO, STDOUT_FILENO)
+            protocolStdout = duplicated
+        } else {
+            protocolStdout = STDOUT_FILENO
+        }
+
         let output = DispatchQueue(label: "app.hypher.recorder.mcp.stdout")
         let server = MCPServer(
             info: MCPServer.Info(version: appVersion),
@@ -22,17 +34,20 @@ enum MCPStdioServer {
             emit: { message in
                 let line = message.line()
                 output.async {
-                    FileDescriptorIO.writeAll(line, to: STDOUT_FILENO)
+                    FileDescriptorIO.writeAll(line, to: protocolStdout)
                 }
             }
         )
 
+        // Bound unread stdin messages in memory if a client floods lines faster than we drain.
+        let pendingBudget = DispatchSemaphore(value: 128)
         let lines = AsyncStream<Data> { continuation in
             Thread.detachNewThread {
                 var buffer = LineBuffer()
                 while let chunk = FileDescriptorIO.read(from: STDIN_FILENO) {
                     do {
                         for line in try buffer.append(chunk) {
+                            pendingBudget.wait()
                             continuation.yield(line)
                         }
                     } catch {
@@ -45,11 +60,15 @@ enum MCPStdioServer {
 
         Task {
             for await line in lines {
+                pendingBudget.signal()
                 await server.receive(line)
             }
             // The agent closed stdin: stop promptly, after what's already been written.
             await server.cancelAll()
             output.sync {}
+            if protocolStdout != STDOUT_FILENO {
+                Darwin.close(protocolStdout)
+            }
             exit(0)
         }
         dispatchMain()

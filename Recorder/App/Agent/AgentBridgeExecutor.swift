@@ -57,6 +57,7 @@ enum TraceAppLauncher {
     static let argument = "--launched-for-agent"
 
     private static let relaunchInterval: TimeInterval = 30
+    private static let stateLock = NSLock()
     private static var lastLaunch: Date?
 
     /// Returns once the app listens at `path`, launching it if no copy is running.
@@ -69,6 +70,7 @@ enum TraceAppLauncher {
         }
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
+            try Task.checkCancellation()
             if UnixSocket.isListening(at: path) {
                 return
             }
@@ -77,26 +79,31 @@ enum TraceAppLauncher {
         throw AgentToolError(isAppRunning() ? AgentAccessText.notListening : AgentAccessText.didNotStart)
     }
 
-    /// Another process of this app is running (this `--mcp` process doesn't count).
+    /// Another GUI process of this app is running (`--mcp` CLI helpers have `.prohibited`
+    /// activation policy and don't count as the host app).
     static func isAppRunning() -> Bool {
         let bundleID = Bundle.main.bundleIdentifier ?? "app.hypher.recorder"
         let ownID = ProcessInfo.processInfo.processIdentifier
         return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).contains {
-            $0.processIdentifier != ownID && !$0.isTerminated
+            $0.processIdentifier != ownID && !$0.isTerminated && $0.activationPolicy != .prohibited
         }
     }
 
     private static func launch() async throws {
-        if let lastLaunch, Date().timeIntervalSince(lastLaunch) < relaunchInterval {
-            return
+        let shouldAttempt: Bool = stateLock.withLock {
+            if let lastLaunch, Date().timeIntervalSince(lastLaunch) < relaunchInterval {
+                return false
+            }
+            lastLaunch = Date()
+            return true
         }
-        lastLaunch = Date()
+        guard shouldAttempt else { return }
 
         // Two agents starting at once must not start two copies.
         let lock = LaunchLock()
-        await lock.acquire(timeout: 10)
+        let acquired = try await lock.acquire(timeout: 10)
         defer { lock.release() }
-        guard !isAppRunning() else { return }
+        guard acquired, !isAppRunning() else { return }
 
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
@@ -111,18 +118,23 @@ enum TraceAppLauncher {
 private final class LaunchLock {
     private var descriptor: Int32 = -1
 
-    func acquire(timeout: TimeInterval) async {
+    func acquire(timeout: TimeInterval) async throws -> Bool {
         let path = AgentBridgeEndpoint.supportDirectory
             .appendingPathComponent(AgentBridgeEndpoint.folderName, isDirectory: true)
             .appendingPathComponent("launch.lock")
             .path
         try? AgentBridgeEndpoint.prepareDirectory(for: path)
         descriptor = open(path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
-        guard descriptor >= 0 else { return }
+        guard descriptor >= 0 else { return false }
         let deadline = Date().addingTimeInterval(timeout)
-        while flock(descriptor, LOCK_EX | LOCK_NB) != 0, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 200_000_000)
+        while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+            try Task.checkCancellation()
+            if Date() >= deadline {
+                return false
+            }
+            try await Task.sleep(nanoseconds: 200_000_000)
         }
+        return true
     }
 
     func release() {

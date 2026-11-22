@@ -31,10 +31,12 @@ enum AgentCoordinates {
         else {
             throw AgentToolError("\(name) needs x, y, width and height (0–1, origin at the top-left).")
         }
-        let rect = CGRect(x: x, y: y, width: width, height: height)
         let tolerance = 0.001
-        guard rect.width > 0.005, rect.height > 0.005,
-              rect.minX >= -tolerance, rect.minY >= -tolerance,
+        guard width > 0.005, height > 0.005 else {
+            throw AgentToolError("\(name) must lie within 0–1 on both axes with a positive size (got x \(x), y \(y), width \(width), height \(height)).")
+        }
+        let rect = CGRect(x: x, y: y, width: width, height: height)
+        guard rect.minX >= -tolerance, rect.minY >= -tolerance,
               rect.maxX <= 1 + tolerance, rect.maxY <= 1 + tolerance
         else {
             throw AgentToolError("\(name) must lie within 0–1 on both axes with a positive size (got x \(x), y \(y), width \(width), height \(height)).")

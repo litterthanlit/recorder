@@ -60,6 +60,17 @@ struct AutoZoomGeneratorTests {
         let generator = AutoZoomGenerator(frameWidth: 1920, frameHeight: 1080)
         #expect(generator.generate(from: []).isEmpty)
     }
+
+    @Test func invalidDimensionsOrScaleProduceNoKeyframesAndDurationClampsEnd() {
+        let click = [ClickEvent(timestamp: 9.5, location: CGPoint(x: 400, y: 400), button: .left)]
+        #expect(AutoZoomGenerator(frameWidth: 0, frameHeight: 1080).generate(from: click).isEmpty)
+        #expect(AutoZoomGenerator(frameWidth: 1920, frameHeight: 0).generate(from: click).isEmpty)
+        #expect(AutoZoomGenerator(settings: AutoZoomSettings(zoomScale: 0), frameWidth: 1920, frameHeight: 1080).generate(from: click).isEmpty)
+
+        let clamped = AutoZoomGenerator(frameWidth: 1920, frameHeight: 1080).generate(from: click, duration: 10.0)
+        #expect(clamped.count == 1)
+        #expect(clamped[0].endTime <= 10.0)
+    }
 }
 
 @Suite("ZoomInterpolator")

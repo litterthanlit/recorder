@@ -5,13 +5,18 @@ import Vision
 
 /// Applies Zoom-style virtual backgrounds to camera frames via Vision person segmentation.
 final class CameraBackgroundProcessor {
-    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+    private static let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+
+    private let ciContext = CIContext(options: [.useSoftwareRenderer: false, .cacheIntermediates: false])
     private let segmentationRequest: VNGeneratePersonSegmentationRequest = {
         let request = VNGeneratePersonSegmentationRequest()
         request.qualityLevel = .balanced
         request.outputPixelFormat = kCVPixelFormatType_OneComponent8
         return request
     }()
+    private var outputPool: CVPixelBufferPool?
+    private var poolWidth = 0
+    private var poolHeight = 0
 
     func process(_ pixelBuffer: CVPixelBuffer, mode: CameraBackgroundMode) -> CVPixelBuffer? {
         guard mode != .none else { return pixelBuffer }
@@ -37,20 +42,37 @@ final class CameraBackgroundProcessor {
             kCIInputMaskImageKey: mask
         ]).cropped(to: extent)
 
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        guard let pool = bufferPool(width: width, height: height) else { return nil }
         var output: CVPixelBuffer?
-        let status = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            CVPixelBufferGetWidth(pixelBuffer),
-            CVPixelBufferGetHeight(pixelBuffer),
-            kCVPixelFormatType_32BGRA,
-            [
-                kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary
-            ] as CFDictionary,
-            &output
-        )
-        guard status == kCVReturnSuccess, let output else { return nil }
-        ciContext.render(blended, to: output)
+        guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &output) == kCVReturnSuccess,
+              let output
+        else { return nil }
+        ciContext.render(blended, to: output, bounds: extent, colorSpace: Self.colorSpace)
+        CVBufferSetAttachment(output, kCVImageBufferCGColorSpaceKey, Self.colorSpace, .shouldPropagate)
         return output
+    }
+
+    private func bufferPool(width: Int, height: Int) -> CVPixelBufferPool? {
+        if let outputPool, poolWidth == width, poolHeight == height {
+            return outputPool
+        }
+        let attributes: [CFString: Any] = [
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey: width,
+            kCVPixelBufferHeightKey: height,
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            kCVPixelBufferMetalCompatibilityKey: true
+        ]
+        var created: CVPixelBufferPool?
+        guard CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attributes as CFDictionary, &created) == kCVReturnSuccess,
+              let created
+        else { return nil }
+        outputPool = created
+        poolWidth = width
+        poolHeight = height
+        return created
     }
 
     private func scaleMask(_ mask: CIImage, to extent: CGRect) -> CIImage {

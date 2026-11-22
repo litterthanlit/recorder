@@ -9,8 +9,15 @@ enum ExportService {
         let sourceSize = CGSize(width: project.metadata.width, height: project.metadata.height)
         let canvasSize = settings.canvasPixelSize(source: sourceSize)
         let timeline = settings.resolvedTimeline(sourceDuration: project.metadata.duration)
-        let plan = options.plan(canvas: canvasSize, sourceFrameRate: project.metadata.fps, duration: timeline.outputDuration)
         let audioTrackCount = try await AVURLAsset(url: project.videoURL).loadTracks(withMediaType: .audio).count
+        let musicURL = project.musicTrackURL
+        let hasMusic = musicURL != nil && settings.music.clampedVolume > 0.001
+        let plan = options.plan(
+            canvas: canvasSize,
+            sourceFrameRate: project.metadata.fps,
+            duration: timeline.outputDuration,
+            hasAudio: audioTrackCount > 0 || hasMusic
+        )
         return ExportConfiguration(
             keyframes: project.keyframes,
             outputSize: plan.size,
@@ -22,7 +29,9 @@ enum ExportService {
             options: options,
             cameraURL: project.hasCameraTrack ? project.cameraURL : nil,
             audioTrackRoles: project.metadata.resolvedAudioTrackRoles(trackCount: audioTrackCount),
-            audio: settings.audio
+            audio: settings.audio,
+            musicURL: musicURL,
+            music: settings.music
         )
     }
 
@@ -46,6 +55,7 @@ enum ExportService {
         _ project: RecorderProject,
         options: ExportOptions,
         to destination: URL,
+        replaceExisting: Bool = true,
         progress: @escaping @MainActor (Double) -> Void
     ) async throws -> URL {
         // The recorded cursor is drawn with the system's own cursor images.
@@ -53,11 +63,12 @@ enum ExportService {
         let configuration = try await configuration(for: project, options: options)
 
         let fileManager = FileManager.default
-        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let parentDirectory = destination.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
         let workDirectory = try fileManager.url(
             for: .itemReplacementDirectory,
             in: .userDomainMask,
-            appropriateFor: destination,
+            appropriateFor: parentDirectory,
             create: true
         )
         defer { try? fileManager.removeItem(at: workDirectory) }
@@ -72,19 +83,55 @@ enum ExportService {
         }
         try Task.checkCancellation()
 
-        if fileManager.fileExists(atPath: destination.path) {
-            _ = try fileManager.replaceItemAt(destination, withItemAt: partialURL)
+        let finalURL: URL
+        if replaceExisting {
+            if fileManager.fileExists(atPath: destination.path) {
+                _ = try fileManager.replaceItemAt(destination, withItemAt: partialURL)
+            } else {
+                try fileManager.moveItem(at: partialURL, to: destination)
+            }
+            finalURL = destination
         } else {
-            try fileManager.moveItem(at: partialURL, to: destination)
+            finalURL = try moveWithoutOverwriting(partialURL, desired: destination)
         }
 
-        let record = ExportRecord(path: destination.path, format: options.format, date: Date())
+        let record = ExportRecord(path: finalURL.path, format: options.format, date: Date())
         do {
             try ProjectStore.saveExportRecord(record, in: project.bundleURL)
         } catch {
             Log.export.error("Couldn't remember the export: \(error.localizedDescription, privacy: .public)")
         }
-        return destination
+        return finalURL
+    }
+
+    /// Atomically places `source` at `desired` (or a uniquified sibling) without ever
+    /// overwriting an existing file via TOCTOU race.
+    private static func moveWithoutOverwriting(_ source: URL, desired: URL) throws -> URL {
+        let folder = desired.deletingLastPathComponent()
+        let base = (desired.lastPathComponent as NSString).deletingPathExtension
+        let ext = (desired.lastPathComponent as NSString).pathExtension
+        for attempt in 0..<1000 {
+            let name: String
+            if attempt == 0 {
+                name = desired.lastPathComponent
+            } else {
+                name = ext.isEmpty ? "\(base) \(attempt + 1)" : "\(base) \(attempt + 1).\(ext)"
+            }
+            let candidate = folder.appendingPathComponent(name)
+            if Darwin.link(source.path, candidate.path) == 0 {
+                _ = try? FileManager.default.removeItem(at: source)
+                return candidate
+            }
+            if errno == EEXIST {
+                continue
+            }
+            // Fallback for filesystems where hard links aren't supported: check then move.
+            if !FileManager.default.fileExists(atPath: candidate.path) {
+                try FileManager.default.moveItem(at: source, to: candidate)
+                return candidate
+            }
+        }
+        throw CocoaError(.fileWriteFileExists)
     }
 
     /// Where an export goes without asking: the export folder, named from the template,

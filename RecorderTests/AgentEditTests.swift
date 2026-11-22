@@ -449,4 +449,40 @@ struct AgentEditCatalogTests {
         let named = AgentToolCatalog.textPosition["anyOf"]?.arrayValue?.first?["enum"]?.arrayValue?.compactMap(\.stringValue)
         #expect(named == AgentEdits.textPositions.map { $0.name })
     }
+
+    @Test func negativeRectDimensionsAreRejected() {
+        let args = AgentArguments(["x": 0.5, "y": 0.5, "width": -0.2, "height": 0.2])
+        let message = failure { _ = try AgentCoordinates.sourceRect(args) }
+        #expect(message != nil)
+    }
+
+    @Test func cutTransitionNoneStaysClearedEvenWithDuration() throws {
+        var snapshot = freshSnapshot()
+        snapshot.editSettings.cutTransition = CutTransition(style: .zoomBlur, duration: 0.4)
+        _ = try AgentEdits.setStyle(
+            &snapshot,
+            arguments: AgentArguments(["cut_transition": "none", "cut_transition_duration": 0.5]),
+            take: take
+        )
+        #expect(snapshot.editSettings.cutTransition == nil)
+    }
+
+    @Test func trimCanShiftWindowForwardPastOldEnd() throws {
+        var snapshot = freshSnapshot()
+        _ = try AgentEdits.editTimeline(
+            &snapshot,
+            operations: operations([["op": "trim", "start": 2, "end": 5]]),
+            take: take,
+            timeBase: .source
+        )
+        #expect(sourceSpans(snapshot) == [[2, 5]])
+
+        _ = try AgentEdits.editTimeline(
+            &snapshot,
+            operations: operations([["op": "trim", "start": 8, "end": 12]]),
+            take: take,
+            timeBase: .source
+        )
+        #expect(sourceSpans(snapshot) == [[8, 12]])
+    }
 }

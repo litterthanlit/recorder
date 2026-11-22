@@ -183,6 +183,8 @@ struct ProjectFormatTests {
         #expect(throws: ProjectStoreError.newerFormat(99)) {
             try ProjectStore.loadProject(from: bundleURL)
         }
+        let settingsOnlyScan = ProjectStore.scanLibrary(in: directory.url)
+        #expect(settingsOnlyScan.unreadable.map(\.reason) == [.newerFormat(99)])
 
         try Self.rewrite(bundleURL.appendingPathComponent(ProjectStore.File.meta)) { $0["formatVersion"] = 99 }
         #expect(ProjectStore.listProjects(in: directory.url).isEmpty)

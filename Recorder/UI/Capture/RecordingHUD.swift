@@ -42,14 +42,25 @@ final class RecordingOverlays {
     }
 
     private func showHUD() {
-        let hosting = NSHostingView(rootView: RecordingHUDView(session: session, settings: settings))
-        let size = hosting.fittingSize
         let panel = NSPanel(
-            contentRect: CGRect(origin: .zero, size: size),
+            contentRect: CGRect(origin: .zero, size: CGSize(width: 240, height: 48)),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
+        let hosting = NSHostingView(rootView: RecordingHUDView(session: session, settings: settings) { [weak panel] in
+            guard let panel, let content = panel.contentView else { return }
+            let newSize = content.fittingSize
+            guard newSize.width > 0, newSize.height > 0 else { return }
+            let oldFrame = panel.frame
+            let newOrigin = CGPoint(
+                x: oldFrame.midX - newSize.width / 2,
+                y: oldFrame.origin.y
+            )
+            panel.setFrame(CGRect(origin: newOrigin, size: newSize), display: true)
+        })
+        let size = hosting.fittingSize
+        panel.setContentSize(size)
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -65,7 +76,9 @@ final class RecordingOverlays {
 
     /// Below the recorded area if there's room, otherwise near the bottom of the screen.
     private func hudOrigin(size: CGSize) -> CGPoint {
-        let screen = session.recordingScreen ?? NSScreen.main ?? NSScreen.screens[0]
+        guard let screen = session.recordingScreen ?? NSScreen.main ?? NSScreen.screens.first else {
+            return .zero
+        }
         let visible = screen.visibleFrame
         if let area = session.recordingAreaFrame, area.minY - size.height - 16 > visible.minY {
             return CGPoint(
@@ -109,6 +122,7 @@ private struct AreaBorderView: View {
 struct RecordingHUDView: View {
     @ObservedObject var session: RecordingSession
     @ObservedObject var settings: SettingsStore
+    var onSizeChange: (() -> Void)? = nil
     @State private var confirmingDiscard = false
 
     var body: some View {
@@ -196,6 +210,11 @@ struct RecordingHUDView: View {
         .environment(\.colorScheme, .dark)
         .fixedSize()
         .padding(6)
+        .onChange(of: confirmingDiscard) { _, _ in
+            DispatchQueue.main.async {
+                onSizeChange?()
+            }
+        }
     }
 
     private func hudButton(_ title: String, icon: String, shortcut: KeyCombo?, action: @escaping () -> Void) -> some View {

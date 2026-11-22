@@ -99,6 +99,7 @@ enum HotkeyContext: Equatable {
     case idle
     case countdown
     case recording
+    case processing
 }
 
 struct HotkeyBindings: Equatable {
@@ -141,6 +142,8 @@ struct HotkeyBindings: Equatable {
             return [.stop]
         case .recording:
             return [.stop, .pauseResume, .restart]
+        case .processing:
+            return []
         }
     }
 }

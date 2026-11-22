@@ -96,4 +96,38 @@ struct LibraryMigrationTests {
         #expect(FileManager.default.fileExists(atPath: legacy.path))
         #expect(!FileManager.default.fileExists(atPath: destination.path))
     }
+
+    @Test func doesNotDeleteLegacyFolderWhenFinalListingFails() throws {
+        final class FailingSecondListingFileManager: FileManager {
+            var listCount = 0
+            override func contentsOfDirectory(
+                at url: URL,
+                includingPropertiesForKeys keys: [URLResourceKey]?,
+                options mask: FileManager.DirectoryEnumerationOptions = []
+            ) throws -> [URL] {
+                listCount += 1
+                if listCount >= 2 {
+                    throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadUnknownError)
+                }
+                return try super.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: mask)
+            }
+        }
+
+        let root = try TemporaryDirectory()
+        defer { root.cleanup() }
+        try root.write("{}", to: "Recorder/\(bundleName(1))/meta.json")
+        try root.write("keep me", to: "Recorder/other.txt")
+        try root.write("{}", to: "Trace/\(bundleName(2))/meta.json")
+        let legacy = root.url.appendingPathComponent("Recorder")
+        let destination = root.url.appendingPathComponent("Trace")
+
+        let report = LibraryMigration.migrate(
+            from: legacy,
+            to: destination,
+            fileManager: FailingSecondListingFileManager()
+        )
+        #expect(report.movedBundles == [bundleName(1)])
+        #expect(!report.removedLegacyFolder)
+        #expect(FileManager.default.fileExists(atPath: legacy.appendingPathComponent("other.txt").path))
+    }
 }

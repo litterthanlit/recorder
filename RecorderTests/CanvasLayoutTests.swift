@@ -70,4 +70,11 @@ struct CanvasLayoutTests {
         let unknown = try JSONDecoder().decode(ProjectEditSettings.self, from: Data(#"{ "canvas": { "aspect": "cinema" } }"#.utf8))
         #expect(unknown.canvas.aspect == .auto)
     }
+
+    @Test func extremeAspectIsCappedAtHardwareLimit() {
+        let narrow = CGSize(width: 200, height: 2000)
+        let size = CanvasSpec(aspect: .auto, resolution: .uhd2160).pixelSize(source: narrow)
+        #expect(max(size.width, size.height) <= CanvasSpec.maximumLongSide)
+        #expect(Int(size.width) % 2 == 0 && Int(size.height) % 2 == 0)
+    }
 }

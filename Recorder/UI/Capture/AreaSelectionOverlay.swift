@@ -546,7 +546,11 @@ private final class SelectionView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { drag = nil }
+        let point = convert(event.locationInWindow, from: nil)
+        defer {
+            drag = nil
+            updateCursor(at: point)
+        }
         guard case .drawing = drag, let rect = localSelection else { return }
         if rect.width < 8 || rect.height < 8 {
             // A click, not a drag: clear the selection.
@@ -561,7 +565,6 @@ private final class SelectionView: NSView {
             )
             selector.setSelection(CaptureArea(displayID: displayID, rect: grown))
         }
-        updateCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     // MARK: Keyboard

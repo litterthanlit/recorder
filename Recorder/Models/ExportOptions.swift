@@ -166,12 +166,14 @@ struct ExportOptions: Codable, Equatable {
         return max(1, source)
     }
 
-    /// Pixel size of the export for a canvas of `canvas` pixels (GIFs are scaled down).
+    /// Pixel size of the export for a canvas of `canvas` pixels (GIFs are scaled down on
+    /// whichever side is longer so tall portrait GIFs don't exhaust ImageIO memory).
     func outputSize(canvas: CGSize) -> CGSize {
-        guard format == .gif, canvas.width > Self.gifMaximumWidth, canvas.width > 0 else {
+        let longest = max(canvas.width, canvas.height)
+        guard format == .gif, longest > Self.gifMaximumWidth, longest > 0 else {
             return canvas
         }
-        let scale = Self.gifMaximumWidth / canvas.width
+        let scale = Self.gifMaximumWidth / longest
         return CanvasLayout.even(CGSize(width: canvas.width * scale, height: canvas.height * scale))
     }
 
@@ -184,17 +186,19 @@ struct ExportOptions: Codable, Equatable {
 
     /// Size, frame rate and bitrates of an export of a `canvas`-sized edit, `duration`
     /// seconds long, from a recording made at `sourceFrameRate` fps.
-    func plan(canvas: CGSize, sourceFrameRate: Int, duration: TimeInterval) -> ExportPlan {
+    /// - Parameter hasAudio: whether the source recording actually carries an audio track.
+    func plan(canvas: CGSize, sourceFrameRate: Int, duration: TimeInterval, hasAudio: Bool = true) -> ExportPlan {
         let size = outputSize(canvas: canvas)
         let fps = outputFrameRate(source: sourceFrameRate)
         let seconds = max(duration, 0)
+        let effectiveAudio = includeAudio && hasAudio
         switch format {
         case .gif:
             return ExportPlan(size: size, frameRate: fps, videoBitrate: 0, audioBitrate: 0, duration: seconds)
         case .prores:
             // ProRes 422 is about 5.3 bits per pixel per frame.
             let video = Int(Double(size.width * size.height) * Double(fps) * 5.3)
-            let audio = includeAudio ? Self.pcmAudioBitrate : 0
+            let audio = effectiveAudio ? Self.pcmAudioBitrate : 0
             return ExportPlan(size: size, frameRate: fps, videoBitrate: video, audioBitrate: audio, duration: seconds)
         case .mp4, .hevc:
             guard let maxMegabytes, maxMegabytes > 0, seconds > 0 else {
@@ -202,18 +206,30 @@ struct ExportOptions: Codable, Equatable {
                     size: size,
                     frameRate: fps,
                     videoBitrate: bitrate(size: size, fps: fps),
-                    audioBitrate: includeAudio ? Self.audioBitrate : 0,
+                    audioBitrate: effectiveAudio ? Self.audioBitrate : 0,
                     duration: seconds
                 )
             }
-            return fittedPlan(canvas: size, fps: fps, seconds: seconds, limitBytes: Int64(maxMegabytes) * 1_000_000)
+            return fittedPlan(
+                canvas: size,
+                fps: fps,
+                seconds: seconds,
+                limitBytes: Int64(maxMegabytes) * 1_000_000,
+                effectiveAudio: effectiveAudio
+            )
         }
     }
 
     /// The largest size and frame rate whose picture still holds up within the limit,
     /// at the quality's bitrate or less.
-    private func fittedPlan(canvas: CGSize, fps: Int, seconds: TimeInterval, limitBytes: Int64) -> ExportPlan {
-        let audio = includeAudio ? Self.limitedAudioBitrate : 0
+    private func fittedPlan(
+        canvas: CGSize,
+        fps: Int,
+        seconds: TimeInterval,
+        limitBytes: Int64,
+        effectiveAudio: Bool
+    ) -> ExportPlan {
+        let audio = effectiveAudio ? Self.limitedAudioBitrate : 0
         let budget = Double(limitBytes) * 8 * Self.sizeLimitHeadroom / seconds - Double(audio)
         let minimum = Self.minimumBitsPerPixelPerFrame(format)
         let candidates = Self.fitCandidates(canvas: canvas, fps: fps)
@@ -309,67 +325,148 @@ struct ExportPlan: Equatable {
 /// Where a clip will be posted, and the file that place wants. Choosing one sets the
 /// canvas and the export options together; the sheet then checks the edit's length.
 enum ClipTarget: String, Codable, CaseIterable, Identifiable {
+    /// Standard 16:9 feed demo for X, LinkedIn, Threads and Bluesky.
+    case xFeed = "x_feed"
     /// Four square clips filling a post's 2×2 grid on X: a 1080 × 1080 page captured at
     /// 2×, 60 fps H.264 without sound, 7 to 24 seconds each (most about 13).
     case xGrid = "x_grid"
+    /// Vertical 9:16 demo for Instagram Reels, TikTok and YouTube Shorts.
+    case reels = "reels"
+    /// Tall 4:5 feed clip for Instagram and LinkedIn carousels.
+    case instagramFeed = "instagram_feed"
+    /// High-res 16:9 launch hero for Product Hunt, landing pages and YouTube.
+    case productHunt = "product_hunt"
+    /// Lightweight ≤10 MB clip for Slack, Discord, GitHub PRs and email.
+    case chat = "chat"
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
+        case .xFeed: return "X / LinkedIn"
         case .xGrid: return "X grid"
+        case .reels: return "Reels / Shorts"
+        case .instagramFeed: return "Instagram 4:5"
+        case .productHunt: return "Product Hunt"
+        case .chat: return "Slack / GitHub"
         }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .xFeed: return "play.rectangle"
+        case .xGrid: return "square.grid.2x2"
+        case .reels: return "rectangle.portrait"
+        case .instagramFeed: return "rectangle.portrait.inset.filled"
+        case .productHunt: return "sparkles.tv"
+        case .chat: return "paperplane"
+        }
+    }
+
+    /// Whether the editor preview should offer social UI safe-zone guides for this target.
+    var showsSafeZones: Bool {
+        self == .reels || self == .instagramFeed
     }
 
     var detail: String {
         switch self {
+        case .xFeed: return "Crisp 16:9 feed video. 1920 × 1080, 60 fps, MP4 with sound."
         case .xGrid: return "Four square clips fill a post. 2160 × 2160, 60 fps, MP4, no sound."
+        case .reels: return "Vertical 9:16 for Reels, TikTok and Shorts. 1080 × 1920, 60 fps, MP4."
+        case .instagramFeed: return "Tall 4:5 feed post. 1080 × 1350, 60 fps, MP4."
+        case .productHunt: return "Sharp 1440p hero demo. 2560 × 1440, 60 fps, Studio MP4."
+        case .chat: return "Under 10 MB for Slack, Discord and GitHub. 30 fps MP4."
         }
     }
 
     var canvas: CanvasSpec {
         switch self {
+        case .xFeed: return CanvasSpec(aspect: .widescreen, resolution: .hd1080)
         case .xGrid: return CanvasSpec(aspect: .square, resolution: .uhd2160)
+        case .reels: return CanvasSpec(aspect: .portrait, resolution: .hd1080)
+        case .instagramFeed: return CanvasSpec(aspect: .vertical, resolution: .hd1080)
+        case .productHunt: return CanvasSpec(aspect: .widescreen, resolution: .qhd1440)
+        case .chat: return CanvasSpec(aspect: .widescreen, resolution: .hd1080)
         }
     }
 
     /// The frame rate the recording should be made at so the export doesn't repeat frames.
     var frameRate: Int {
         switch self {
-        case .xGrid: return 60
+        case .xFeed, .xGrid, .reels, .instagramFeed, .productHunt: return 60
+        case .chat: return 30
         }
     }
 
     /// How long each clip should run, in seconds.
     var recommendedDuration: ClosedRange<TimeInterval> {
         switch self {
+        case .xFeed: return 15...60
         case .xGrid: return 7...24
+        case .reels: return 15...60
+        case .instagramFeed: return 10...45
+        case .productHunt: return 30...90
+        case .chat: return 5...30
         }
     }
 
     /// The length most clips land on.
     var typicalDuration: TimeInterval {
         switch self {
+        case .xFeed: return 30
         case .xGrid: return 13
+        case .reels: return 30
+        case .instagramFeed: return 25
+        case .productHunt: return 60
+        case .chat: return 15
         }
     }
 
-    /// The area to record: exactly the canvas's pixels on a 2× display.
+    /// The area to record: matches the target's shape cleanly.
     var areaPreset: AreaPreset {
         switch self {
+        case .xFeed, .productHunt, .chat: return .widescreen
         case .xGrid: return .square2160
+        case .reels: return .portrait
+        case .instagramFeed: return .portrait
         }
     }
 
-    /// `options` set up for this target; the quality and the file's place are kept.
+    /// `options` set up for this target; the quality (unless overridden) and file place are kept.
     func options(from options: ExportOptions) -> ExportOptions {
         var result = options
         switch self {
+        case .xFeed:
+            result.format = .mp4
+            result.frameRate = frameRate
+            result.maxMegabytes = nil
+            result.includeAudio = true
         case .xGrid:
             result.format = .mp4
             result.frameRate = frameRate
             result.maxMegabytes = nil
             result.includeAudio = false
+        case .reels:
+            result.format = .mp4
+            result.frameRate = frameRate
+            result.maxMegabytes = nil
+            result.includeAudio = true
+        case .instagramFeed:
+            result.format = .mp4
+            result.frameRate = frameRate
+            result.maxMegabytes = nil
+            result.includeAudio = true
+        case .productHunt:
+            result.format = .mp4
+            result.quality = .studio
+            result.frameRate = frameRate
+            result.maxMegabytes = nil
+            result.includeAudio = true
+        case .chat:
+            result.format = .mp4
+            result.frameRate = frameRate
+            result.maxMegabytes = 10
+            result.includeAudio = true
         }
         return result
     }

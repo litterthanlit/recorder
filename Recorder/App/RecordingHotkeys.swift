@@ -187,7 +187,9 @@ final class RecordingHotkeysController: ObservableObject {
             return .countdown
         case .recording:
             return .recording
-        case .idle, .processing, .editing, .finished, .failed:
+        case .processing:
+            return .processing
+        case .idle, .editing, .finished, .failed:
             return .idle
         }
     }

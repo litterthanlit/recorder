@@ -87,9 +87,11 @@ struct TimelineView: View {
     }
 
     private func scrollArea(viewport: CGFloat) -> some View {
-        let scale = scale(viewport: viewport)
-        let contentWidth = max(scale.contentWidth + TimelineMetrics.trailingSpace, viewport)
-        let visible = max(0, scrollOffset)...max(0, scrollOffset) + viewport
+        let safeViewport = max(0, viewport)
+        let scale = scale(viewport: safeViewport)
+        let contentWidth = max(scale.contentWidth + TimelineMetrics.trailingSpace, safeViewport)
+        let visibleStart = max(0, scrollOffset)
+        let visible = visibleStart...(visibleStart + safeViewport)
         return ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: true) {
                 TimelineContent(

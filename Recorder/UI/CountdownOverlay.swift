@@ -20,7 +20,8 @@ final class CountdownOverlay {
         guard seconds > 0 else { return true }
 
         self.highlight = highlight
-        let panel = makePanel(on: screen ?? NSScreen.main ?? NSScreen.screens[0])
+        guard let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first else { return true }
+        let panel = makePanel(on: targetScreen)
         self.panel = panel
         panel.orderFrontRegardless()
 

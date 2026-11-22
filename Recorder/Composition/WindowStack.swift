@@ -23,6 +23,7 @@ enum WindowStack {
     static func frontWindow(of pid: Int32, frontToBack windows: [WindowSnapshot]) -> WindowSnapshot? {
         let own = windows.filter {
             $0.ownerPID == pid && $0.layer == normalLayer
+                && $0.alpha >= minimumAlpha && $0.isShared
                 && $0.bounds.width > minimumSide && $0.bounds.height > minimumSide
         }
         guard var front = own.first else { return nil }

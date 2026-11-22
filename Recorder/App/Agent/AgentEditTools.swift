@@ -17,10 +17,15 @@ final class AgentEditJournal {
         histories[take] = history
     }
 
-    func undo(for take: UUID, from current: EditorSnapshot) -> Undone? {
+    func undo(
+        for take: UUID,
+        from current: EditorSnapshot,
+        commit: (EditorSnapshot) throws -> Void
+    ) rethrows -> Undone? {
         guard var history = histories[take], let name = history.undoActionName,
               let previous = history.undo(from: current)
         else { return nil }
+        try commit(previous)
         histories[take] = history
         return Undone(snapshot: previous, actionName: name)
     }
@@ -29,12 +34,28 @@ final class AgentEditJournal {
     func handOff(_ take: UUID) -> EditHistory<EditorSnapshot>? {
         histories.removeValue(forKey: take)
     }
+
+    /// Keeps the editor's undo history when its window closes so agent undo keeps working.
+    func restore(_ history: EditHistory<EditorSnapshot>, for take: UUID) {
+        guard history.canUndo else {
+            histories.removeValue(forKey: take)
+            return
+        }
+        histories[take] = history
+    }
+
+    /// Drops history for a take that was moved to Trash.
+    func evict(_ take: UUID) {
+        histories.removeValue(forKey: take)
+    }
 }
 
 /// The editing tools: edit_timeline, edit_zooms, edit_text, edit_blur, set_style and undo.
 /// An open take is edited live in the editor (one undo step there); a closed one on disk.
 @MainActor
 enum AgentEditTools {
+    private static let maximumOperations = 100
+
     static func editTimeline(_ arguments: AgentArguments, _ context: AgentToolContext) throws -> JSONValue {
         let timeBase = try AgentTimeBase.read(arguments)
         let operations = try requiredOperations(arguments)
@@ -88,6 +109,7 @@ enum AgentEditTools {
     }
 
     static func undo(_ arguments: AgentArguments, _ context: AgentToolContext) throws -> JSONValue {
+        try context.ensureNotRecording()
         let summary = try context.resolveTake(arguments)
         let force = try arguments.bool("force") ?? false
         if let editor = context.appState.session.editor(for: summary.id) {
@@ -101,12 +123,15 @@ enum AgentEditTools {
         }
         var project = try context.loadProject(summary)
         let current = EditorSnapshot(keyframes: project.keyframes, editSettings: project.editSettings)
-        guard let undone = context.journal.undo(for: summary.id, from: current) else {
+        guard let undone = try context.journal.undo(for: summary.id, from: current, commit: { previous in
+            var updated = project
+            updated.keyframes = previous.keyframes
+            updated.editSettings = previous.editSettings
+            try save(updated)
+            project = updated
+        }) else {
             throw AgentToolError("No agent edits to undo for this take since Trace started.")
         }
-        project.keyframes = undone.snapshot.keyframes
-        project.editSettings = undone.snapshot.editSettings
-        try save(project)
         return result(summary, notes: ["Undid \"\(undone.actionName)\"."], project: project, snapshot: undone.snapshot, live: false)
     }
 
@@ -139,6 +164,7 @@ enum AgentEditTools {
         _ context: AgentToolContext,
         edit: (inout EditorSnapshot, AgentEditTake) throws -> [String]
     ) throws -> Applied {
+        try context.ensureNotRecording()
         let summary = try context.resolveTake(arguments)
         let looks = StyleLibraryStore.load().allPresets
         let actionName = AgentEdits.actionPrefix + title
@@ -171,6 +197,9 @@ enum AgentEditTools {
     private static func requiredOperations(_ arguments: AgentArguments) throws -> [AgentArguments] {
         guard let operations = try arguments.objects("operations"), !operations.isEmpty else {
             throw AgentToolError("operations is required: a list like [{\"op\": \"cut\", \"start\": 2, \"end\": 5}].")
+        }
+        guard operations.count <= maximumOperations else {
+            throw AgentToolError("At most \(maximumOperations) operations per call (got \(operations.count)).")
         }
         return operations
     }

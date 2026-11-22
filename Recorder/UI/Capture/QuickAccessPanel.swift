@@ -47,8 +47,15 @@ final class QuickAccessController {
         layout(animated: true)
     }
 
+    func dismiss(projectID: UUID) {
+        let matching = cards.filter { $0.model.project.metadata.id == projectID }
+        for card in matching {
+            dismiss(card)
+        }
+    }
+
     private func dismiss(_ card: QuickAccessCard) {
-        card.model.cancelTimer()
+        card.model.cancelAll()
         card.panel.orderOut(nil)
         cards.removeAll { $0 === card }
         layout(animated: true)
@@ -122,6 +129,7 @@ final class QuickAccessModel: ObservableObject {
 
     private let autoDismiss: Bool
     private var dismissTask: Task<Void, Never>?
+    private var exportTask: Task<Void, Never>?
 
     init(project: RecorderProject, autoDismiss: Bool) {
         self.project = project
@@ -139,21 +147,26 @@ final class QuickAccessModel: ObservableObject {
         if case .exporting = exportState { return }
         cancelTimer()
         exportState = .exporting(0)
-        Task {
+        exportTask = Task { [weak self] in
+            guard let self else { return }
             do {
                 // Re-read the edit: an agent may have changed it since the take ended.
-                let url = try await ExportService.export(ProjectStore.reloadingEdits(of: project)) { [weak self] progress in
+                let url = try await ExportService.export(ProjectStore.reloadingEdits(of: self.project)) { [weak self] progress in
                     self?.exportState = .exporting(progress)
                 }
-                exportState = .exported(url)
-                onExported?()
+                guard !Task.isCancelled else { return }
+                self.exportState = .exported(url)
+                self.onExported?()
                 if copy {
-                    copyToPasteboard(url)
+                    self.copyToPasteboard(url)
                 }
+            } catch is CancellationError {
+                self.exportState = ExportState.none
             } catch {
-                exportState = .failed(error.localizedDescription)
+                self.exportState = .failed(error.localizedDescription)
             }
-            scheduleDismiss()
+            self.exportTask = nil
+            self.scheduleDismiss()
         }
     }
 
@@ -178,6 +191,12 @@ final class QuickAccessModel: ObservableObject {
     func cancelTimer() {
         dismissTask?.cancel()
         dismissTask = nil
+    }
+
+    func cancelAll() {
+        cancelTimer()
+        exportTask?.cancel()
+        exportTask = nil
     }
 
     private func copyToPasteboard(_ url: URL) {

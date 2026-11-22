@@ -22,8 +22,19 @@ final class PermissionsManager: ObservableObject {
         hasScreenRecordingPermission && hasAccessibilityPermission
     }
 
+    private var activeObserver: NSObjectProtocol?
+
     private init() {
         refresh()
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.refresh()
+            }
+        }
     }
 
     func refresh() {
@@ -50,11 +61,18 @@ final class PermissionsManager: ObservableObject {
     }
 
     /// Quits and opens the app again, which is when a new Screen Recording permission
-    /// takes effect.
+    /// takes effect. Waits for the current PID to exit before launching a fresh instance.
     func relaunch() {
+        let pid = ProcessInfo.processInfo.processIdentifier
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "sleep 0.5; /usr/bin/open \"$0\"", Bundle.main.bundleURL.path]
+        process.arguments = [
+            "-c",
+            "while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.1; done; /usr/bin/open -n \"$2\"",
+            "relaunch",
+            String(pid),
+            Bundle.main.bundleURL.path
+        ]
         do {
             try process.run()
         } catch {
