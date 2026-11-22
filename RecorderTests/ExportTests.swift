@@ -277,4 +277,31 @@ struct ClipTargetTests {
         #expect(limited.audioBitrate == 0)
         #expect(limited.videoBitrate >= withSound.videoBitrate)
     }
+
+    @Test func socialTargetsProduceExpectedCanvasAndOptions() {
+        let base = ExportOptions()
+        for target in ClipTarget.allCases {
+            let options = target.options(from: base)
+            #expect(target.matches(canvas: target.canvas, options: options), "\(target)")
+            #expect(options.format == .mp4, "\(target)")
+            #expect(options.frameRate == target.frameRate, "\(target)")
+        }
+
+        let reels = ClipTarget.reels
+        #expect(reels.canvas == CanvasSpec(aspect: .portrait, resolution: .hd1080))
+        #expect(reels.showsSafeZones)
+        #expect(reels.options(from: base).includeAudio)
+
+        let ig = ClipTarget.instagramFeed
+        #expect(ig.canvas == CanvasSpec(aspect: .vertical, resolution: .hd1080))
+        #expect(ig.showsSafeZones)
+
+        let ph = ClipTarget.productHunt
+        #expect(ph.canvas == CanvasSpec(aspect: .widescreen, resolution: .qhd1440))
+        #expect(ph.options(from: base).quality == .studio)
+
+        let chat = ClipTarget.chat
+        #expect(chat.options(from: base).maxMegabytes == 10)
+        #expect(chat.frameRate == 30)
+    }
 }

@@ -3,6 +3,7 @@ import CoreImage
 import CoreMedia
 import CoreVideo
 import Foundation
+import VideoToolbox
 
 struct ExportConfiguration {
     let keyframes: [ZoomKeyframe]
@@ -25,6 +26,9 @@ struct ExportConfiguration {
     /// What each audio track holds, and their levels.
     let audioTrackRoles: [AudioTrackRole]
     let audio: AudioMixSettings
+    /// Optional background music file and mix settings.
+    var musicURL: URL? = nil
+    var music: BackgroundMusicSettings = BackgroundMusicSettings()
 }
 
 /// Writes an export: composited frames from `ExportFrameSource` into a movie (H.264 or
@@ -70,18 +74,21 @@ final class VideoExporter {
         let asset = AVURLAsset(url: sourceURL)
         // Mic narration and system audio are separate tracks.
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        let hasMusic = configuration.musicURL != nil && configuration.music.clampedVolume > 0.001
 
         // Audio is read from a composition of the edit, which cuts it, time-stretches the
-        // sped-up parts (keeping pitch) and mixes mic and system audio at their levels.
+        // sped-up parts (keeping pitch) and mixes mic, system audio, and optional music.
         var audioReader: AVAssetReader?
         var audioReaderOutput: AVAssetReaderOutput?
-        if configuration.options.writesAudio, !audioTracks.isEmpty {
+        if configuration.options.writesAudio, (!audioTracks.isEmpty || hasMusic) {
             let built = try await TimelineCompositionBuilder.build(
                 asset: asset,
                 timeline: frames.edit,
                 includeVideo: false,
                 audioRoles: configuration.audioTrackRoles,
-                audio: configuration.audio
+                audio: configuration.audio,
+                musicURL: configuration.musicURL,
+                music: configuration.music
             )
             if !built.audioTracks.isEmpty {
                 let compositionReader = try AVAssetReader(asset: built.composition)
@@ -279,7 +286,7 @@ final class VideoExporter {
             // Hard data-rate cap (bytes per second) prevents VideoToolbox hardware encoders
             // from overshooting the target size limit.
             let bytesPerSecond = max(bitrate / 8, 64_000)
-            compression[AVVideoDataRateLimitsKey] = [bytesPerSecond, 1]
+            compression[kVTCompressionPropertyKey_DataRateLimits as String] = [bytesPerSecond, 1]
         }
         var settings: [String: Any]
         switch format {

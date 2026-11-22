@@ -138,6 +138,30 @@ enum ZoomPreset: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Optional border/frame around the screen recording on top of the background.
+enum FrameBezelStyle: String, Codable, CaseIterable, Identifiable {
+    case plain = "none"
+    /// A crisp 1 px border separating the recording from the background.
+    case hairline
+    /// A translucent frosted glass rim with a specular edge highlight.
+    case glass
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .plain: return "None"
+        case .hairline: return "Hairline"
+        case .glass: return "Glass"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = FrameBezelStyle(rawValue: raw) ?? .plain
+    }
+}
+
 /// The look of the video: background and frame, cursor and clicks, keystrokes,
 /// watermark. (The camera has its own `CameraOverlayStyle`.)
 struct ExportStyle: Codable, Equatable {
@@ -147,6 +171,8 @@ struct ExportStyle: Codable, Equatable {
     /// Space around the recording, as a fraction of the canvas's shorter side.
     var paddingRatio: CGFloat = 0.1
     var shadowEnabled: Bool = true
+    /// Optional frame bezel around the recording (`.hairline` or `.glass`).
+    var frameBezel: FrameBezelStyle = .plain
     var watermarkEnabled: Bool = false
     var watermarkText: String = ""
     var cursorSmoothingEnabled: Bool = true
@@ -192,6 +218,7 @@ struct ExportStyle: Codable, Equatable {
         /// Before canvases: a fraction of a 16:9 canvas's width.
         case paddingFraction
         case shadowEnabled
+        case frameBezel
         case watermarkEnabled
         case watermarkText
         case cursorSmoothingEnabled
@@ -225,6 +252,7 @@ struct ExportStyle: Codable, Equatable {
             paddingRatio = defaults.paddingRatio
         }
         shadowEnabled = try container.decodeIfPresent(Bool.self, forKey: .shadowEnabled) ?? defaults.shadowEnabled
+        frameBezel = (try? container.decodeIfPresent(FrameBezelStyle.self, forKey: .frameBezel)) ?? defaults.frameBezel
         watermarkEnabled = try container.decodeIfPresent(Bool.self, forKey: .watermarkEnabled) ?? defaults.watermarkEnabled
         watermarkText = try container.decodeIfPresent(String.self, forKey: .watermarkText) ?? defaults.watermarkText
         cursorSmoothingEnabled = try container.decodeIfPresent(Bool.self, forKey: .cursorSmoothingEnabled)
@@ -251,6 +279,7 @@ struct ExportStyle: Codable, Equatable {
         try container.encode(cornerRadius, forKey: .cornerRadius)
         try container.encode(paddingRatio, forKey: .paddingRatio)
         try container.encode(shadowEnabled, forKey: .shadowEnabled)
+        try container.encode(frameBezel, forKey: .frameBezel)
         try container.encode(watermarkEnabled, forKey: .watermarkEnabled)
         try container.encode(watermarkText, forKey: .watermarkText)
         try container.encode(cursorSmoothingEnabled, forKey: .cursorSmoothingEnabled)
@@ -357,6 +386,53 @@ struct AudioMixSettings: Codable, Equatable {
     }
 }
 
+/// Optional background music track mixed under the recording (copied into the bundle).
+struct BackgroundMusicSettings: Codable, Equatable {
+    static let volumeRange: ClosedRange<Double> = 0...0.6
+
+    /// File name inside the `.recorder` bundle (`music-<uuid>.<ext>`); `nil` for no music.
+    var fileName: String?
+    /// Playback level (0…0.6; defaults to a subtle 0.16 background bed).
+    var volume: Double = 0.16
+    /// Automatically soften music level when the take has microphone narration.
+    var duckUnderNarration: Bool = true
+    /// Fade-in and fade-out duration at the start and end of the output video.
+    var fadeDuration: TimeInterval = 1.0
+
+    var isEnabled: Bool {
+        fileName != nil
+    }
+
+    var clampedVolume: Double {
+        min(max(volume, Self.volumeRange.lowerBound), Self.volumeRange.upperBound)
+    }
+
+    init(
+        fileName: String? = nil,
+        volume: Double = 0.16,
+        duckUnderNarration: Bool = true,
+        fadeDuration: TimeInterval = 1.0
+    ) {
+        self.fileName = fileName
+        self.volume = volume
+        self.duckUnderNarration = duckUnderNarration
+        self.fadeDuration = fadeDuration
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = BackgroundMusicSettings()
+        fileName = try container.decodeIfPresent(String.self, forKey: .fileName)
+        volume = try container.decodeIfPresent(Double.self, forKey: .volume) ?? defaults.volume
+        duckUnderNarration = try container.decodeIfPresent(Bool.self, forKey: .duckUnderNarration) ?? defaults.duckUnderNarration
+        fadeDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .fadeDuration) ?? defaults.fadeDuration
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case fileName, volume, duckUnderNarration, fadeDuration
+    }
+}
+
 struct ProjectEditSettings: Codable, Equatable {
     /// Head and tail trim from before cuts existed. Still written (the outer edges of
     /// `timeline`) so an older build opening the project keeps the trim.
@@ -366,6 +442,7 @@ struct ProjectEditSettings: Codable, Equatable {
     /// `resolvedTimeline(sourceDuration:)`.
     var timeline: EditTimeline?
     var audio = AudioMixSettings()
+    var music = BackgroundMusicSettings()
     /// Shape and size of the export.
     var canvas = CanvasSpec()
     var exportStyle: ExportStyle = .runlyxDark
@@ -585,6 +662,7 @@ extension ProjectEditSettings {
         case trimEnd
         case timeline
         case audio
+        case music
         case canvas
         case exportStyle
         case zoomPreset
@@ -610,6 +688,7 @@ extension ProjectEditSettings {
         trimEnd = try container.decodeIfPresent(TimeInterval.self, forKey: .trimEnd)
         timeline = try? container.decodeIfPresent(EditTimeline.self, forKey: .timeline)
         audio = (try? container.decodeIfPresent(AudioMixSettings.self, forKey: .audio)) ?? defaults.audio
+        music = (try? container.decodeIfPresent(BackgroundMusicSettings.self, forKey: .music)) ?? defaults.music
         if let canvas = try? container.decodeIfPresent(CanvasSpec.self, forKey: .canvas) {
             self.canvas = canvas
         } else if let preset = try? decoder.container(keyedBy: LegacyKeys.self)

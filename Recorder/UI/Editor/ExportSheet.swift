@@ -9,12 +9,23 @@ struct ExportSheet: View {
     @State private var preferences = ExportPreferences.load()
     @State private var fileName = ""
     @State private var startedAt: Date?
+    /// Avoid overwriting the user's saved default options after a one-off social target or GIF fallback.
+    @State private var usedOneOffOptions = false
 
     private var options: ExportOptions { preferences.options }
     private var duration: TimeInterval { editor.outputDuration }
     private var canvasSize: CGSize { editor.exportOutputSize }
+    private var hasAudio: Bool {
+        let hasMusic = editor.project.musicTrackURL != nil && editor.editSettings.music.clampedVolume > 0.001
+        return !editor.project.metadata.audioTrackRoles.isEmpty || hasMusic
+    }
     private var plan: ExportPlan {
-        options.plan(canvas: canvasSize, sourceFrameRate: editor.project.metadata.fps, duration: duration)
+        options.plan(
+            canvas: canvasSize,
+            sourceFrameRate: editor.project.metadata.fps,
+            duration: duration,
+            hasAudio: hasAudio
+        )
     }
 
     var body: some View {
@@ -27,7 +38,7 @@ struct ExportSheet: View {
             Divider()
             footer
         }
-        .frame(width: 500)
+        .frame(width: 520)
         .interactiveDismissDisabled(editor.isExporting)
         .onAppear {
             if fileName.isEmpty {
@@ -35,6 +46,7 @@ struct ExportSheet: View {
             }
             if !ExportOptions.allows(options.format, duration: duration) {
                 preferences.options.format = .mp4
+                usedOneOffOptions = true
             }
         }
         .onChange(of: editor.state) { _, state in
@@ -233,10 +245,12 @@ struct ExportSheet: View {
         }
     }
 
+    private static let targetColumns = Array(repeating: GridItem(.flexible(), spacing: DS.Spacing.xs), count: 3)
+
     /// Where the clip is going: one click sets the shape, size, frame rate and sound.
     private var targetSection: some View {
         InspectorLabeled("Post to") {
-            HStack(spacing: DS.Spacing.xs) {
+            LazyVGrid(columns: Self.targetColumns, alignment: .leading, spacing: DS.Spacing.xs) {
                 ForEach(ClipTarget.allCases) { target in
                     targetButton(target)
                 }
@@ -251,13 +265,31 @@ struct ExportSheet: View {
 
     private func targetButton(_ target: ClipTarget) -> some View {
         let isActive = activeTarget == target
+        let tint: Color = isActive ? DS.Palette.accent : DS.Palette.primaryText
+        let fill: Color = isActive ? DS.Palette.accent.opacity(0.12) : DS.Palette.raisedSurface
+        let border: Color = isActive ? DS.Palette.accent : Color.primary.opacity(0.1)
         return Button {
             apply(target)
         } label: {
-            Label(target.label, systemImage: isActive ? "checkmark" : "square.grid.2x2")
-                .labelStyle(.titleAndIcon)
+            HStack(spacing: 5) {
+                Image(systemName: isActive ? "checkmark" : target.symbolName)
+                    .font(.system(size: 11, weight: .medium))
+                Text(target.label)
+                    .font(DS.Typeface.footnote.weight(isActive ? .semibold : .regular))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+            .padding(.horizontal, DS.Spacing.xs)
+            .background(RoundedRectangle(cornerRadius: DS.Radius.small, style: .continuous).fill(fill))
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.Radius.small, style: .continuous)
+                    .strokeBorder(border, lineWidth: isActive ? 1.5 : 1)
+            )
+            .contentShape(Rectangle())
         }
-        .buttonStyle(SecondaryButtonStyle())
+        .buttonStyle(.plain)
         .accessibilityLabel(target.label)
         .accessibilityValue(isActive ? "Selected" : "")
         .accessibilityHint(target.detail)
@@ -271,7 +303,9 @@ struct ExportSheet: View {
         if editor.editSettings.canvas != target.canvas {
             editor.settingBinding(\.canvas, actionName: "Use \(target.label) Canvas").wrappedValue = target.canvas
         }
+        editor.showSafeZones = target.showsSafeZones
         preferences.options = target.options(from: options)
+        usedOneOffOptions = true
     }
 
     /// A cap on the file size, for chat apps and agents that refuse big uploads.
@@ -331,7 +365,16 @@ struct ExportSheet: View {
     }
 
     private func startExport() {
-        preferences.save()
+        if usedOneOffOptions {
+            var persistent = ExportPreferences.load()
+            persistent.folderPath = preferences.folderPath
+            persistent.askForLocation = preferences.askForLocation
+            persistent.fileNameTemplate = preferences.fileNameTemplate
+            persistent.revealWhenDone = preferences.revealWhenDone
+            persistent.save()
+        } else {
+            preferences.save()
+        }
         let fileExtension = options.format.fileExtension
         let name = ExportNaming.sanitized(fileName) + "." + fileExtension
         let destination: URL

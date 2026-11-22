@@ -325,67 +325,148 @@ struct ExportPlan: Equatable {
 /// Where a clip will be posted, and the file that place wants. Choosing one sets the
 /// canvas and the export options together; the sheet then checks the edit's length.
 enum ClipTarget: String, Codable, CaseIterable, Identifiable {
+    /// Standard 16:9 feed demo for X, LinkedIn, Threads and Bluesky.
+    case xFeed = "x_feed"
     /// Four square clips filling a post's 2×2 grid on X: a 1080 × 1080 page captured at
     /// 2×, 60 fps H.264 without sound, 7 to 24 seconds each (most about 13).
     case xGrid = "x_grid"
+    /// Vertical 9:16 demo for Instagram Reels, TikTok and YouTube Shorts.
+    case reels = "reels"
+    /// Tall 4:5 feed clip for Instagram and LinkedIn carousels.
+    case instagramFeed = "instagram_feed"
+    /// High-res 16:9 launch hero for Product Hunt, landing pages and YouTube.
+    case productHunt = "product_hunt"
+    /// Lightweight ≤10 MB clip for Slack, Discord, GitHub PRs and email.
+    case chat = "chat"
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
+        case .xFeed: return "X / LinkedIn"
         case .xGrid: return "X grid"
+        case .reels: return "Reels / Shorts"
+        case .instagramFeed: return "Instagram 4:5"
+        case .productHunt: return "Product Hunt"
+        case .chat: return "Slack / GitHub"
         }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .xFeed: return "play.rectangle"
+        case .xGrid: return "square.grid.2x2"
+        case .reels: return "rectangle.portrait"
+        case .instagramFeed: return "rectangle.portrait.inset.filled"
+        case .productHunt: return "sparkles.tv"
+        case .chat: return "paperplane"
+        }
+    }
+
+    /// Whether the editor preview should offer social UI safe-zone guides for this target.
+    var showsSafeZones: Bool {
+        self == .reels || self == .instagramFeed
     }
 
     var detail: String {
         switch self {
+        case .xFeed: return "Crisp 16:9 feed video. 1920 × 1080, 60 fps, MP4 with sound."
         case .xGrid: return "Four square clips fill a post. 2160 × 2160, 60 fps, MP4, no sound."
+        case .reels: return "Vertical 9:16 for Reels, TikTok and Shorts. 1080 × 1920, 60 fps, MP4."
+        case .instagramFeed: return "Tall 4:5 feed post. 1080 × 1350, 60 fps, MP4."
+        case .productHunt: return "Sharp 1440p hero demo. 2560 × 1440, 60 fps, Studio MP4."
+        case .chat: return "Under 10 MB for Slack, Discord and GitHub. 30 fps MP4."
         }
     }
 
     var canvas: CanvasSpec {
         switch self {
+        case .xFeed: return CanvasSpec(aspect: .widescreen, resolution: .hd1080)
         case .xGrid: return CanvasSpec(aspect: .square, resolution: .uhd2160)
+        case .reels: return CanvasSpec(aspect: .portrait, resolution: .hd1080)
+        case .instagramFeed: return CanvasSpec(aspect: .vertical, resolution: .hd1080)
+        case .productHunt: return CanvasSpec(aspect: .widescreen, resolution: .qhd1440)
+        case .chat: return CanvasSpec(aspect: .widescreen, resolution: .hd1080)
         }
     }
 
     /// The frame rate the recording should be made at so the export doesn't repeat frames.
     var frameRate: Int {
         switch self {
-        case .xGrid: return 60
+        case .xFeed, .xGrid, .reels, .instagramFeed, .productHunt: return 60
+        case .chat: return 30
         }
     }
 
     /// How long each clip should run, in seconds.
     var recommendedDuration: ClosedRange<TimeInterval> {
         switch self {
+        case .xFeed: return 15...60
         case .xGrid: return 7...24
+        case .reels: return 15...60
+        case .instagramFeed: return 10...45
+        case .productHunt: return 30...90
+        case .chat: return 5...30
         }
     }
 
     /// The length most clips land on.
     var typicalDuration: TimeInterval {
         switch self {
+        case .xFeed: return 30
         case .xGrid: return 13
+        case .reels: return 30
+        case .instagramFeed: return 25
+        case .productHunt: return 60
+        case .chat: return 15
         }
     }
 
-    /// The area to record: exactly the canvas's pixels on a 2× display.
+    /// The area to record: matches the target's shape cleanly.
     var areaPreset: AreaPreset {
         switch self {
+        case .xFeed, .productHunt, .chat: return .widescreen
         case .xGrid: return .square2160
+        case .reels: return .portrait
+        case .instagramFeed: return .portrait
         }
     }
 
-    /// `options` set up for this target; the quality and the file's place are kept.
+    /// `options` set up for this target; the quality (unless overridden) and file place are kept.
     func options(from options: ExportOptions) -> ExportOptions {
         var result = options
         switch self {
+        case .xFeed:
+            result.format = .mp4
+            result.frameRate = frameRate
+            result.maxMegabytes = nil
+            result.includeAudio = true
         case .xGrid:
             result.format = .mp4
             result.frameRate = frameRate
             result.maxMegabytes = nil
             result.includeAudio = false
+        case .reels:
+            result.format = .mp4
+            result.frameRate = frameRate
+            result.maxMegabytes = nil
+            result.includeAudio = true
+        case .instagramFeed:
+            result.format = .mp4
+            result.frameRate = frameRate
+            result.maxMegabytes = nil
+            result.includeAudio = true
+        case .productHunt:
+            result.format = .mp4
+            result.quality = .studio
+            result.frameRate = frameRate
+            result.maxMegabytes = nil
+            result.includeAudio = true
+        case .chat:
+            result.format = .mp4
+            result.frameRate = frameRate
+            result.maxMegabytes = 10
+            result.includeAudio = true
         }
         return result
     }

@@ -236,9 +236,12 @@ final class CompositionRenderer {
         if !move.isIdentity {
             finalImage = composite3D(fitted, transform: move, canvas: canvas, unit: unit)
         } else if let layers = backdropLayers(contentFrame: fitted.frame, canvas: canvas) {
-            finalImage = fitted.image
+            var framed = fitted.image
                 .applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: layers.contentMask])
-                .composited(over: layers.background)
+            if let bezel = layers.bezelOverlay {
+                framed = bezel.composited(over: framed)
+            }
+            finalImage = framed.composited(over: layers.background)
         } else {
             finalImage = fitted.image.composited(over: CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: outputRect))
         }
@@ -368,11 +371,15 @@ final class CompositionRenderer {
 
     // MARK: - Background
 
-    /// The background, drop shadow, and rounded-corner mask only change with the layout
-    /// and style, so they are rendered once into GPU-resident buffers and reused.
+    /// The background, drop shadow, rounded-corner mask, and optional glass/hairline bezel
+    /// only change with the layout and style, so they are rendered once into GPU-resident
+    /// buffers and reused.
     private struct BackdropLayers {
         let background: CIImage
         let contentMask: CIImage
+        let bezelOverlay: CIImage?
+        /// Outer bounds of the framed card (`contentFrame`, or expanded by the glass rim).
+        let outerFrame: CGRect
     }
 
     private struct BackdropKey: Equatable {
@@ -383,6 +390,7 @@ final class CompositionRenderer {
         let frame: [Int]
         let cornerRadius: Int
         let shadowEnabled: Bool
+        let frameBezel: FrameBezelStyle
         let background: BackgroundStyle
         let imageURL: URL?
         let grain: Bool
@@ -394,6 +402,7 @@ final class CompositionRenderer {
             frame = [contentFrame.minX, contentFrame.minY, contentFrame.width, contentFrame.height].map(quantized)
             self.cornerRadius = quantized(cornerRadius)
             shadowEnabled = style.shadowEnabled && shadow
+            frameBezel = style.frameBezel
             background = style.background
             self.imageURL = imageURL
             self.grain = grain
@@ -427,13 +436,19 @@ final class CompositionRenderer {
         }
 
         let outputRect = CGRect(origin: .zero, size: canvas)
+        let glassRim: CGFloat = style.frameBezel == .glass
+            ? min(7 * unit, max(0, min(contentFrame.minX, contentFrame.minY) - 2 * unit))
+            : 0
+        let outerFrame = glassRim > 0.5 ? contentFrame.insetBy(dx: -glassRim, dy: -glassRim) : contentFrame
+        let outerRadius = cornerRadius + glassRim
+
         var background = makeBackground(style.background, in: outputRect)
         if key.shadowEnabled {
             // Two-layer studio shadow: wide soft ambient lift + crisp tight contact shadow.
             // Do not clamp shadow masks to extent: outside the canvas is transparent.
             let ambientMask = roundedRectMask(
-                rect: contentFrame.offsetBy(dx: 0, dy: -12 * unit),
-                radius: cornerRadius,
+                rect: outerFrame.offsetBy(dx: 0, dy: -12 * unit),
+                radius: outerRadius,
                 canvasSize: canvas
             )
             .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 28 * unit])
@@ -444,8 +459,8 @@ final class CompositionRenderer {
             background = ambientShadow.composited(over: background)
 
             let contactMask = roundedRectMask(
-                rect: contentFrame.offsetBy(dx: 0, dy: -3 * unit),
-                radius: cornerRadius,
+                rect: outerFrame.offsetBy(dx: 0, dy: -3 * unit),
+                radius: outerRadius,
                 canvasSize: canvas
             )
             .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 7 * unit])
@@ -457,9 +472,22 @@ final class CompositionRenderer {
         }
 
         let contentMask = roundedRectMask(rect: contentFrame, radius: cornerRadius, canvasSize: canvas)
+        let bezelOverlay = makeBezelOverlay(
+            bezel: style.frameBezel,
+            contentFrame: contentFrame,
+            outerFrame: outerFrame,
+            cornerRadius: cornerRadius,
+            outerRadius: outerRadius,
+            isDarkBackground: style.background.isDark,
+            unit: unit,
+            canvas: canvas
+        ).map { materialize($0, size: canvas) }
+
         let layers = BackdropLayers(
             background: materialize(background, size: canvas),
-            contentMask: materialize(contentMask, size: canvas)
+            contentMask: materialize(contentMask, size: canvas),
+            bezelOverlay: bezelOverlay,
+            outerFrame: outerFrame
         )
         if shadow {
             cachedBackdrop = (key, layers)
@@ -467,6 +495,71 @@ final class CompositionRenderer {
             cachedBackdropNoShadow = (key, layers)
         }
         return layers
+    }
+
+    /// Draws the optional hairline border or translucent frosted-glass sleeve around the
+    /// recording frame.
+    private func makeBezelOverlay(
+        bezel: FrameBezelStyle,
+        contentFrame: CGRect,
+        outerFrame: CGRect,
+        cornerRadius: CGFloat,
+        outerRadius: CGFloat,
+        isDarkBackground: Bool,
+        unit: CGFloat,
+        canvas: CGSize
+    ) -> CIImage? {
+        switch bezel {
+        case .plain:
+            return nil
+        case .hairline:
+            let lineWidth = max(1, 1.25 * unit)
+            let strokeColor = isDarkBackground
+                ? CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.20)
+                : CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.12)
+            return renderBitmap(size: canvas) { context in
+                let rect = contentFrame.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
+                context.setStrokeColor(strokeColor)
+                context.setLineWidth(lineWidth)
+                context.addPath(Self.roundedPath(rect, radius: max(0, cornerRadius - lineWidth / 2)))
+                context.strokePath()
+            }
+        case .glass:
+            let outerStrokeWidth = max(1, 1.25 * unit)
+            let innerStrokeWidth = max(1, 1.0 * unit)
+            let sleeveFill = isDarkBackground
+                ? CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.14)
+                : CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.56)
+            let outerStroke = isDarkBackground
+                ? CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.30)
+                : CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.10)
+            let innerStroke = isDarkBackground
+                ? CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.28)
+                : CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.08)
+            return renderBitmap(size: canvas) { context in
+                // Even-odd fill paints only the glass rim, leaving the screen recording crisp.
+                let ringPath = CGMutablePath()
+                ringPath.addPath(Self.roundedPath(outerFrame, radius: outerRadius))
+                ringPath.addPath(Self.roundedPath(contentFrame, radius: cornerRadius))
+                context.setFillColor(sleeveFill)
+                context.addPath(ringPath)
+                context.fillPath(using: .evenOdd)
+
+                // Outer specular highlight edge.
+                let outerStrokeRect = outerFrame.insetBy(dx: outerStrokeWidth / 2, dy: outerStrokeWidth / 2)
+                context.setStrokeColor(outerStroke)
+                context.setLineWidth(outerStrokeWidth)
+                context.addPath(Self.roundedPath(outerStrokeRect, radius: max(0, outerRadius - outerStrokeWidth / 2)))
+                context.strokePath()
+
+                // Subtle inner hairline separating the sleeve from the recording.
+                let innerStrokeRect = contentFrame.insetBy(dx: innerStrokeWidth / 2, dy: innerStrokeWidth / 2)
+                context.setStrokeColor(innerStroke)
+                context.setLineWidth(innerStrokeWidth)
+                context.addPath(Self.roundedPath(innerStrokeRect, radius: max(0, cornerRadius - innerStrokeWidth / 2)))
+                context.strokePath()
+            }
+        }
     }
 
     private func makeBackground(_ style: BackgroundStyle, in rect: CGRect) -> CIImage {
@@ -637,11 +730,15 @@ final class CompositionRenderer {
         guard fitted.frame.width > 0, fitted.frame.height > 0 else {
             return CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: outputRect)
         }
-        let projection = ScreenProjection(frame: fitted.frame, canvas: canvas, transform: transform)
         let layers = backdropLayers(contentFrame: fitted.frame, canvas: canvas, shadow: false)
+        let warpFrame = layers?.outerFrame ?? fitted.frame
+        let projection = ScreenProjection(frame: warpFrame, canvas: canvas, transform: transform)
         var content = fitted.image
         if let layers {
             content = content.applyingFilter("CIBlendWithMask", parameters: [kCIInputMaskImageKey: layers.contentMask])
+            if let bezel = layers.bezelOverlay {
+                content = bezel.composited(over: content)
+            }
         }
         let perspectiveParams: [String: Any] = [
             "inputTopLeft": CIVector(cgPoint: projection.topLeft),
@@ -649,14 +746,14 @@ final class CompositionRenderer {
             "inputBottomRight": CIVector(cgPoint: projection.bottomRight),
             "inputBottomLeft": CIVector(cgPoint: projection.bottomLeft)
         ]
-        let warped = content.cropped(to: fitted.frame).applyingFilter("CIPerspectiveTransform", parameters: perspectiveParams)
+        let warped = content.cropped(to: warpFrame).applyingFilter("CIPerspectiveTransform", parameters: perspectiveParams)
 
         var background = layers?.background ?? CIImage(color: CIColor(red: 0, green: 0, blue: 0)).cropped(to: outputRect)
         if let layers, settings.exportStyle.shadowEnabled {
             // Warp the rounded-rect mask itself (rather than blurring full-RGBA video) for a
             // cleaner, much cheaper GPU shadow that follows the 3D perspective frame.
             let warpedMask = layers.contentMask
-                .cropped(to: fitted.frame)
+                .cropped(to: warpFrame)
                 .applyingFilter("CIPerspectiveTransform", parameters: perspectiveParams)
                 .transformed(by: CGAffineTransform(translationX: 0, y: -10 * unit))
                 .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 22 * unit])

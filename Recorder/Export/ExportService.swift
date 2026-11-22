@@ -10,11 +10,13 @@ enum ExportService {
         let canvasSize = settings.canvasPixelSize(source: sourceSize)
         let timeline = settings.resolvedTimeline(sourceDuration: project.metadata.duration)
         let audioTrackCount = try await AVURLAsset(url: project.videoURL).loadTracks(withMediaType: .audio).count
+        let musicURL = project.musicTrackURL
+        let hasMusic = musicURL != nil && settings.music.clampedVolume > 0.001
         let plan = options.plan(
             canvas: canvasSize,
             sourceFrameRate: project.metadata.fps,
             duration: timeline.outputDuration,
-            hasAudio: audioTrackCount > 0
+            hasAudio: audioTrackCount > 0 || hasMusic
         )
         return ExportConfiguration(
             keyframes: project.keyframes,
@@ -27,7 +29,9 @@ enum ExportService {
             options: options,
             cameraURL: project.hasCameraTrack ? project.cameraURL : nil,
             audioTrackRoles: project.metadata.resolvedAudioTrackRoles(trackCount: audioTrackCount),
-            audio: settings.audio
+            audio: settings.audio,
+            musicURL: musicURL,
+            music: settings.music
         )
     }
 

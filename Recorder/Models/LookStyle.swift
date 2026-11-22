@@ -208,6 +208,20 @@ struct BackgroundStyle: Codable, Equatable {
         }
     }
 
+    /// Whether overlays/bezels sitting over this background should assume a dark surface.
+    var isDark: Bool {
+        switch kind {
+        case .wallpaper:
+            return wallpaper.isDark
+        case .gradient:
+            return (gradientStart.luminance + gradientEnd.luminance) / 2 < 0.35
+        case .solid:
+            return solidColor.luminance < 0.35
+        case .image, .none:
+            return true
+        }
+    }
+
     init(kind: BackgroundKind = .wallpaper, wallpaper: WallpaperPreset = .midnight) {
         self.kind = kind
         self.wallpaper = wallpaper

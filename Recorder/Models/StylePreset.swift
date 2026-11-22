@@ -52,29 +52,54 @@ struct StylePreset: Codable, Equatable, Identifiable {
 
     /// Looks that ship with the app.
     static let builtIn: [StylePreset] = {
+        var cleanStudio = ExportStyle()
+        cleanStudio.background = BackgroundStyle(kind: .wallpaper, wallpaper: .washes)
+        cleanStudio.cornerRadius = 18
+        cleanStudio.paddingRatio = 0.09
+        cleanStudio.frameBezel = .glass
+
+        var darkLaunch = ExportStyle()
+        darkLaunch.background = BackgroundStyle(kind: .wallpaper, wallpaper: .aura)
+        darkLaunch.cornerRadius = 18
+        darkLaunch.paddingRatio = 0.09
+        darkLaunch.frameBezel = .glass
+
+        var warmMesh = ExportStyle()
+        warmMesh.background = BackgroundStyle(kind: .wallpaper, wallpaper: .dusk)
+        warmMesh.cornerRadius = 20
+        warmMesh.paddingRatio = 0.1
+        warmMesh.frameBezel = .glass
+
         var midnight = ExportStyle()
         midnight.background = BackgroundStyle(kind: .wallpaper, wallpaper: .midnight)
+        midnight.frameBezel = .hairline
 
         var studio = ExportStyle()
         studio.background = BackgroundStyle(kind: .wallpaper, wallpaper: .snow)
         studio.cornerRadius = 14
+        studio.frameBezel = .hairline
 
         var vivid = ExportStyle()
         vivid.background = BackgroundStyle(kind: .wallpaper, wallpaper: .aurora)
         vivid.cornerRadius = 20
         vivid.paddingRatio = 0.12
+        vivid.frameBezel = .glass
 
         var minimal = ExportStyle()
         minimal.background = BackgroundStyle(kind: .none)
         minimal.clickRipplesEnabled = false
 
         var social = ExportStyle()
-        social.background = BackgroundStyle(kind: .wallpaper, wallpaper: .candy)
-        social.cornerRadius = 24
+        social.background = BackgroundStyle(kind: .wallpaper, wallpaper: .dusk)
+        social.cornerRadius = 22
         social.paddingRatio = 0.06
+        social.frameBezel = .glass
 
         return [
             StylePreset(id: UUID(uuidString: "5A1D0001-0000-4000-8000-000000000001")!, name: "Midnight", style: midnight),
+            StylePreset(id: UUID(uuidString: "5A1D0001-0000-4000-8000-000000000006")!, name: "Clean Studio", style: cleanStudio, zoomPreset: .demo),
+            StylePreset(id: UUID(uuidString: "5A1D0001-0000-4000-8000-000000000007")!, name: "Dark Launch", style: darkLaunch, zoomPreset: .punch),
+            StylePreset(id: UUID(uuidString: "5A1D0001-0000-4000-8000-000000000008")!, name: "Warm Mesh", style: warmMesh, zoomPreset: .demo),
             StylePreset(id: UUID(uuidString: "5A1D0001-0000-4000-8000-000000000002")!, name: "Studio Light", style: studio, zoomPreset: .subtle),
             StylePreset(id: UUID(uuidString: "5A1D0001-0000-4000-8000-000000000003")!, name: "Vivid", style: vivid, zoomPreset: .punch),
             StylePreset(id: UUID(uuidString: "5A1D0001-0000-4000-8000-000000000004")!, name: "Minimal", style: minimal, zoomPreset: .subtle),
@@ -177,6 +202,30 @@ enum StyleLibraryStore {
         return support
             .appendingPathComponent(Brand.name, isDirectory: true)
             .appendingPathComponent("styles.json")
+    }
+
+    /// Shared images copied from saved Looks so an image background works across projects.
+    static var imagesDirectory: URL {
+        defaultURL.deletingLastPathComponent().appendingPathComponent("LookImages", isDirectory: true)
+    }
+
+    /// Copies a project's background image into `imagesDirectory` so a saved Look stays valid
+    /// when applied to any other recording.
+    static func copyBackgroundImage(from sourceURL: URL, fileName: String) {
+        guard ProjectStore.isBackgroundImageName(fileName),
+              FileManager.default.fileExists(atPath: sourceURL.path)
+        else { return }
+        let destination = imagesDirectory.appendingPathComponent(fileName)
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
+        try? FileManager.default.createDirectory(at: imagesDirectory, withIntermediateDirectories: true)
+        try? FileManager.default.copyItem(at: sourceURL, to: destination)
+    }
+
+    /// Returns a shared look background image URL if present.
+    static func imageURL(named fileName: String) -> URL? {
+        guard ProjectStore.isBackgroundImageName(fileName) else { return nil }
+        let url = imagesDirectory.appendingPathComponent(fileName)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     /// The saved library, or an empty one if there's none or it can't be read.

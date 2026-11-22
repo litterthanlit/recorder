@@ -29,7 +29,9 @@ enum TimelineCompositionBuilder {
         timeline: EditTimeline,
         includeVideo: Bool,
         audioRoles: [AudioTrackRole]?,
-        audio: AudioMixSettings = AudioMixSettings()
+        audio: AudioMixSettings = AudioMixSettings(),
+        musicURL: URL? = nil,
+        music: BackgroundMusicSettings = BackgroundMusicSettings()
     ) async throws -> Result {
         let composition = AVMutableComposition()
 
@@ -45,6 +47,7 @@ enum TimelineCompositionBuilder {
 
         var audioTracks: [AVMutableCompositionTrack] = []
         var parameters: [AVMutableAudioMixInputParameters] = []
+        var hasAudibleMicrophone = false
         if let audioRoles {
             let sourceTracks = try await asset.loadTracks(withMediaType: .audio)
             // Fades at cuts and quiet over sped-up parts, when they're on.
@@ -65,6 +68,9 @@ enum TimelineCompositionBuilder {
                 let role = index < audioRoles.count ? audioRoles[index] : .systemAudio
                 let input = AVMutableAudioMixInputParameters(track: compositionTrack)
                 let requestedLevel = Float(audio.volume(for: role))
+                if role == .microphone, requestedLevel > 0.01 {
+                    hasAudibleMicrophone = true
+                }
                 // AVAudioMix enforces 0...1; apply >1.0 boost via a pre-effects processing tap
                 // with soft limiting so cut fades and muting still fade cleanly to 0.
                 let mixLevel = min(max(requestedLevel, 0), 1)
@@ -79,6 +85,19 @@ enum TimelineCompositionBuilder {
                 input.audioTimePitchAlgorithm = .spectral
                 parameters.append(input)
             }
+
+            if let musicURL, music.clampedVolume > 0.001, timeline.outputDuration > 0.05 {
+                if let musicParam = try await insertMusic(
+                    from: musicURL,
+                    into: composition,
+                    outputDuration: timeline.outputDuration,
+                    settings: music,
+                    ducked: hasAudibleMicrophone && music.duckUnderNarration
+                ) {
+                    audioTracks.append(musicParam.track)
+                    parameters.append(musicParam.input)
+                }
+            }
         }
 
         let audioMix: AVMutableAudioMix?
@@ -90,6 +109,54 @@ enum TimelineCompositionBuilder {
             audioMix = mix
         }
         return Result(composition: composition, audioMix: audioMix, audioTracks: audioTracks)
+    }
+
+    /// Inserts a looping background music track covering `outputDuration` with smooth fade-in and fade-out.
+    private static func insertMusic(
+        from url: URL,
+        into composition: AVMutableComposition,
+        outputDuration: TimeInterval,
+        settings: BackgroundMusicSettings,
+        ducked: Bool
+    ) async throws -> (track: AVMutableCompositionTrack, input: AVMutableAudioMixInputParameters)? {
+        let musicAsset = AVURLAsset(url: url)
+        guard let sourceTrack = try await musicAsset.loadTracks(withMediaType: .audio).first else { return nil }
+        let trackRange = try await sourceTrack.load(.timeRange)
+        let sourceDuration = CMTimeGetSeconds(trackRange.duration)
+        guard sourceDuration.isFinite, sourceDuration > 0.05,
+              let compositionTrack = composition.addMutableTrack(
+                  withMediaType: .audio,
+                  preferredTrackID: kCMPersistentTrackID_Invalid
+              )
+        else { return nil }
+
+        var cursor: TimeInterval = 0
+        while cursor < outputDuration - 0.005 {
+            let chunk = min(sourceDuration, outputDuration - cursor)
+            let range = CMTimeRange(
+                start: trackRange.start,
+                duration: CMTime(seconds: chunk, preferredTimescale: timescale)
+            )
+            let at = CMTime(seconds: cursor, preferredTimescale: timescale)
+            try compositionTrack.insertTimeRange(range, of: sourceTrack, at: at)
+            cursor += chunk
+        }
+
+        let baseLevel = Float(settings.clampedVolume * (ducked ? 0.55 : 1.0))
+        let input = AVMutableAudioMixInputParameters(track: compositionTrack)
+        let fade = min(max(settings.fadeDuration, 0), outputDuration * 0.4)
+        if fade > 0.02 {
+            let fadeInEnd = CMTime(seconds: fade, preferredTimescale: timescale)
+            let fadeOutStart = CMTime(seconds: max(fade, outputDuration - fade), preferredTimescale: timescale)
+            let totalEnd = CMTime(seconds: outputDuration, preferredTimescale: timescale)
+            input.setVolumeRamp(fromStartVolume: 0, toEndVolume: baseLevel, timeRange: CMTimeRange(start: .zero, end: fadeInEnd))
+            if totalEnd > fadeOutStart {
+                input.setVolumeRamp(fromStartVolume: baseLevel, toEndVolume: 0, timeRange: CMTimeRange(start: fadeOutStart, end: totalEnd))
+            }
+        } else {
+            input.setVolume(baseLevel, at: .zero)
+        }
+        return (compositionTrack, input)
     }
 
     /// The track's level, shaped by `envelope` (output time).

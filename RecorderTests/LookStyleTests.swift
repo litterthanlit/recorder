@@ -192,7 +192,8 @@ struct StylePresetTests {
         let preset = StylePreset.builtIn.first { $0.name == "Vertical Social" }!
         preset.apply(to: &settings)
         #expect(settings.canvas.aspect == .portrait)
-        #expect(settings.exportStyle.background.wallpaper == .candy)
+        #expect(settings.exportStyle.background.wallpaper == .dusk)
+        #expect(settings.exportStyle.frameBezel == .glass)
         #expect(settings.zoomPreset == .punch)
         #expect(!settings.camera.isVisible)
         #expect(!settings.exportStyle.cursorSmoothingEnabled)
@@ -201,6 +202,7 @@ struct StylePresetTests {
     @Test func savedPresetsCaptureTheLook() throws {
         var settings = ProjectEditSettings()
         settings.exportStyle.cornerRadius = 30
+        settings.exportStyle.frameBezel = .glass
         settings.camera.shape = .roundedSquare
         let preset = StylePreset(name: "Mine", from: settings)
         var library = StyleLibrary(presets: [preset], defaultPresetID: preset.id)
@@ -212,5 +214,38 @@ struct StylePresetTests {
 
         let decoded = try JSONDecoder().decode(StyleLibrary.self, from: JSONEncoder().encode(library))
         #expect(decoded == library)
+    }
+
+    @Test func studioLooksShipWithGlassAndHairlineBezels() {
+        let names = Set(StylePreset.builtIn.map(\.name))
+        #expect(names.contains("Clean Studio"))
+        #expect(names.contains("Dark Launch"))
+        #expect(names.contains("Warm Mesh"))
+        let cleanStudio = StylePreset.builtIn.first { $0.name == "Clean Studio" }
+        #expect(cleanStudio?.style.frameBezel == .glass)
+        #expect(cleanStudio?.style.background.wallpaper == .washes)
+    }
+
+    @Test func frameBezelAndMusicSettingsRoundTripTolerantly() throws {
+        var style = ExportStyle()
+        style.frameBezel = .hairline
+        let encodedStyle = try JSONEncoder().encode(style)
+        let decodedStyle = try JSONDecoder().decode(ExportStyle.self, from: encodedStyle)
+        #expect(decodedStyle.frameBezel == .hairline)
+
+        let unknownBezel = try JSONDecoder().decode(ExportStyle.self, from: Data(#"{ "frameBezel": "chrome" }"#.utf8))
+        #expect(unknownBezel.frameBezel == .plain)
+
+        var settings = ProjectEditSettings()
+        settings.music = BackgroundMusicSettings(fileName: "music-12345678.m4a", volume: 0.25, duckUnderNarration: false, fadeDuration: 1.5)
+        let decodedSettings = try JSONDecoder().decode(ProjectEditSettings.self, from: JSONEncoder().encode(settings))
+        #expect(decodedSettings.music == settings.music)
+        #expect(decodedSettings.music.isEnabled)
+        #expect(isClose(BackgroundMusicSettings(volume: 2.0).clampedVolume, BackgroundMusicSettings.volumeRange.upperBound))
+
+        #expect(BackgroundStyle(kind: .solid, solidColor: .black).isDark)
+        #expect(!BackgroundStyle(kind: .solid, solidColor: .white).isDark)
+        #expect(ProjectStore.isMusicTrackName("music-abcdef01.m4a"))
+        #expect(!ProjectStore.isMusicTrackName("../music-abcdef01.m4a"))
     }
 }
